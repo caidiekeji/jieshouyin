@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  core-quality:
+    name: Rust fmt / clippy / test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy (core + issuance, all targets)
+        run: cargo clippy -p checkout-core -p license-issuance --all-targets -- -D warnings
+      - name: cargo test (core + issuance)
+        run: cargo test -p checkout-core -p license-issuance --all-targets
+
+  build-app:
+    name: Tauri 2 Windows x64 build
+    runs-on: windows-latest
+    needs: core-quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install frontend deps
+        working-directory: ui
+        run: npm ci
+      - name: Build frontend
+        working-directory: ui
+        run: npm run build
+      - name: Build Tauri app
+        run: cargo build --release -p checkout-app
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkout-r-windows-x64
+          path: target/release/checkout-app.exe
+          if-no-files-found: error
