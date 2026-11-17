@@ -277,8 +277,8 @@ pub fn expire_lazy(conn: &Connection, coupon_code: &str, now: &str) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate::db::{open_in_memory, run_migrations};
+    use serde_json::json;
 
     fn setup() -> Connection {
         let mut c = open_in_memory().unwrap();

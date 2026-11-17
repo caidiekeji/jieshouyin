@@ -159,7 +159,9 @@ pub fn void_order(
         |r| r.get(0),
     )?;
     if paid_via_scan {
-        return Err(CoreError::Validation("扫码已支付订单只能退款，不能作废".into()));
+        return Err(CoreError::Validation(
+            "扫码已支付订单只能退款，不能作废".into(),
+        ));
     }
     let allowed = status == "PENDING_PAYMENT" || (status == "COMPLETED" && is_today);
     if !allowed {

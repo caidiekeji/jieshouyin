@@ -277,9 +277,9 @@ pub fn audit_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate::db::{open_in_memory, run_migrations};
     use crate::license::{LicensePayload, LicenseSnapshot, LicenseStatus};
+    use serde_json::json;
 
     fn setup() -> Connection {
         let mut c = open_in_memory().unwrap();

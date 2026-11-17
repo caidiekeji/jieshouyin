@@ -369,10 +369,10 @@ impl LicenseService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::open_in_memory;
     use crate::license::payload::LicensePayload;
     use crate::license::storage::PlainStore;
     use crate::time::{parse_rfc3339, FixedClock};
-    use crate::db::open_in_memory;
     use ed25519_dalek::{Signer, SigningKey};
 
     struct Fixture {

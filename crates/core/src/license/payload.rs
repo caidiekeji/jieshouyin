@@ -56,7 +56,8 @@ pub fn parse_and_verify(token: &str, public_key: &[u8; 32]) -> Result<(LicensePa
 
     let vk = VerifyingKey::from_bytes(public_key).map_err(|_| LicenseError::SigningKey)?;
     let sig = Signature::from_bytes(&sig_arr);
-    vk.verify(&json, &sig).map_err(|_| LicenseError::SignatureInvalid)?;
+    vk.verify(&json, &sig)
+        .map_err(|_| LicenseError::SignatureInvalid)?;
 
     let payload: LicensePayload = serde_json::from_slice(&json)?;
     validate_payload(&payload)?;
