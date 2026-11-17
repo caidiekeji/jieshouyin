@@ -64,13 +64,13 @@ pub fn ean13_check_digit(first_12: &[u8]) -> Option<u8> {
     Some(((10 - (sum % 10)) % 10) as u8)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum WeighMode {
     Amount, // 24 前缀：金额字段为分，直接采信
     Weight, // 22 前缀：金额字段为克
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct WeighedCode {
     pub instore_code: String,
     pub mode: WeighMode,

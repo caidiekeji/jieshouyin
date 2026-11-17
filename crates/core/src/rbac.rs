@@ -60,7 +60,7 @@ pub fn ensure_admin(conn: &Connection, username: &str, password: &str) -> Result
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Session {
     pub user_id: i64,
     pub role_id: i64,
