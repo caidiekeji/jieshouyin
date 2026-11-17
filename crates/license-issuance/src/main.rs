@@ -77,8 +77,8 @@ enum Command {
     },
 }
 
-fn get_key(cli: &Cli) -> Result<String> {
-    if let Some(k) = &cli.key {
+fn get_key(key: &Option<String>) -> Result<String> {
+    if let Some(k) = key {
         return Ok(k.clone());
     }
     std::env::var("CHECKOUT_PRIVATE_KEY")
@@ -111,6 +111,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    let key = cli.key.clone();
     match cli.command {
         Command::Init { product, out_dir } => {
             let (sk, pk) = generate_keypair();
@@ -137,7 +138,7 @@ fn run() -> Result<()> {
             entitlements,
             out,
         } => {
-            let sk = signing_key_from_hex(&get_key(&cli)?)?;
+            let sk = signing_key_from_hex(&get_key(&key)?)?;
             let now = chrono::Utc::now().to_rfc3339();
             let payload = LicensePayload {
                 license_id: format!("lic_{}", uuid_like()),
@@ -170,7 +171,7 @@ fn run() -> Result<()> {
             valid_until,
             out,
         } => {
-            let sk = signing_key_from_hex(&get_key(&cli)?)?;
+            let sk = signing_key_from_hex(&get_key(&key)?)?;
             let (payload, _) = read_license(&license)?;
             let maint = valid_until.clone();
             let renewed = renew_payload(&payload, valid_until, maint);
@@ -184,7 +185,7 @@ fn run() -> Result<()> {
             new_fp,
             out,
         } => {
-            let sk = signing_key_from_hex(&get_key(&cli)?)?;
+            let sk = signing_key_from_hex(&get_key(&key)?)?;
             let (payload, _) = read_license(&license)?;
             if payload.device_fingerprint.as_deref() != Some(old_fp.as_str()) {
                 return Err(CoreError::Validation("旧指纹摘要不匹配".into()));
