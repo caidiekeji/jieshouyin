@@ -62,9 +62,9 @@ pub fn decide_status(
                 }
             }
         }
-        other => Err(CoreError::License(
-            crate::error::LicenseError::UnknownType(other.into()),
-        )),
+        other => Err(CoreError::License(crate::error::LicenseError::UnknownType(
+            other.into(),
+        ))),
     }
 }
 
