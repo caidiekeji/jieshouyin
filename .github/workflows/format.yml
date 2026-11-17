@@ -17,6 +17,7 @@ jobs:
       - name: Run cargo fmt
         run: cargo fmt --all
       - name: Commit formatted sources
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
