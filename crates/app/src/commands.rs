@@ -3,11 +3,11 @@
 
 use crate::state::{build_license_service, init_db, AppState};
 use checkout_core::error::{CoreError, Result};
-use checkout_core::license::{LicenseService, LicenseSnapshot};
+use checkout_core::license::LicenseSnapshot;
 use checkout_core::rbac::{self, Session};
 use checkout_core::time::parse_rfc3339;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
 
 fn now_str() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -454,7 +454,6 @@ pub fn run() {
                 license: std::sync::Mutex::new(LicenseSnapshot::unactivated()),
                 session: std::sync::Mutex::new(None::<Session>),
                 public_key: checkout_core::EMBEDDED_PUBLIC_KEY,
-                db_path,
                 license_path: data_dir.join("license.enc"),
             });
             Ok(())
@@ -481,13 +480,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("应用启动失败");
 }
-
-// 保证 init_db 被引用（setup 时使用）
-#[allow(dead_code)]
-fn _init_db_ref(path: &std::path::PathBuf) -> Result<rusqlite::Connection> {
-    init_db(path)
-}
-
-// 保证 LicenseService 类型被引用
-#[allow(dead_code)]
-fn _svc_ref(_s: &LicenseService) {}

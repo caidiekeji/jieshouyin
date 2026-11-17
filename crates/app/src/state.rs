@@ -12,7 +12,6 @@ pub struct AppState {
     pub license: Mutex<LicenseSnapshot>,
     pub session: Mutex<Option<Session>>,
     pub public_key: [u8; 32],
-    pub db_path: PathBuf,
     pub license_path: PathBuf,
 }
 
