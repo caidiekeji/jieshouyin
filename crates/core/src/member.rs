@@ -13,6 +13,7 @@ pub const POINTS: &str = "POINTS";
 pub const GROWTH: &str = "GROWTH";
 
 /// 写一条资产流水（不可变、幂等）。返回是否真的写入（重复幂等键返回 false）。
+#[allow(clippy::too_many_arguments)]
 pub fn append_asset_log(
     conn: &Connection,
     member_id: i64,

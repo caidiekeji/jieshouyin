@@ -76,7 +76,9 @@ fn read_machine_guid() -> Option<String> {
         return None;
     }
     let units: Vec<u16> = buf
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     Some(OsString::from_wide(&units).to_string_lossy().into_owned())

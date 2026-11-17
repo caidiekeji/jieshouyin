@@ -171,7 +171,7 @@ pub fn render_receipt(
             }
             Block::Divider { char } => {
                 let c = char.chars().next().unwrap_or('-');
-                let line: String = std::iter::repeat(c).take(chars_per_line).collect();
+                let line: String = std::iter::repeat_n(c, chars_per_line).collect();
                 buf.extend_from_slice(line.as_bytes());
                 buf.push(0x0A);
             }
@@ -202,10 +202,10 @@ pub fn render_receipt(
                 let scale = size.max(1) as usize;
                 let dots = modules * scale;
                 let x = (dots / 8) as u8;
-                let y = (dots / 8 + usize::from(dots % 8 > 0)) as u8;
+                let y = (dots / 8 + usize::from(!dots.is_multiple_of(8))) as u8;
                 buf.extend_from_slice(GS_V0);
                 buf.extend_from_slice(&[0x00, x, 0x00, y]);
-                let row_bytes = (dots + 7) / 8;
+                let row_bytes = dots.div_ceil(8);
                 for src_row in 0..modules {
                     for _ in 0..scale {
                         for byte in 0..row_bytes {
@@ -225,9 +225,7 @@ pub fn render_receipt(
                 }
             }
             Block::Feed { lines } => {
-                for _ in 0..lines {
-                    buf.push(0x0A);
-                }
+                buf.extend(std::iter::repeat_n(0x0A, lines as usize));
             }
             Block::Cut { mode } => {
                 if mode == "full" {
@@ -285,7 +283,7 @@ fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
 fn render_code128(data: &str) -> Result<Vec<u8>> {
     let mut values = vec![104u8]; // START B
     for &b in data.as_bytes() {
-        if b < 32 || b > 126 {
+        if !(32..=126).contains(&b) {
             return Err(CoreError::Print("CODE128 B 仅支持可打印 ASCII".into()));
         }
         values.push(b - 32);
@@ -352,7 +350,7 @@ mod tests {
         assert!(bytes.windows(3).any(|w| w == GS_CUT_PARTIAL));
         assert!(bytes
             .windows(5)
-            .any(|w| w == &[0x1B, 0x70, 0x00, 0x00, 0x25]));
+            .any(|w| w == [0x1B, 0x70, 0x00, 0x00, 0x25]));
     }
 
     #[test]
@@ -379,7 +377,7 @@ mod tests {
     fn barcode_has_code128_header() {
         let t = tmpl("r", r#"{"items":[{"type":"barcode","content":"ABC123"}]}"#);
         let bytes = render_receipt(&t, &std::collections::HashMap::new()).unwrap();
-        assert!(bytes.windows(3).any(|w| w == &[0x1D, 0x6B, 0x49]));
+        assert!(bytes.windows(3).any(|w| w == [0x1D, 0x6B, 0x49]));
     }
 
     #[test]

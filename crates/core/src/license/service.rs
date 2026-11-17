@@ -277,7 +277,7 @@ impl LicenseService {
 
         let stored_watermark = bundle
             .last_known_dt()
-            .unwrap_or_else(|_| DateTime::<Utc>::MIN_UTC);
+            .unwrap_or(DateTime::<Utc>::MIN_UTC);
         // 重建单调水位：max(存储水位, 系统时间)
         let system_now = Utc::now();
         let effective = if system_now > stored_watermark {

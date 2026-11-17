@@ -53,6 +53,7 @@ pub fn business_date(local_dt: &DateTime<Utc>, cutoff_hour: u32) -> String {
 }
 
 /// tx A：订单 + 明细落库（PENDING_PAYMENT）。不扣库存、不扣储值。
+#[allow(clippy::too_many_arguments)]
 pub fn begin_order(
     tx: &Connection,
     order_no: &str,
@@ -230,6 +231,7 @@ pub fn resume_cart(conn: &Connection, park_id: i64, now: &str) -> Result<String>
 }
 
 /// 退货：每次生成独立退货单，回补库存，累加 returned_qty。
+#[allow(clippy::too_many_arguments)]
 pub fn create_return(
     tx: &Connection,
     return_no: &str,
@@ -421,10 +423,7 @@ mod tests {
             cancel_order(&tx, "O2").unwrap();
             tx.commit().unwrap();
         }
-        assert!(matches!(
-            cancel_order(&c.unchecked_transaction().unwrap(), "O2"),
-            Err(_)
-        ));
+        assert!(cancel_order(&c.unchecked_transaction().unwrap(), "O2").is_err());
     }
 
     #[test]

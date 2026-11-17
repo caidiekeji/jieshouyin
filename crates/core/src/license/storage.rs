@@ -154,6 +154,13 @@ impl KeyringStore {
 }
 
 #[cfg(windows)]
+impl Default for KeyringStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(windows)]
 impl SecureStore for KeyringStore {
     fn load(&self) -> Result<Option<LicenseBundle>> {
         use keyring::Entry;

@@ -47,7 +47,7 @@ impl FixedClock {
 
     pub fn advance(&self, d: Duration) {
         let mut guard = self.inner.lock().expect("FixedClock mutex poisoned");
-        *guard = *guard + d;
+        *guard += d;
     }
 }
 
