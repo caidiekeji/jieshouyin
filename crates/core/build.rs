@@ -21,6 +21,3 @@ fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set")).join("public_key.rs");
     fs::write(out, body).expect("write public_key.rs failed");
 }
-
-// build.rs 自身使用 hex crate
-use hex as _hex_crate_anchor;
