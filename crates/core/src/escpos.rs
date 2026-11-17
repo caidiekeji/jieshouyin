@@ -196,38 +196,26 @@ pub fn render_receipt(
             Block::Qrcode { content, size } => {
                 let qr = QrCode::new(content.as_bytes())
                     .map_err(|e| CoreError::Print(format!("二维码生成失败: {e}")))?;
-                let matrix = qr
-                    .render::<bool>()
-                    .quiet_zone(false)
-                    .module_dimensions(1, 1)
-                    .build();
-                let modules = matrix.width();
+                let modules = qr.width();
+                let colors = qr.to_colors();
                 let scale = size.max(1) as usize;
                 let dots = modules * scale;
                 let x = (dots / 8) as u8;
                 let y = (dots / 8 + usize::from(dots % 8 > 0)) as u8;
                 buf.extend_from_slice(GS_V0);
                 buf.extend_from_slice(&[0x00, x, 0x00, y]);
-                for row in 0..modules {
-                    for byte in 0..((modules + 7) / 8) {
-                        let mut b = 0u8;
-                        for bit in 0..8 {
-                            let col = byte * 8 + bit;
-                            if col < modules && matrix[(col, row)] {
-                                b |= 0x80 >> bit;
-                            }
-                        }
-                        for _ in 0..scale {
-                            buf.push(b);
-                        }
-                    }
-                    for _ in 1..scale {
-                        for byte in 0..((modules + 7) / 8) {
+                let row_bytes = (dots + 7) / 8;
+                for src_row in 0..modules {
+                    for _ in 0..scale {
+                        for byte in 0..row_bytes {
                             let mut b = 0u8;
                             for bit in 0..8 {
                                 let col = byte * 8 + bit;
-                                if col < modules && matrix[(col, row)] {
-                                    b |= 0x80 >> bit;
+                                if col < dots {
+                                    let src_col = col / scale;
+                                    if colors[src_row * modules + src_col] {
+                                        b |= 0x80 >> bit;
+                                    }
                                 }
                             }
                             buf.push(b);

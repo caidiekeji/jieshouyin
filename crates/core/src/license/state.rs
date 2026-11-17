@@ -47,7 +47,7 @@ pub fn decide_status(
         "PERPETUAL" => Ok(LicenseStatus::ACTIVE),
         "ANNUAL" => {
             let valid_until = payload.valid_until.as_ref().ok_or(CoreError::License(
-                super::payload::LicenseError::MissingField("valid_until".into()),
+                crate::error::LicenseError::MissingField("valid_until".into()),
             ))?;
             let until = parse_rfc3339(valid_until)?;
             if effective_now < until {
@@ -63,7 +63,7 @@ pub fn decide_status(
             }
         }
         other => Err(CoreError::License(
-            super::payload::LicenseError::UnknownType(other.into()),
+            crate::error::LicenseError::UnknownType(other.into()),
         )),
     }
 }
