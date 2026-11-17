@@ -198,6 +198,7 @@ pub fn render_receipt(
                     .map_err(|e| CoreError::Print(format!("二维码生成失败: {e}")))?;
                 let modules = qr.width();
                 let colors = qr.to_colors();
+                let dark = qrcode::types::Color::Dark;
                 let scale = size.max(1) as usize;
                 let dots = modules * scale;
                 let x = (dots / 8) as u8;
@@ -213,7 +214,7 @@ pub fn render_receipt(
                                 let col = byte * 8 + bit;
                                 if col < dots {
                                     let src_col = col / scale;
-                                    if colors[src_row * modules + src_col] {
+                                    if colors[src_row * modules + src_col] == dark {
                                         b |= 0x80 >> bit;
                                     }
                                 }

@@ -40,7 +40,7 @@ fn read_machine_guid() -> Option<String> {
         .encode_utf16()
         .collect();
     let name: Vec<u16> = "MachineGuid\0".encode_utf16().collect();
-    let mut hkey = 0usize;
+    let mut hkey: *mut std::ffi::c_void = ptr::null_mut();
     let rc = unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.as_ptr(), 0, KEY_READ, &mut hkey) };
     if rc != 0 {
         return None;
