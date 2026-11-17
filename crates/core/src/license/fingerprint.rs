@@ -32,28 +32,29 @@ fn read_machine_guid() -> Option<String> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::ptr;
-    use windows_sys::Win32::System::Registry::{RegOpenKeyExW, RegQueryValueExW, RegCloseKey, HKEY_LOCAL_MACHINE, KEY_READ};
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ,
+    };
 
     let path: Vec<u16> = "SOFTWARE\\Microsoft\\Cryptography\0"
         .encode_utf16()
         .collect();
     let name: Vec<u16> = "MachineGuid\0".encode_utf16().collect();
     let mut hkey = 0usize;
-    let rc = unsafe {
-        RegOpenKeyExW(
-            HKEY_LOCAL_MACHINE,
-            path.as_ptr(),
-            0,
-            KEY_READ,
-            &mut hkey,
-        )
-    };
+    let rc = unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.as_ptr(), 0, KEY_READ, &mut hkey) };
     if rc != 0 {
         return None;
     }
     let mut len: u32 = 0;
     unsafe {
-        RegQueryValueExW(hkey, name.as_ptr(), ptr::null(), ptr::null_mut(), ptr::null_mut(), &mut len);
+        RegQueryValueExW(
+            hkey,
+            name.as_ptr(),
+            ptr::null(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut len,
+        );
     }
     if len == 0 || len > 512 {
         unsafe { RegCloseKey(hkey) };
@@ -61,7 +62,14 @@ fn read_machine_guid() -> Option<String> {
     }
     let mut buf = vec![0u8; len as usize];
     let rc = unsafe {
-        RegQueryValueExW(hkey, name.as_ptr(), ptr::null(), ptr::null_mut(), buf.as_mut_ptr(), &mut len)
+        RegQueryValueExW(
+            hkey,
+            name.as_ptr(),
+            ptr::null(),
+            ptr::null_mut(),
+            buf.as_mut_ptr(),
+            &mut len,
+        )
     };
     unsafe { RegCloseKey(hkey) };
     if rc != 0 {
@@ -85,10 +93,13 @@ fn read_volume_serial() -> Option<String> {
     let rc = unsafe {
         GetVolumeInformationW(
             root.as_ptr(),
-            ptr::null_mut(), 0,
+            ptr::null_mut(),
+            0,
             &mut serial,
-            ptr::null_mut(), ptr::null_mut(),
-            ptr::null_mut(), 0,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            0,
         )
     };
     if rc == 0 {
@@ -98,8 +109,14 @@ fn read_volume_serial() -> Option<String> {
         let root2: Vec<u16> = format!("{drive}\0").encode_utf16().collect();
         let rc2 = unsafe {
             GetVolumeInformationW(
-                root2.as_ptr(), ptr::null_mut(), 0, &mut serial,
-                ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), 0,
+                root2.as_ptr(),
+                ptr::null_mut(),
+                0,
+                &mut serial,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                0,
             )
         };
         if rc2 == 0 {

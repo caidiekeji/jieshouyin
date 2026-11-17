@@ -33,24 +33,21 @@ impl LicenseStatus {
 
     /// 后台管理：降级态仅查看。
     pub fn allows_admin(&self) -> bool {
-        matches!(
-            self,
-            LicenseStatus::ACTIVE | LicenseStatus::GRACE_PERIOD
-        )
+        matches!(self, LicenseStatus::ACTIVE | LicenseStatus::GRACE_PERIOD)
     }
 }
 
 /// 按 §4.6 判定状态。
-pub fn decide_status(payload: &LicensePayload, effective_now: DateTime<Utc>) -> Result<LicenseStatus> {
+pub fn decide_status(
+    payload: &LicensePayload,
+    effective_now: DateTime<Utc>,
+) -> Result<LicenseStatus> {
     match payload.license_type.as_str() {
         "PERPETUAL" => Ok(LicenseStatus::ACTIVE),
         "ANNUAL" => {
-            let valid_until = payload
-                .valid_until
-                .as_ref()
-                .ok_or(CoreError::License(
-                    super::payload::LicenseError::MissingField("valid_until".into()),
-                ))?;
+            let valid_until = payload.valid_until.as_ref().ok_or(CoreError::License(
+                super::payload::LicenseError::MissingField("valid_until".into()),
+            ))?;
             let until = parse_rfc3339(valid_until)?;
             if effective_now < until {
                 Ok(LicenseStatus::ACTIVE)

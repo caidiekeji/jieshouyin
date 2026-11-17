@@ -37,7 +37,9 @@ pub fn receive_purchase(
     operator_id: i64,
 ) -> Result<()> {
     let status: String = conn.query_row(
-        "SELECT status FROM purchase_order WHERE po_no=?1", [po_no], |r| r.get(0),
+        "SELECT status FROM purchase_order WHERE po_no=?1",
+        [po_no],
+        |r| r.get(0),
     )?;
     if status == "RECEIVED" || status == "CLOSED" {
         return Err(CoreError::Validation("采购单已验收，不可重复验收"));
@@ -67,7 +69,15 @@ pub fn receive_purchase(
             params![got, item_id],
         )?;
         if *got > 0 {
-            apply_event(&tx, sku_id, *got, TransType::PURCHASE_IN, Some(po_no), Some(operator_id), true)?;
+            apply_event(
+                &tx,
+                sku_id,
+                *got,
+                TransType::PURCHASE_IN,
+                Some(po_no),
+                Some(operator_id),
+                true,
+            )?;
         }
     }
     tx.execute(
@@ -79,7 +89,12 @@ pub fn receive_purchase(
 }
 
 /// 盘点：创建任务时写入账面快照。
-pub fn create_stocktake(conn: &Connection, task_no: &str, skus: &[i64], operator_id: i64) -> Result<()> {
+pub fn create_stocktake(
+    conn: &Connection,
+    task_no: &str,
+    skus: &[i64],
+    operator_id: i64,
+) -> Result<()> {
     conn.execute(
         "INSERT INTO stocktake(task_no,status,operator_id,created_at) VALUES (?1,'DRAFT',?2,?3)",
         params![task_no, operator_id, format_utc(&Utc::now())],
@@ -88,7 +103,8 @@ pub fn create_stocktake(conn: &Connection, task_no: &str, skus: &[i64], operator
     for &sku in skus {
         let book: i64 = conn.query_row(
             "SELECT COALESCE(qty,0) FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",
-            [sku], |r| r.get(0),
+            [sku],
+            |r| r.get(0),
         )?;
         conn.execute(
             "INSERT INTO stocktake_item(stocktake_id,sku_id,book_qty) VALUES (?1,?2,?3)",
@@ -100,7 +116,11 @@ pub fn create_stocktake(conn: &Connection, task_no: &str, skus: &[i64], operator
 
 /// 实盘录入。
 pub fn record_count(conn: &Connection, task_no: &str, counts: &[(i64, i64)]) -> Result<()> {
-    let task_id: i64 = conn.query_row("SELECT stocktake_id FROM stocktake WHERE task_no=?1", [task_no], |r| r.get(0))?;
+    let task_id: i64 = conn.query_row(
+        "SELECT stocktake_id FROM stocktake WHERE task_no=?1",
+        [task_no],
+        |r| r.get(0),
+    )?;
     for (sku, counted) in counts {
         conn.execute(
             "UPDATE stocktake_item SET counted_qty=?1, diff_qty=?1 - book_qty, reason='COUNT'
@@ -108,27 +128,44 @@ pub fn record_count(conn: &Connection, task_no: &str, counts: &[(i64, i64)]) -> 
             params![counted, task_id, sku],
         )?;
     }
-    conn.execute("UPDATE stocktake SET status='DIFF_REVIEW' WHERE stocktake_id=?1", [task_id])?;
+    conn.execute(
+        "UPDATE stocktake SET status='DIFF_REVIEW' WHERE stocktake_id=?1",
+        [task_id],
+    )?;
     Ok(())
 }
 
 /// 审批调账（§10.4）：产生 ADJUST 事件，不覆盖库存。
 pub fn approve_stocktake(conn: &Connection, task_no: &str, approver_id: i64) -> Result<()> {
-    let task_id: i64 = conn.query_row("SELECT stocktake_id FROM stocktake WHERE task_no=?1", [task_no], |r| r.get(0))?;
+    let task_id: i64 = conn.query_row(
+        "SELECT stocktake_id FROM stocktake WHERE task_no=?1",
+        [task_no],
+        |r| r.get(0),
+    )?;
     let items: Vec<(i64, i64, i64)> = {
         let mut stmt = conn.prepare(
             "SELECT sku_id, book_qty, COALESCE(counted_qty, book_qty) FROM stocktake_item WHERE stocktake_id=?1",
         )?;
         let rows = stmt.query_map([task_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         let mut v = Vec::new();
-        for row in rows { v.push(row?); }
+        for row in rows {
+            v.push(row?);
+        }
         v
     };
     let tx = conn.unchecked_transaction()?;
     for (sku, book, counted) in items {
         let diff = counted - book;
         if diff != 0 {
-            apply_event(&tx, sku, diff.abs(), TransType::ADJUST, Some(task_no), Some(approver_id), true)?;
+            apply_event(
+                &tx,
+                sku,
+                diff.abs(),
+                TransType::ADJUST,
+                Some(task_no),
+                Some(approver_id),
+                true,
+            )?;
         }
     }
     tx.execute(
@@ -147,9 +184,18 @@ mod tests {
     fn setup() -> Connection {
         let mut c = open_in_memory().unwrap();
         run_migrations(&mut c).unwrap();
-        c.execute("INSERT INTO supplier(name) VALUES ('供应商1')", []).unwrap();
-        c.execute("INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,'商品','S1')", []).unwrap();
-        c.execute("INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'B1',1000)", []).unwrap();
+        c.execute("INSERT INTO supplier(name) VALUES ('供应商1')", [])
+            .unwrap();
+        c.execute(
+            "INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,'商品','S1')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'B1',1000)",
+            [],
+        )
+        .unwrap();
         c
     }
 
@@ -157,11 +203,25 @@ mod tests {
     fn purchase_creates_stock_only_on_receive() {
         let c = setup();
         create_purchase_order(&c, "PO1", 1, &[(1, 100, 500)]).unwrap();
-        let q: i64 = c.query_row("SELECT COALESCE(qty,0) FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row(
+                "SELECT COALESCE(qty,0) FROM inv_stock WHERE sku_id=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(q, 0, "未验收不影响库存");
-        let item: i64 = c.query_row("SELECT item_id FROM purchase_order_item WHERE po_no='PO1'", [], |r| r.get(0)).unwrap();
+        let item: i64 = c
+            .query_row(
+                "SELECT item_id FROM purchase_order_item WHERE po_no='PO1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         receive_purchase(&c, "PO1", &[(item, 100)], 1).unwrap();
-        let q: i64 = c.query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(q, 100);
     }
 
@@ -169,9 +229,19 @@ mod tests {
     fn receipt_diff_recorded() {
         let c = setup();
         create_purchase_order(&c, "PO2", 1, &[(1, 100, 500)]).unwrap();
-        let item: i64 = c.query_row("SELECT item_id FROM purchase_order_item WHERE po_no='PO2'", [], |r| r.get(0)).unwrap();
+        let item: i64 = c
+            .query_row(
+                "SELECT item_id FROM purchase_order_item WHERE po_no='PO2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         receive_purchase(&c, "PO2", &[(item, 90)], 1).unwrap();
-        let diff: i64 = c.query_row("SELECT diff_qty FROM purchase_receipt_diff", [], |r| r.get(0)).unwrap();
+        let diff: i64 = c
+            .query_row("SELECT diff_qty FROM purchase_receipt_diff", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(diff, -10);
     }
 
@@ -179,7 +249,13 @@ mod tests {
     fn double_receive_rejected() {
         let c = setup();
         create_purchase_order(&c, "PO3", 1, &[(1, 10, 500)]).unwrap();
-        let item: i64 = c.query_row("SELECT item_id FROM purchase_order_item WHERE po_no='PO3'", [], |r| r.get(0)).unwrap();
+        let item: i64 = c
+            .query_row(
+                "SELECT item_id FROM purchase_order_item WHERE po_no='PO3'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         receive_purchase(&c, "PO3", &[(item, 10)], 1).unwrap();
         assert!(receive_purchase(&c, "PO3", &[(item, 10)], 1).is_err());
     }
@@ -193,13 +269,23 @@ mod tests {
             tx.commit().unwrap();
         }
         create_stocktake(&c, "ST1", &[1], 1).unwrap();
-        let book: i64 = c.query_row("SELECT book_qty FROM stocktake_item", [], |r| r.get(0)).unwrap();
+        let book: i64 = c
+            .query_row("SELECT book_qty FROM stocktake_item", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(book, 100);
         record_count(&c, "ST1", &[(1, 95)]).unwrap();
         approve_stocktake(&c, "ST1", 2).unwrap();
-        let q: i64 = c.query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(q, 95);
-        let t: String = c.query_row("SELECT trans_type FROM inv_trans WHERE ref_order_no='ST1'", [], |r| r.get(0)).unwrap();
+        let t: String = c
+            .query_row(
+                "SELECT trans_type FROM inv_trans WHERE ref_order_no='ST1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(t, "ADJUST");
     }
 }

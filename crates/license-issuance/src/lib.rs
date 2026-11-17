@@ -32,7 +32,11 @@ pub fn issue(sk: &SigningKey, payload: &LicensePayload) -> Result<String> {
 }
 
 /// 续期：复制原载荷，更新 valid_until / maintenance_until。
-pub fn renew_payload(payload: &LicensePayload, valid_until: String, maintenance_until: String) -> LicensePayload {
+pub fn renew_payload(
+    payload: &LicensePayload,
+    valid_until: String,
+    maintenance_until: String,
+) -> LicensePayload {
     let mut p = payload.clone();
     p.valid_until = Some(valid_until);
     p.maintenance_until = Some(maintenance_until);
@@ -81,7 +85,11 @@ mod tests {
     #[test]
     fn renew_and_rebind_keep_identity() {
         let p = sample();
-        let renewed = renew_payload(&p, "2028-01-01T00:00:00Z".into(), "2028-01-01T00:00:00Z".into());
+        let renewed = renew_payload(
+            &p,
+            "2028-01-01T00:00:00Z".into(),
+            "2028-01-01T00:00:00Z".into(),
+        );
         assert_eq!(renewed.license_id, p.license_id);
         let rebound = rebind_payload(&p, "abcdef".into());
         assert_eq!(rebound.device_fingerprint.as_deref(), Some("abcdef"));

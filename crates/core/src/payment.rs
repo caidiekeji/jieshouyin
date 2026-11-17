@@ -69,7 +69,12 @@ pub trait PaymentGateway: Send + Sync {
     fn native_precreate(&self, req: &PayRequest) -> Result<PayOutcome>;
     fn query(&self, out_trade_no: &str) -> Result<PaymentState>;
     fn cancel(&self, out_trade_no: &str) -> Result<CancelResult>;
-    fn refund(&self, out_trade_no: &str, refund_no: &str, amount_cents: i64) -> Result<PaymentState>;
+    fn refund(
+        &self,
+        out_trade_no: &str,
+        refund_no: &str,
+        amount_cents: i64,
+    ) -> Result<PaymentState>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -96,16 +101,28 @@ pub fn run_micropay<G: PaymentGateway>(
         Ok(o) => o,
         Err(e) => {
             // 网络异常 → 查单兜底
-            return reconcile_timeout(gw, &req.out_trade_no, poll_ms, timeout_s, sleep, &e.to_string());
+            return reconcile_timeout(
+                gw,
+                &req.out_trade_no,
+                poll_ms,
+                timeout_s,
+                sleep,
+                &e.to_string(),
+            );
         }
     };
     match outcome.state {
         PaymentState::SUCCESS => Ok(PaymentState::SUCCESS),
         PaymentState::FAILED(_) => Ok(outcome.state),
         PaymentState::CLOSED => Ok(PaymentState::CLOSED),
-        PaymentState::USERPAYING => {
-            reconcile_timeout(gw, &req.out_trade_no, poll_ms, timeout_s, sleep, "USERPAYING")
-        }
+        PaymentState::USERPAYING => reconcile_timeout(
+            gw,
+            &req.out_trade_no,
+            poll_ms,
+            timeout_s,
+            sleep,
+            "USERPAYING",
+        ),
     }
 }
 
@@ -152,16 +169,20 @@ pub fn run_native<G: PaymentGateway>(
     let mut elapsed = 0u64;
     while elapsed < timeout_s * 1000 {
         match gw.query(&req.out_trade_no)? {
-            PaymentState::SUCCESS => return Ok(PayOutcome {
-                state: PaymentState::SUCCESS,
-                trade_no: None,
-                code_url: pre.code_url,
-            }),
-            PaymentState::FAILED(e) => return Ok(PayOutcome {
-                state: PaymentState::FAILED(e),
-                trade_no: None,
-                code_url: pre.code_url,
-            }),
+            PaymentState::SUCCESS => {
+                return Ok(PayOutcome {
+                    state: PaymentState::SUCCESS,
+                    trade_no: None,
+                    code_url: pre.code_url,
+                })
+            }
+            PaymentState::FAILED(e) => {
+                return Ok(PayOutcome {
+                    state: PaymentState::FAILED(e),
+                    trade_no: None,
+                    code_url: pre.code_url,
+                })
+            }
             _ => {}
         }
         sleep(poll_ms);
@@ -232,11 +253,16 @@ mod tests {
         let gw = mock::MockGateway::new();
         gw.set_state("O1P1", PaymentState::SUCCESS);
         let req = PayRequest {
-            out_trade_no: "O1P1".into(), amount_cents: 1000,
-            auth_code: Some("123456".into()), mode: PayMode::MICROPAY,
+            out_trade_no: "O1P1".into(),
+            amount_cents: 1000,
+            auth_code: Some("123456".into()),
+            mode: PayMode::MICROPAY,
         };
         let mut noop = |_ms: u64| {};
-        assert_eq!(run_micropay(&gw, &req, 1, 1, &mut noop).unwrap(), PaymentState::SUCCESS);
+        assert_eq!(
+            run_micropay(&gw, &req, 1, 1, &mut noop).unwrap(),
+            PaymentState::SUCCESS
+        );
     }
 
     #[test]
@@ -244,8 +270,10 @@ mod tests {
         let gw = mock::MockGateway::new();
         gw.set_state("O2P1", PaymentState::USERPAYING);
         let req = PayRequest {
-            out_trade_no: "O2P1".into(), amount_cents: 1000,
-            auth_code: None, mode: PayMode::MICROPAY,
+            out_trade_no: "O2P1".into(),
+            amount_cents: 1000,
+            auth_code: None,
+            mode: PayMode::MICROPAY,
         };
         let calls = std::sync::Arc::new(Mutex::new(0));
         let c = calls.clone();
@@ -255,7 +283,10 @@ mod tests {
                 gw.set_state("O2P1", PaymentState::SUCCESS);
             }
         };
-        assert_eq!(run_micropay(&gw, &req, 1, 10, &mut spy).unwrap(), PaymentState::SUCCESS);
+        assert_eq!(
+            run_micropay(&gw, &req, 1, 10, &mut spy).unwrap(),
+            PaymentState::SUCCESS
+        );
     }
 
     #[test]
@@ -263,11 +294,16 @@ mod tests {
         let gw = mock::MockGateway::new();
         gw.set_state("O3P1", PaymentState::USERPAYING);
         let req = PayRequest {
-            out_trade_no: "O3P1".into(), amount_cents: 1000,
-            auth_code: None, mode: PayMode::MICROPAY,
+            out_trade_no: "O3P1".into(),
+            amount_cents: 1000,
+            auth_code: None,
+            mode: PayMode::MICROPAY,
         };
         let mut noop = |_ms: u64| {};
-        assert_eq!(run_micropay(&gw, &req, 1, 2, &mut noop).unwrap(), PaymentState::CLOSED);
+        assert_eq!(
+            run_micropay(&gw, &req, 1, 2, &mut noop).unwrap(),
+            PaymentState::CLOSED
+        );
     }
 
     #[test]
@@ -276,8 +312,10 @@ mod tests {
         gw.set_state("O4P1", PaymentState::USERPAYING);
         gw.set_cancel_paid("O4P1");
         let req = PayRequest {
-            out_trade_no: "O4P1".into(), amount_cents: 1000,
-            auth_code: None, mode: PayMode::MICROPAY,
+            out_trade_no: "O4P1".into(),
+            amount_cents: 1000,
+            auth_code: None,
+            mode: PayMode::MICROPAY,
         };
         let mut noop = |_ms: u64| {};
         let state = run_micropay(&gw, &req, 1, 2, &mut noop).unwrap();

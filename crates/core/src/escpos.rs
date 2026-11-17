@@ -64,10 +64,18 @@ pub enum Block {
     },
 }
 
-fn default_divider() -> String { "-".into() }
-fn default_symbology() -> String { "CODE128".into() }
-fn default_qr_size() -> u8 { 4 }
-fn default_cut_mode() -> String { "partial".into() }
+fn default_divider() -> String {
+    "-".into()
+}
+fn default_symbology() -> String {
+    "CODE128".into()
+}
+fn default_qr_size() -> u8 {
+    4
+}
+fn default_cut_mode() -> String {
+    "partial".into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Template {
@@ -99,9 +107,13 @@ pub fn render_vars(text: &str, data: &std::collections::HashMap<String, String>)
     while let Some(start) = result[i..].find("{{") {
         let abs_start = i + start;
         let rest = &result[abs_start + 2..];
-        let end = rest.find("}}").ok_or_else(|| CoreError::UnknownVariable(text.into()))?;
+        let end = rest
+            .find("}}")
+            .ok_or_else(|| CoreError::UnknownVariable(text.into()))?;
         let name = &rest[..end];
-        let value = data.get(name).ok_or_else(|| CoreError::UnknownVariable(name.into()))?;
+        let value = data
+            .get(name)
+            .ok_or_else(|| CoreError::UnknownVariable(name.into()))?;
         result.replace_range(abs_start..abs_start + 2 + end + 2, value);
         i = abs_start + value.len();
     }
@@ -109,16 +121,32 @@ pub fn render_vars(text: &str, data: &std::collections::HashMap<String, String>)
 }
 
 /// 渲染收据为字节流。
-pub fn render_receipt(template: &Template, data: &std::collections::HashMap<String, String>) -> Result<Vec<u8>> {
+pub fn render_receipt(
+    template: &Template,
+    data: &std::collections::HashMap<String, String>,
+) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     buf.extend_from_slice(ESC_INIT);
     buf.extend_from_slice(ESC_CHARSET_GB18030);
-    let chars_per_line = if template.paper_width_mm >= 80 { 48 } else { 32 };
+    let chars_per_line = if template.paper_width_mm >= 80 {
+        48
+    } else {
+        32
+    };
     for block in template.iter_blocks()? {
         match block {
-            Block::Text { content, align, bold, size } => {
+            Block::Text {
+                content,
+                align,
+                bold,
+                size,
+            } => {
                 if let Some(a) = align {
-                    let n = match a.as_str() { "center" => 1, "right" => 2, _ => 0 };
+                    let n = match a.as_str() {
+                        "center" => 1,
+                        "right" => 2,
+                        _ => 0,
+                    };
                     buf.extend_from_slice(ESC_ALIGN);
                     buf.push(n);
                 }
@@ -147,22 +175,32 @@ pub fn render_receipt(template: &Template, data: &std::collections::HashMap<Stri
                 buf.extend_from_slice(line.as_bytes());
                 buf.push(0x0A);
             }
-            Block::Barcode { content, symbology, height } => {
+            Block::Barcode {
+                content,
+                symbology,
+                height,
+            } => {
                 if symbology != "CODE128" {
-                    return Err(CoreError::Validation(format!("不支持的条码类型: {symbology}")));
+                    return Err(CoreError::Validation(format!(
+                        "不支持的条码类型: {symbology}"
+                    )));
                 }
                 let bars = render_code128(&content)?;
                 buf.extend_from_slice(&[0x1D, 0x68, height.max(24)]); // GS h
-                buf.extend_from_slice(&[0x1D, 0x77, 0x02]);           // GS w 2
-                buf.extend_from_slice(&[0x1D, 0x48, 0x02]);           // GS H 2 (下方文字)
-                buf.extend_from_slice(&[0x1D, 0x6B, 0x49]);           // GS k 73 CODE128
+                buf.extend_from_slice(&[0x1D, 0x77, 0x02]); // GS w 2
+                buf.extend_from_slice(&[0x1D, 0x48, 0x02]); // GS H 2 (下方文字)
+                buf.extend_from_slice(&[0x1D, 0x6B, 0x49]); // GS k 73 CODE128
                 buf.push(bars.len() as u8);
                 buf.extend_from_slice(&bars);
             }
             Block::Qrcode { content, size } => {
                 let qr = QrCode::new(content.as_bytes())
                     .map_err(|e| CoreError::Print(format!("二维码生成失败: {e}")))?;
-                let matrix = qr.render::<u8>().quiet_zone(false).module_dimensions(1, 1).build();
+                let matrix = qr
+                    .render::<u8>()
+                    .quiet_zone(false)
+                    .module_dimensions(1, 1)
+                    .build();
                 let modules = matrix.width();
                 let scale = size.max(1) as usize;
                 let dots = modules * scale;
@@ -179,14 +217,18 @@ pub fn render_receipt(template: &Template, data: &std::collections::HashMap<Stri
                                 b |= 0x80 >> bit;
                             }
                         }
-                        for _ in 0..scale { buf.push(b); }
+                        for _ in 0..scale {
+                            buf.push(b);
+                        }
                     }
                     for _ in 1..scale {
                         for byte in 0..((modules + 7) / 8) {
                             let mut b = 0u8;
                             for bit in 0..8 {
                                 let col = byte * 8 + bit;
-                                if col < modules && matrix[(col, row)] != 0 { b |= 0x80 >> bit; }
+                                if col < modules && matrix[(col, row)] != 0 {
+                                    b |= 0x80 >> bit;
+                                }
                             }
                             buf.push(b);
                         }
@@ -194,11 +236,16 @@ pub fn render_receipt(template: &Template, data: &std::collections::HashMap<Stri
                 }
             }
             Block::Feed { lines } => {
-                for _ in 0..lines { buf.push(0x0A); }
+                for _ in 0..lines {
+                    buf.push(0x0A);
+                }
             }
             Block::Cut { mode } => {
-                if mode == "full" { buf.extend_from_slice(GS_CUT_FULL); }
-                else { buf.extend_from_slice(GS_CUT_PARTIAL); }
+                if mode == "full" {
+                    buf.extend_from_slice(GS_CUT_FULL);
+                } else {
+                    buf.extend_from_slice(GS_CUT_PARTIAL);
+                }
             }
             Block::Kick { pin } => {
                 buf.extend_from_slice(&[0x1B, 0x70, 0x00, pin, 0x25, 0x78]);
@@ -217,8 +264,12 @@ fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
     let (result, _, replaced) = encoder.encode_from_utf8(text, &mut Vec::new(), true);
     if !replaced {
         let mut out = Vec::new();
-        let (_, _, r) = encoding_rs::GBK.new_encoder().encode_from_utf8(text, &mut out, true);
-        if !r { return Ok(out); }
+        let (_, _, r) = encoding_rs::GBK
+            .new_encoder()
+            .encode_from_utf8(text, &mut out, true);
+        if !r {
+            return Ok(out);
+        }
     }
     // 位图回退：对不可编码字符生成 12x12 点阵占位（GS v 0 头 + 数据）
     let mut out = Vec::new();
@@ -226,13 +277,15 @@ fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
         let mut single = [0u8; 4];
         let s = ch.encode_utf8(&mut single);
         let mut enc = Vec::new();
-        let (_, _, r) = encoding_rs::GBK.new_encoder().encode_from_utf8(s, &mut enc, true);
+        let (_, _, r) = encoding_rs::GBK
+            .new_encoder()
+            .encode_from_utf8(s, &mut enc, true);
         if !r {
             out.extend_from_slice(&enc);
         } else {
             out.extend_from_slice(GS_V0);
             out.extend_from_slice(&[0x00, 0x02, 0x00, 0x02]); // 16x16 dots
-            // 简单框形占位
+                                                              // 简单框形占位
             for row in 0..2u8 {
                 for col in 0..2u8 {
                     out.push(if row == 0 || col == 0 { 0x80 } else { 0x01 });
@@ -257,14 +310,20 @@ fn render_code128(data: &str) -> Result<Vec<u8>> {
         .iter()
         .enumerate()
         .map(|(i, &v)| v * if i == 0 { 1 } else { i as u8 })
-        .fold(0u16, |acc, v| acc + v as u16) as u8 % 103;
+        .fold(0u16, |acc, v| acc + v as u16) as u8
+        % 103;
     values.push(checksum);
     values.push(106); // STOP
     Ok(values)
 }
 
 /// 打印失败入队：持久化重打，不阻断收银。
-pub fn enqueue_retry(conn: &Connection, order_no: &str, template_id: &str, error: &str) -> Result<()> {
+pub fn enqueue_retry(
+    conn: &Connection,
+    order_no: &str,
+    template_id: &str,
+    error: &str,
+) -> Result<()> {
     conn.execute(
         "INSERT INTO print_retry_queue(order_no,template_id,status,retry_count,last_error,created_at)
          VALUES (?1,?2,'PENDING',0,?3,?4)",
@@ -275,10 +334,13 @@ pub fn enqueue_retry(conn: &Connection, order_no: &str, template_id: &str, error
 
 /// 取待重打队列（v1 仅蓄水，UI 手动触发重打）。
 pub fn pending_retries(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT order_no FROM print_retry_queue WHERE status='PENDING' ORDER BY id")?;
+    let mut stmt =
+        conn.prepare("SELECT order_no FROM print_retry_queue WHERE status='PENDING' ORDER BY id")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
     let mut v = Vec::new();
-    for row in rows { v.push(row?); }
+    for row in rows {
+        v.push(row?);
+    }
     Ok(v)
 }
 
@@ -296,17 +358,25 @@ mod tests {
 
     #[test]
     fn render_basic_receipt_contains_commands() {
-        let t = tmpl("r", r#"{"header":[{"type":"text","content":"店铺","align":"center","bold":true}],"footer":[{"type":"cut","mode":"partial"},{"type":"kick","pin":0}]}"#);
+        let t = tmpl(
+            "r",
+            r#"{"header":[{"type":"text","content":"店铺","align":"center","bold":true}],"footer":[{"type":"cut","mode":"partial"},{"type":"kick","pin":0}]}"#,
+        );
         let bytes = render_receipt(&t, &std::collections::HashMap::new()).unwrap();
         assert!(bytes.starts_with(ESC_INIT));
         assert!(bytes.windows(3).any(|w| w == ESC_CHARSET_GB18030));
         assert!(bytes.windows(3).any(|w| w == GS_CUT_PARTIAL));
-        assert!(bytes.windows(5).any(|w| w == &[0x1B, 0x70, 0x00, 0x00, 0x25]));
+        assert!(bytes
+            .windows(5)
+            .any(|w| w == &[0x1B, 0x70, 0x00, 0x00, 0x25]));
     }
 
     #[test]
     fn unknown_variable_errors() {
-        let t = tmpl("r", r#"{"header":[{"type":"text","content":"{{unknown}}"}]}"#);
+        let t = tmpl(
+            "r",
+            r#"{"header":[{"type":"text","content":"{{unknown}}"}]}"#,
+        );
         let err = render_receipt(&t, &std::collections::HashMap::new()).unwrap_err();
         assert!(matches!(err, CoreError::UnknownVariable(_)));
     }
@@ -315,7 +385,10 @@ mod tests {
     fn render_vars_substitutes() {
         let mut data = std::collections::HashMap::new();
         data.insert("store_name".to_string(), "好店".to_string());
-        assert_eq!(render_vars("{{store_name}} 欢迎", &data).unwrap(), "好店 欢迎");
+        assert_eq!(
+            render_vars("{{store_name}} 欢迎", &data).unwrap(),
+            "好店 欢迎"
+        );
     }
 
     #[test]
@@ -327,7 +400,10 @@ mod tests {
 
     #[test]
     fn qrcode_has_gs_v0() {
-        let t = tmpl("r", r#"{"footer":[{"type":"qrcode","content":"https://pay.example/1"}]}"#);
+        let t = tmpl(
+            "r",
+            r#"{"footer":[{"type":"qrcode","content":"https://pay.example/1"}]}"#,
+        );
         let bytes = render_receipt(&t, &std::collections::HashMap::new()).unwrap();
         assert!(bytes.windows(3).any(|w| w == GS_V0));
     }

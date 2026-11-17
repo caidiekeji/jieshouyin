@@ -74,7 +74,11 @@ impl<C: Clock> MonotonicClock<C> {
         let system_now = self.source.now();
         let mut guard = self.watermark.lock().expect("watermark mutex poisoned");
         let rollback = system_now < *guard - self.rollback_threshold;
-        let effective = if system_now > *guard { system_now } else { *guard };
+        let effective = if system_now > *guard {
+            system_now
+        } else {
+            *guard
+        };
         *guard = effective;
         (effective, rollback)
     }

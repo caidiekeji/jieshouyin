@@ -16,9 +16,15 @@ fn now_str() -> String {
 /// 启动：迁移 → 许可证验证 → 管理员初始化 → 加载状态。
 #[tauri::command]
 pub fn bootstrap(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
-    let mut license = state.license.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let mut license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let svc = build_license_service(&state);
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     *license = svc.verify_on_launch(&conn)?;
     Ok(license.clone())
 }
@@ -26,45 +32,73 @@ pub fn bootstrap(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
 /// 首次初始化管理员。
 #[tauri::command]
 pub fn init_admin(username: String, password: String, state: State<'_, AppState>) -> Result<()> {
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     rbac::ensure_admin(&conn, &username, &password)
 }
 
 #[tauri::command]
 pub fn get_license(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
-    Ok(state.license.lock().map_err(|e| CoreError::Other(e.to_string()))?.clone())
+    Ok(state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?
+        .clone())
 }
 
 #[tauri::command]
 pub fn activate(token: String, state: State<'_, AppState>) -> Result<LicenseSnapshot> {
     let svc = build_license_service(&state);
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let snap = svc.activate(&conn, &token)?;
-    *state.license.lock().map_err(|e| CoreError::Other(e.to_string()))? = snap.clone();
+    *state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))? = snap.clone();
     Ok(snap)
 }
 
 #[tauri::command]
 pub fn renew_license(token: String, state: State<'_, AppState>) -> Result<LicenseSnapshot> {
     let svc = build_license_service(&state);
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let snap = svc.renew(&conn, &token)?;
-    *state.license.lock().map_err(|e| CoreError::Other(e.to_string()))? = snap.clone();
+    *state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))? = snap.clone();
     Ok(snap)
 }
 
 #[tauri::command]
 pub fn login(username: String, password: String, state: State<'_, AppState>) -> Result<Session> {
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let now = parse_rfc3339(&now_str())?;
     let session = rbac::login(&conn, &username, &password, now)?;
-    *state.session.lock().map_err(|e| CoreError::Other(e.to_string()))? = Some(session.clone());
+    *state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))? = Some(session.clone());
     Ok(session)
 }
 
 #[tauri::command]
 pub fn logout(state: State<'_, AppState>) -> Result<()> {
-    *state.session.lock().map_err(|e| CoreError::Other(e.to_string()))? = None;
+    *state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))? = None;
     Ok(())
 }
 
@@ -80,7 +114,10 @@ pub struct ProductHit {
 /// 商品识别（F-01）：条码精确匹配，模糊搜索兜底。
 #[tauri::command]
 pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec<ProductHit>> {
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed
@@ -99,7 +136,9 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
         })
     })?;
     let mut out = Vec::new();
-    for row in rows { out.push(row?); }
+    for row in rows {
+        out.push(row?);
+    }
     Ok(out)
 }
 
@@ -140,9 +179,15 @@ pub fn checkout(
     payments: Vec<PaymentInput>,
     state: State<'_, AppState>,
 ) -> Result<CheckoutResult> {
-    let license = state.license.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     license.gate("pos.core")?; // 降级态仍放行
-    let session = state.session.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
     if session.expires_at < parse_rfc3339(&now_str())? {
         return Err(CoreError::SessionExpired);
@@ -151,7 +196,10 @@ pub fn checkout(
         return Err(CoreError::Validation("购物车为空".into()));
     }
 
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let order_no = checkout_core::order::generate_order_no("STORE", "POS1");
     let cart_lines: Vec<checkout_core::promo::CartLine> = lines
         .iter()
@@ -171,7 +219,17 @@ pub fn checkout(
     {
         let tx = conn.unchecked_transaction()?;
         checkout_core::order::begin_order(
-            &tx, &order_no, "POS1", session.user_id, 1, None, &cart_lines, total, 0, &biz, &now,
+            &tx,
+            &order_no,
+            "POS1",
+            session.user_id,
+            1,
+            None,
+            &cart_lines,
+            total,
+            0,
+            &biz,
+            &now,
         )?;
         tx.commit()?;
     }
@@ -207,20 +265,46 @@ pub fn checkout(
         checkout_core::order::commit_order(&tx, &order_no, session.user_id)?;
         tx.commit()?;
     }
-    Ok(CheckoutResult { order_no, status: "COMPLETED".into() })
+    Ok(CheckoutResult {
+        order_no,
+        status: "COMPLETED".into(),
+    })
 }
 
 #[tauri::command]
-pub fn park_cart(cart_json: String, remark: Option<String>, state: State<'_, AppState>) -> Result<i64> {
-    let session = state.session.lock().map_err(|e| CoreError::Other(e.to_string()))?;
-    let cashier = session.as_ref().map(|s| s.user_id).ok_or(CoreError::NotAuthenticated)?;
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::order::park_cart(&conn, &cart_json, cashier, None, remark.as_deref(), &now_str())
+pub fn park_cart(
+    cart_json: String,
+    remark: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let cashier = session
+        .as_ref()
+        .map(|s| s.user_id)
+        .ok_or(CoreError::NotAuthenticated)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::order::park_cart(
+        &conn,
+        &cart_json,
+        cashier,
+        None,
+        remark.as_deref(),
+        &now_str(),
+    )
 }
 
 #[tauri::command]
 pub fn list_parked(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let mut stmt = conn.prepare(
         "SELECT park_id, cart_json, status, created_at FROM parked_order WHERE status='PENDING' ORDER BY park_id",
     )?;
@@ -233,13 +317,18 @@ pub fn list_parked(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>>
         }))
     })?;
     let mut out = Vec::new();
-    for row in rows { out.push(row?); }
+    for row in rows {
+        out.push(row?);
+    }
     Ok(out)
 }
 
 #[tauri::command]
 pub fn resume_cart(park_id: i64, state: State<'_, AppState>) -> Result<String> {
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     checkout_core::order::resume_cart(&conn, park_id, &now_str())
 }
 
@@ -253,7 +342,10 @@ pub struct DailyReport {
 
 #[tauri::command]
 pub fn daily_report(date: String, state: State<'_, AppState>) -> Result<DailyReport> {
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let d = checkout_core::report::generate_daily_summary(&conn, &date, &now_str())?;
     Ok(DailyReport {
         order_count: d.order_count,
@@ -267,10 +359,14 @@ pub fn daily_report(date: String, state: State<'_, AppState>) -> Result<DailyRep
 #[tauri::command]
 pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<String> {
     use checkout_core::escpos::{enqueue_retry, render_receipt, Template};
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let content: String = conn.query_row(
         "SELECT content_json FROM print_template WHERE template_id='receipt_default'",
-        [], |r| r.get(0),
+        [],
+        |r| r.get(0),
     )?;
     let template = Template {
         template_id: "receipt_default".into(),
@@ -289,7 +385,10 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
     vars.insert("pay_total".into(), "0.00".into());
     vars.insert("pay_channel_lines".into(), "".into());
     vars.insert("change".into(), "0.00".into());
-    vars.insert("qrcode_pay_url".into(), format!("checkout-r://order/{order_no}"));
+    vars.insert(
+        "qrcode_pay_url".into(),
+        format!("checkout-r://order/{order_no}"),
+    );
     match render_receipt(&template, &vars) {
         Ok(_bytes) => Ok("已生成打印字节流".into()), // 真实发送由硬件适配器完成
         Err(e) => {
@@ -301,17 +400,34 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
 
 /// 交班汇总。
 #[tauri::command]
-pub fn shift_report(shift_id: i64, state: State<'_, AppState>) -> Result<Vec<checkout_core::order::ShiftSummary>> {
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+pub fn shift_report(
+    shift_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::order::ShiftSummary>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     checkout_core::order::shift_summary(&conn, shift_id)
 }
 
 /// 商品档案创建（F-11）：SPU/SKU 分离。
 #[tauri::command]
-pub fn create_product(name: String, barcode: String, price_cents: i64, state: State<'_, AppState>) -> Result<i64> {
-    let license = state.license.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+pub fn create_product(
+    name: String,
+    barcode: String,
+    price_cents: i64,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     license.gate("pos.core")?;
-    let conn = state.conn.lock().map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
     let code = format!("SPU{}", chrono::Utc::now().timestamp_millis());
     conn.execute(
         "INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,?1,?2)",
@@ -344,10 +460,23 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            bootstrap, init_admin, get_license, activate, renew_license,
-            login, logout, lookup_product, parse_weigh_barcode, checkout,
-            park_cart, list_parked, resume_cart, daily_report, print_receipt,
-            shift_report, create_product,
+            bootstrap,
+            init_admin,
+            get_license,
+            activate,
+            renew_license,
+            login,
+            logout,
+            lookup_product,
+            parse_weigh_barcode,
+            checkout,
+            park_cart,
+            list_parked,
+            resume_cart,
+            daily_report,
+            print_receipt,
+            shift_report,
+            create_product,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");

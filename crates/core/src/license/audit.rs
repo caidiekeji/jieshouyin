@@ -84,7 +84,8 @@ pub fn export_archive(conn: &Connection, before: &str) -> Result<String> {
             r.get::<_, String>(6)?,
         ))
     })?;
-    let mut out = String::from("audit_id,event_type,license_id,payload_hash,fp_digest,detail,created_at\n");
+    let mut out =
+        String::from("audit_id,event_type,license_id,payload_hash,fp_digest,detail,created_at\n");
     for row in rows {
         let (id, ev, lic, hash, fp, detail, at) = row?;
         out.push_str(&format!(
@@ -102,7 +103,7 @@ pub fn export_archive(conn: &Connection, before: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{run_migrations, open_in_memory};
+    use crate::db::{open_in_memory, run_migrations};
     use crate::time::format_utc;
     use chrono::Utc;
 
@@ -111,9 +112,29 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         run_migrations(&mut conn).unwrap();
         let now = format_utc(&Utc::now());
-        append_audit(&conn, AuditEvent::SignatureInvalid, Some("lic_1"), Some("abc"), None, json!({"e":"x"}), &now).unwrap();
-        append_audit(&conn, AuditEvent::ActivationSuccess, Some("lic_1"), Some("abc"), Some("fp"), json!({}), &now).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM license_audit", [], |r| r.get(0)).unwrap();
+        append_audit(
+            &conn,
+            AuditEvent::SignatureInvalid,
+            Some("lic_1"),
+            Some("abc"),
+            None,
+            json!({"e":"x"}),
+            &now,
+        )
+        .unwrap();
+        append_audit(
+            &conn,
+            AuditEvent::ActivationSuccess,
+            Some("lic_1"),
+            Some("abc"),
+            Some("fp"),
+            json!({}),
+            &now,
+        )
+        .unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM license_audit", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 2);
     }
 
@@ -130,7 +151,9 @@ mod tests {
         run_migrations(&mut conn).unwrap();
         let exported = export_archive(&conn, "2099-01-01T00:00:00Z").unwrap();
         assert!(exported.starts_with("audit_id,"));
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM license_audit", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM license_audit", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 0);
     }
 }

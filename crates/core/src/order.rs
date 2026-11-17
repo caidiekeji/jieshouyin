@@ -3,7 +3,7 @@
 //! 支付确认前不扣库存、不核销券、不扣储值。
 
 use crate::error::{CoreError, Result};
-use crate::inventory::{apply_event, allows_negative, TransType};
+use crate::inventory::{allows_negative, apply_event, TransType};
 use crate::time::format_utc;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
@@ -59,7 +59,7 @@ pub fn begin_order(
     cashier_id: i64,
     shift_id: i64,
     member_id: Option<i64>,
-    lines: &[ crate::promo::CartLine ],
+    lines: &[crate::promo::CartLine],
     total_cents: i64,
     discount_cents: i64,
     biz_date: &str,
@@ -85,11 +85,7 @@ pub fn begin_order(
 }
 
 /// tx B：所有渠道 SUCCESS 后提交。订单 → COMPLETED + 库存 SALE + sync_queue。
-pub fn commit_order(
-    tx: &Connection,
-    order_no: &str,
-    cashier_id: i64,
-) -> Result<()> {
+pub fn commit_order(tx: &Connection, order_no: &str, cashier_id: i64) -> Result<()> {
     let status: String = tx.query_row(
         "SELECT status FROM sales_order WHERE order_no=?1",
         [order_no],
@@ -99,17 +95,26 @@ pub fn commit_order(
         return Err(CoreError::Validation(format!("订单状态 {status} 不可提交")));
     }
     let items: Vec<(i64, i64)> = {
-        let mut stmt = tx.prepare(
-            "SELECT sku_id, qty FROM sales_order_item WHERE order_no=?1 AND is_gift=0",
-        )?;
+        let mut stmt =
+            tx.prepare("SELECT sku_id, qty FROM sales_order_item WHERE order_no=?1 AND is_gift=0")?;
         let rows = stmt.query_map([order_no], |r| Ok((r.get(0)?, r.get(1)?)))?;
         let mut v = Vec::new();
-        for row in rows { v.push(row?); }
+        for row in rows {
+            v.push(row?);
+        }
         v
     };
     for (sku_id, qty) in items {
         let neg = allows_negative(tx, sku_id)?;
-        apply_event(tx, sku_id, qty, TransType::SALE, Some(order_no), Some(cashier_id), neg)?;
+        apply_event(
+            tx,
+            sku_id,
+            qty,
+            TransType::SALE,
+            Some(order_no),
+            Some(cashier_id),
+            neg,
+        )?;
     }
     tx.execute(
         "UPDATE sales_order SET status='COMPLETED' WHERE order_no=?1",
@@ -125,7 +130,9 @@ pub fn commit_order(
 /// tx C：失败/超时/取消 → CANCELED（终态）。
 pub fn cancel_order(tx: &Connection, order_no: &str) -> Result<()> {
     let status: String = tx.query_row(
-        "SELECT status FROM sales_order WHERE order_no=?1", [order_no], |r| r.get(0),
+        "SELECT status FROM sales_order WHERE order_no=?1",
+        [order_no],
+        |r| r.get(0),
     )?;
     if status != "PENDING_PAYMENT" {
         return Err(CoreError::Validation("仅待支付订单可取消"));
@@ -146,26 +153,39 @@ pub fn void_order(
     operator_id: i64,
 ) -> Result<()> {
     let status: String = tx.query_row(
-        "SELECT status FROM sales_order WHERE order_no=?1", [order_no], |r| r.get(0),
+        "SELECT status FROM sales_order WHERE order_no=?1",
+        [order_no],
+        |r| r.get(0),
     )?;
     if paid_via_scan {
         return Err(CoreError::Validation("扫码已支付订单只能退款，不能作废"));
     }
-    let allowed = status == "PENDING_PAYMENT"
-        || (status == "COMPLETED" && is_today);
+    let allowed = status == "PENDING_PAYMENT" || (status == "COMPLETED" && is_today);
     if !allowed {
         return Err(CoreError::Validation("该订单不满足作废条件"));
     }
     if status == "COMPLETED" {
         let items: Vec<(i64, i64)> = {
-            let mut stmt = tx.prepare("SELECT sku_id, qty FROM sales_order_item WHERE order_no=?1 AND is_gift=0")?;
+            let mut stmt = tx.prepare(
+                "SELECT sku_id, qty FROM sales_order_item WHERE order_no=?1 AND is_gift=0",
+            )?;
             let rows = stmt.query_map([order_no], |r| Ok((r.get(0)?, r.get(1)?)))?;
             let mut v = Vec::new();
-            for row in rows { v.push(row?); }
+            for row in rows {
+                v.push(row?);
+            }
             v
         };
         for (sku, qty) in items {
-            apply_event(tx, sku, qty, TransType::VOID, Some(order_no), Some(operator_id), true)?;
+            apply_event(
+                tx,
+                sku,
+                qty,
+                TransType::VOID,
+                Some(order_no),
+                Some(operator_id),
+                true,
+            )?;
         }
     }
     tx.execute(
@@ -246,19 +266,34 @@ pub fn create_return(
             "UPDATE sales_order_item SET returned_qty=?1 WHERE item_id=?2",
             params![already + qty, item_id],
         )?;
-        apply_event(tx, *sku_id, *qty, TransType::RETURN, Some(order_no), Some(operator_id), true)?;
+        apply_event(
+            tx,
+            *sku_id,
+            *qty,
+            TransType::RETURN,
+            Some(order_no),
+            Some(operator_id),
+            true,
+        )?;
     }
     // 订单状态更新
     let total_items: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM sales_order_item WHERE order_no=?1", [order_no], |r| r.get(0),
+        "SELECT COUNT(*) FROM sales_order_item WHERE order_no=?1",
+        [order_no],
+        |r| r.get(0),
     )?;
     let returned_lines: i64 = tx.query_row(
         "SELECT COUNT(DISTINCT i.item_id) FROM sales_order_item i
          JOIN sales_return_item r ON r.order_item_id=i.item_id
          WHERE i.order_no=?1 AND i.returned_qty >= i.qty",
-        [order_no], |r| r.get(0),
+        [order_no],
+        |r| r.get(0),
     )?;
-    let new_status = if returned_lines >= total_items { "REFUNDED" } else { "PARTIAL_REFUND" };
+    let new_status = if returned_lines >= total_items {
+        "REFUNDED"
+    } else {
+        "PARTIAL_REFUND"
+    };
     tx.execute(
         "UPDATE sales_order SET status=?1 WHERE order_no=?2",
         params![new_status, order_no],
@@ -295,7 +330,9 @@ pub fn shift_summary(conn: &Connection, shift_id: i64) -> Result<Vec<ShiftSummar
         })
     })?;
     let mut v = Vec::new();
-    for row in rows { v.push(row?); }
+    for row in rows {
+        v.push(row?);
+    }
     Ok(v)
 }
 
@@ -308,15 +345,36 @@ mod tests {
     fn setup() -> Connection {
         let mut c = open_in_memory().unwrap();
         run_migrations(&mut c).unwrap();
-        c.execute("INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,'测试','S1')", []).unwrap();
-        c.execute("INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'B1',1000)", []).unwrap();
+        c.execute(
+            "INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,'测试','S1')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'B1',1000)",
+            [],
+        )
+        .unwrap();
         c
     }
 
     fn start(c: &Connection, no: &str) {
         let lines = vec![CartLine::new(1, 2, 1000).unwrap()];
         let tx = c.unchecked_transaction().unwrap();
-        begin_order(&tx, no, "D1", 1, 1, None, &lines, 2000, 0, "2026-11-17", "2026-11-17T00:00:00Z").unwrap();
+        begin_order(
+            &tx,
+            no,
+            "D1",
+            1,
+            1,
+            None,
+            &lines,
+            2000,
+            0,
+            "2026-11-17",
+            "2026-11-17T00:00:00Z",
+        )
+        .unwrap();
         tx.commit().unwrap();
     }
 
@@ -324,16 +382,30 @@ mod tests {
     fn tx_a_then_tx_b_stock_only_after_commit() {
         let c = setup();
         start(&c, "O1");
-        let q: i64 = c.query_row("SELECT COALESCE(qty,0) FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row(
+                "SELECT COALESCE(qty,0) FROM inv_stock WHERE sku_id=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(q, 0, "tx A 后不得扣库存");
         {
             let tx = c.unchecked_transaction().unwrap();
             commit_order(&tx, "O1", 1).unwrap();
             tx.commit().unwrap();
         }
-        let q: i64 = c.query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(q, -2);
-        let s: String = c.query_row("SELECT status FROM sales_order WHERE order_no='O1'", [], |r| r.get(0)).unwrap();
+        let s: String = c
+            .query_row(
+                "SELECT status FROM sales_order WHERE order_no='O1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(s, "COMPLETED");
     }
 
@@ -346,7 +418,10 @@ mod tests {
             cancel_order(&tx, "O2").unwrap();
             tx.commit().unwrap();
         }
-        assert!(matches!(cancel_order(&c.unchecked_transaction().unwrap(), "O2"), Err(_)));
+        assert!(matches!(
+            cancel_order(&c.unchecked_transaction().unwrap(), "O2"),
+            Err(_)
+        ));
     }
 
     #[test]
@@ -372,7 +447,9 @@ mod tests {
             void_order(&tx, "O4", false, true, 1).unwrap();
             tx.commit().unwrap();
         }
-        let q: i64 = c.query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(q, 0);
     }
 
@@ -382,7 +459,10 @@ mod tests {
         let id = park_cart(&c, "{\"lines\":[]}", 1, None, None, "2026-11-17T00:00:00Z").unwrap();
         let cart = resume_cart(&c, id, "2026-11-17T01:00:00Z").unwrap();
         assert_eq!(cart, "{\"lines\":[]}");
-        assert!(resume_cart(&c, id, "2026-11-17T02:00:00Z").is_err(), "取单只能一次");
+        assert!(
+            resume_cart(&c, id, "2026-11-17T02:00:00Z").is_err(),
+            "取单只能一次"
+        );
     }
 
     #[test]
@@ -394,15 +474,44 @@ mod tests {
             commit_order(&tx, "O5", 1).unwrap();
             tx.commit().unwrap();
         }
-        let item_id: i64 = c.query_row("SELECT item_id FROM sales_order_item WHERE order_no='O5'", [], |r| r.get(0)).unwrap();
+        let item_id: i64 = c
+            .query_row(
+                "SELECT item_id FROM sales_order_item WHERE order_no='O5'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         {
             let tx = c.unchecked_transaction().unwrap();
-            create_return(&tx, "R1", "O5", None, 1, Some(1), &[(item_id, 1, 1)], &[1000], 1).unwrap();
+            create_return(
+                &tx,
+                "R1",
+                "O5",
+                None,
+                1,
+                Some(1),
+                &[(item_id, 1, 1)],
+                &[1000],
+                1,
+            )
+            .unwrap();
             tx.commit().unwrap();
         }
-        let returned: i64 = c.query_row("SELECT returned_qty FROM sales_order_item WHERE item_id=?1", [item_id], |r| r.get(0)).unwrap();
+        let returned: i64 = c
+            .query_row(
+                "SELECT returned_qty FROM sales_order_item WHERE item_id=?1",
+                [item_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(returned, 1);
-        let s: String = c.query_row("SELECT status FROM sales_order WHERE order_no='O5'", [], |r| r.get(0)).unwrap();
+        let s: String = c
+            .query_row(
+                "SELECT status FROM sales_order WHERE order_no='O5'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(s, "PARTIAL_REFUND");
     }
 

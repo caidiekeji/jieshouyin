@@ -36,7 +36,10 @@ impl TransType {
 
     pub fn sign(&self) -> i64 {
         match self {
-            TransType::SALE | TransType::PURCHASE_RETURN | TransType::LOSS | TransType::TRANSFER_OUT => -1,
+            TransType::SALE
+            | TransType::PURCHASE_RETURN
+            | TransType::LOSS
+            | TransType::TRANSFER_OUT => -1,
             _ => 1,
         }
     }
@@ -101,8 +104,16 @@ mod tests {
     fn setup() -> Connection {
         let mut c = open_in_memory().unwrap();
         run_migrations(&mut c).unwrap();
-        c.execute("INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,'测试','SPU1')", []).unwrap();
-        c.execute("INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'6900000000001',1000)", []).unwrap();
+        c.execute(
+            "INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,'测试','SPU1')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'6900000000001',1000)",
+            [],
+        )
+        .unwrap();
         c
     }
 
@@ -113,7 +124,13 @@ mod tests {
         let q = apply_event(&tx, 1, 100, TransType::PURCHASE_IN, None, None, false).unwrap();
         tx.commit().unwrap();
         assert_eq!(q, 100);
-        let n: i64 = c.query_row("SELECT COUNT(*) FROM inv_trans WHERE trans_type='PURCHASE_IN'", [], |r| r.get(0)).unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM inv_trans WHERE trans_type='PURCHASE_IN'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -126,7 +143,9 @@ mod tests {
             apply_event(&tx, 1, 30, TransType::SALE, Some("ORD1"), None, false).unwrap();
             tx.commit().unwrap();
         }
-        let q: i64 = c.query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(q, 70);
     }
 
@@ -158,7 +177,9 @@ mod tests {
             apply_event(&tx, 1, 30, TransType::VOID, Some("O1"), None, false).unwrap();
             tx.commit().unwrap();
         }
-        let q: i64 = c.query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0)).unwrap();
+        let q: i64 = c
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(q, 100);
     }
 }

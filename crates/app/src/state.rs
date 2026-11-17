@@ -29,12 +29,7 @@ pub fn build_license_service(state: &AppState) -> LicenseService {
         fp.as_deref(),
     ));
     let last_known = chrono::DateTime::from_timestamp(0, 0).unwrap();
-    LicenseService::new(
-        store,
-        state.public_key,
-        Box::new(SystemClock),
-        last_known,
-    )
+    LicenseService::new(store, state.public_key, Box::new(SystemClock), last_known)
 }
 
 /// 初始化数据库（启动顺序：先连接 + 迁移，再许可证验证）。

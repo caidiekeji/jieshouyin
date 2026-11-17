@@ -48,9 +48,7 @@ pub fn allocate_by_remaining(remaining: &[i64], total: i64) -> Result<Vec<i64>> 
     let rem = (effective - allocated) as usize;
 
     // 最大余数法：按余数降序，每行 +1 分。余数为 0 的行不参与。
-    let mut order: Vec<usize> = (0..remaining.len())
-        .filter(|&i| remaining[i] > 0)
-        .collect();
+    let mut order: Vec<usize> = (0..remaining.len()).filter(|&i| remaining[i] > 0).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(effective * remaining[i] as i128 % base));
     for &i in order.iter().take(rem) {
         alloc[i] += 1;

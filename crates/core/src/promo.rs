@@ -87,7 +87,11 @@ pub fn calc_promotions(
 ) -> Result<PromoResult> {
     let mut applied: Vec<AppliedPromo> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
-    let original_total: i64 = lines.iter().filter(|l| !l.is_gift).map(|l| l.line_total_cents).sum();
+    let original_total: i64 = lines
+        .iter()
+        .filter(|l| !l.is_gift)
+        .map(|l| l.line_total_cents)
+        .sum();
 
     // 第 1 层：单品级（含会员价，互斥取优）
     let mut singles: Vec<&Promotion> = promos
@@ -158,7 +162,11 @@ pub fn calc_promotions(
         if exclusive_applied && promo.exclusive {
             continue;
         }
-        let base: i64 = lines.iter().filter(|l| !l.is_gift).map(|l| l.payable()).sum();
+        let base: i64 = lines
+            .iter()
+            .filter(|l| !l.is_gift)
+            .map(|l| l.payable())
+            .sum();
         if base < promo.min_amount_cents {
             skipped.push(format!("整单促销 {} 未达门槛", promo.promotion_id));
             continue;
@@ -300,7 +308,13 @@ mod tests {
     #[test]
     fn single_promo_applies() {
         let mut lines = vec![CartLine::new(1, 2, 5000).unwrap()];
-        let r = calc_promotions(&mut lines, None, &[promo(1, Scope::SINGLE_ITEM, 1000, false)], 0.8).unwrap();
+        let r = calc_promotions(
+            &mut lines,
+            None,
+            &[promo(1, Scope::SINGLE_ITEM, 1000, false)],
+            0.8,
+        )
+        .unwrap();
         assert_eq!(r.total_discount_cents, 1000);
         assert_eq!(lines[0].discount_cents, 1000);
         assert_eq!(lines[0].payable(), 9000);
@@ -329,7 +343,13 @@ mod tests {
     fn member_price_vs_single_promo_prefer_better() {
         let mut lines = vec![CartLine::new(1, 2, 5000).unwrap()];
         lines[0].member_price_cents = Some(4000); // 优惠 2000
-        let r = calc_promotions(&mut lines, Some(1), &[promo(1, Scope::SINGLE_ITEM, 1000, false)], 0.8).unwrap();
+        let r = calc_promotions(
+            &mut lines,
+            Some(1),
+            &[promo(1, Scope::SINGLE_ITEM, 1000, false)],
+            0.8,
+        )
+        .unwrap();
         // 当前实现取两者较大者作为行优惠额
         assert_eq!(lines[0].discount_cents, 2000);
         assert!(r.skipped.iter().any(|s| s.contains("单品促销")));
@@ -338,7 +358,13 @@ mod tests {
     #[test]
     fn stack_limit_caps_discount() {
         let mut lines = vec![CartLine::new(1, 1, 10000).unwrap()];
-        let r = calc_promotions(&mut lines, None, &[promo(1, Scope::ORDER_LEVEL, 9000, false)], 0.8).unwrap();
+        let r = calc_promotions(
+            &mut lines,
+            None,
+            &[promo(1, Scope::ORDER_LEVEL, 9000, false)],
+            0.8,
+        )
+        .unwrap();
         assert!(r.total_discount_cents <= 2000, "优惠不得超过原价的 20%");
         assert!(r.skipped.iter().any(|s| s.contains("叠加上限")));
     }
@@ -369,7 +395,13 @@ mod tests {
     fn gift_line_never_discounted() {
         let mut line = CartLine::new(1, 1, 1000).unwrap();
         line.is_gift = true;
-        let r = calc_promotions(std::slice::from_mut(&mut line), None, &[promo(1, Scope::ORDER_LEVEL, 500, false)], 0.8).unwrap();
+        let r = calc_promotions(
+            std::slice::from_mut(&mut line),
+            None,
+            &[promo(1, Scope::ORDER_LEVEL, 500, false)],
+            0.8,
+        )
+        .unwrap();
         assert_eq!(r.total_discount_cents, 0);
         assert_eq!(line.discount_cents, 0);
     }

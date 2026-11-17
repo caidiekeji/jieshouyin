@@ -24,12 +24,20 @@ impl MockGateway {
     }
 
     pub fn set_state(&self, out_trade_no: &str, state: PaymentState) {
-        self.inner.lock().unwrap().states.insert(out_trade_no.into(), state);
+        self.inner
+            .lock()
+            .unwrap()
+            .states
+            .insert(out_trade_no.into(), state);
     }
 
     /// 设置撤销时返回"订单已支付"的剧本。
     pub fn set_cancel_paid(&self, out_trade_no: &str) {
-        self.inner.lock().unwrap().cancel_paid.insert(out_trade_no.into());
+        self.inner
+            .lock()
+            .unwrap()
+            .cancel_paid
+            .insert(out_trade_no.into());
         self.set_state(out_trade_no, PaymentState::SUCCESS);
     }
 
@@ -84,18 +92,29 @@ impl PaymentGateway for MockGateway {
         if inner.cancel_paid.contains(out_trade_no) {
             return Ok(CancelResult::AlreadyPaid);
         }
-        inner.states.insert(out_trade_no.into(), PaymentState::CLOSED);
+        inner
+            .states
+            .insert(out_trade_no.into(), PaymentState::CLOSED);
         Ok(CancelResult::Canceled)
     }
 
     /// 幂等：同一 refund_no 重复调用不重复记账。
-    fn refund(&self, out_trade_no: &str, refund_no: &str, amount_cents: i64) -> Result<PaymentState> {
+    fn refund(
+        &self,
+        out_trade_no: &str,
+        refund_no: &str,
+        amount_cents: i64,
+    ) -> Result<PaymentState> {
         let mut inner = self.inner.lock().unwrap();
         if inner.refunds.iter().any(|(_, n, _)| n == refund_no) {
             return Ok(PaymentState::SUCCESS);
         }
-        inner.refunds.push((out_trade_no.into(), refund_no.into(), amount_cents));
-        inner.states.insert(out_trade_no.into(), PaymentState::FAILED("已退款".into()));
+        inner
+            .refunds
+            .push((out_trade_no.into(), refund_no.into(), amount_cents));
+        inner
+            .states
+            .insert(out_trade_no.into(), PaymentState::FAILED("已退款".into()));
         Ok(PaymentState::SUCCESS)
     }
 }

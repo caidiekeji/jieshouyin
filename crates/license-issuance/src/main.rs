@@ -1,17 +1,21 @@
 //! 激活码签发 CLI（§4.12）。私钥通过环境变量 CHECKOUT_PRIVATE_KEY 或 --key 提供，
 //! 私钥文件不提交仓库。
 
-use clap::{Parser, Subcommand};
 use checkout_core::error::{CoreError, Result};
 use checkout_core::license::payload::{parse_and_verify, LicensePayload};
+use clap::{Parser, Subcommand};
 use license_issuance::{
-    generate_keypair, issue, renew_payload, rebind_payload, signing_key_from_hex,
+    generate_keypair, issue, rebind_payload, renew_payload, signing_key_from_hex,
 };
 use std::fs;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "checkout-license", version, about = "Checkout-R 激活码签发工具")]
+#[command(
+    name = "checkout-license",
+    version,
+    about = "Checkout-R 激活码签发工具"
+)]
 struct Cli {
     /// 签发私钥 hex（32 字节）。优先于环境变量。
     #[arg(long, global = true)]
@@ -82,11 +86,14 @@ fn get_key(cli: &Cli) -> Result<String> {
 }
 
 fn read_license(path: &PathBuf) -> Result<(LicensePayload, String)> {
-    let token = fs::read_to_string(path)
-        .map_err(|e| CoreError::Other(format!("读取许可证失败: {e}")))?;
+    let token =
+        fs::read_to_string(path).map_err(|e| CoreError::Other(format!("读取许可证失败: {e}")))?;
     let token = token.trim().to_string();
     // CLI 侧用任意公钥验签即可取出载荷：此处仅解析不验签来源，用签发私钥对应公钥
-    let json_b64 = token.split('.').next().ok_or(CoreError::Other("格式错误".into()))?;
+    let json_b64 = token
+        .split('.')
+        .next()
+        .ok_or(CoreError::Other("格式错误".into()))?;
     use base64::Engine;
     let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(json_b64)
@@ -114,11 +121,21 @@ fn run() -> Result<()> {
             fs::write(&sk_path, &sk).map_err(|e| CoreError::Other(e.to_string()))?;
             fs::write(&pk_path, &pk).map_err(|e| CoreError::Other(e.to_string()))?;
             println!("私钥: {} (请离线保管，勿提交仓库)", sk_path.display());
-            println!("公钥: {} (注入到客户端构建的 CHECKOUT_PUBLIC_KEY)", pk_path.display());
+            println!(
+                "公钥: {} (注入到客户端构建的 CHECKOUT_PUBLIC_KEY)",
+                pk_path.display()
+            );
         }
         Command::Issue {
-            license_type, store_id, customer, valid_until, maintenance_until,
-            grace_days, max_devices, entitlements, out,
+            license_type,
+            store_id,
+            customer,
+            valid_until,
+            maintenance_until,
+            grace_days,
+            max_devices,
+            entitlements,
+            out,
         } => {
             let sk = signing_key_from_hex(&get_key(&cli)?)?;
             let now = chrono::Utc::now().to_rfc3339();
@@ -127,12 +144,20 @@ fn run() -> Result<()> {
                 product: "checkout-r".into(),
                 license_type: license_type.clone(),
                 issued_at: now,
-                valid_until: if license_type == "ANNUAL" { valid_until } else { None },
+                valid_until: if license_type == "ANNUAL" {
+                    valid_until
+                } else {
+                    None
+                },
                 maintenance_until,
                 grace_period_days: grace_days,
                 max_devices,
                 device_fingerprint: None,
-                entitlements: entitlements.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+                entitlements: entitlements
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
                 store_id,
                 customer_name: customer,
             };
@@ -140,7 +165,11 @@ fn run() -> Result<()> {
             fs::write(&out, &token).map_err(|e| CoreError::Other(e.to_string()))?;
             println!("已签发: {}", out.display());
         }
-        Command::Renew { license, valid_until, out } => {
+        Command::Renew {
+            license,
+            valid_until,
+            out,
+        } => {
             let sk = signing_key_from_hex(&get_key(&cli)?)?;
             let (payload, _) = read_license(&license)?;
             let maint = valid_until.clone();
@@ -149,7 +178,12 @@ fn run() -> Result<()> {
             fs::write(&out, &token).map_err(|e| CoreError::Other(e.to_string()))?;
             println!("已续期: {}", out.display());
         }
-        Command::Rebind { license, old_fp, new_fp, out } => {
+        Command::Rebind {
+            license,
+            old_fp,
+            new_fp,
+            out,
+        } => {
             let sk = signing_key_from_hex(&get_key(&cli)?)?;
             let (payload, _) = read_license(&license)?;
             if payload.device_fingerprint.as_deref() != Some(old_fp.as_str()) {
@@ -167,11 +201,7 @@ fn run() -> Result<()> {
 fn uuid_like() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    format!(
-        "{:08x}{:04x}",
-        rng.gen::<u32>(),
-        rng.gen::<u16>()
-    )
+    format!("{:08x}{:04x}", rng.gen::<u32>(), rng.gen::<u16>())
 }
 
 // 确保验签函数被引用（CLI 侧留作校验续期码完整性）

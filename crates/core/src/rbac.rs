@@ -71,7 +71,12 @@ pub struct Session {
 }
 
 /// 登录：连续失败 5 次锁定 5 分钟。
-pub fn login(conn: &Connection, username: &str, password: &str, now: DateTime<Utc>) -> Result<Session> {
+pub fn login(
+    conn: &Connection,
+    username: &str,
+    password: &str,
+    now: DateTime<Utc>,
+) -> Result<Session> {
     let row: rusqlite::Result<(i64, String, i64, String, i32, Option<String>)> = conn.query_row(
         "SELECT u.user_id,u.password_hash,u.role_id,r.role_name,u.failed_attempts,u.locked_until
          FROM user_account u JOIN role r ON r.role_id=u.role_id
@@ -221,7 +226,11 @@ pub fn guard(conn: &Connection, req: &GuardRequest<'_>) -> Result<()> {
         if auth.nonce != req.current_nonce {
             return Err(CoreError::SensitiveAuthRequired); // 重放被拒
         }
-        if !can(conn, role_of_approver(conn, auth.approver_id)?, req.permission)? {
+        if !can(
+            conn,
+            role_of_approver(conn, auth.approver_id)?,
+            req.permission,
+        )? {
             return Err(CoreError::ApproverPermissionDenied);
         }
     }
@@ -261,13 +270,7 @@ pub fn audit_operation(
     conn.execute(
         "INSERT INTO operation_audit(command,operator_id,approver_id,detail_json,created_at)
          VALUES (?1,?2,?3,?4,?5)",
-        params![
-            command,
-            operator_id,
-            approver_id,
-            detail.to_string(),
-            now
-        ],
+        params![command, operator_id, approver_id, detail.to_string(), now],
     )?;
     Ok(())
 }
@@ -351,12 +354,37 @@ mod tests {
             "INSERT INTO user_account(username,password_hash,role_id) VALUES ('c','x',
              (SELECT role_id FROM role WHERE role_name='CASHIER'))",
             [],
-        ).unwrap();
-        let cashier_id: i64 = c.query_row("SELECT user_id FROM user_account WHERE username='c'", [], |r| r.get(0)).unwrap();
-        let role_id: i64 = c.query_row("SELECT role_id FROM user_account WHERE user_id=?1", [cashier_id], |r| r.get(0)).unwrap();
-        assert_eq!(role_limit(&c, role_id, "refund.max_cents").unwrap(), Some(5000));
-        let admin_role: i64 = c.query_row("SELECT role_id FROM role WHERE role_name='ADMIN'", [], |r| r.get(0)).unwrap();
-        assert_eq!(role_limit(&c, admin_role, "refund.max_cents").unwrap(), None);
+        )
+        .unwrap();
+        let cashier_id: i64 = c
+            .query_row(
+                "SELECT user_id FROM user_account WHERE username='c'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let role_id: i64 = c
+            .query_row(
+                "SELECT role_id FROM user_account WHERE user_id=?1",
+                [cashier_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            role_limit(&c, role_id, "refund.max_cents").unwrap(),
+            Some(5000)
+        );
+        let admin_role: i64 = c
+            .query_row(
+                "SELECT role_id FROM role WHERE role_name='ADMIN'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            role_limit(&c, admin_role, "refund.max_cents").unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -402,7 +430,10 @@ mod tests {
         };
         assert!(guard(&c, &req).is_ok());
         req.current_nonce = "nonce2";
-        assert!(matches!(guard(&c, &req), Err(CoreError::SensitiveAuthRequired)));
+        assert!(matches!(
+            guard(&c, &req),
+            Err(CoreError::SensitiveAuthRequired)
+        ));
     }
 
     #[test]
@@ -413,13 +444,17 @@ mod tests {
             "INSERT INTO user_account(username,password_hash,role_id) VALUES ('c','x',
              (SELECT role_id FROM role WHERE role_name='CASHIER'))",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let cs = login(&c, "c", "", now);
         assert!(cs.is_err()); // 密码非空校验失败路径
         let lic = active_license();
         let session = Session {
-            user_id: 1, role_id: 1, role_name: "CASHIER".into(),
-            login_at: now, expires_at: now + Duration::hours(1),
+            user_id: 1,
+            role_id: 1,
+            role_name: "CASHIER".into(),
+            login_at: now,
+            expires_at: now + Duration::hours(1),
         };
         let req = GuardRequest {
             entitlement: "pos.core",

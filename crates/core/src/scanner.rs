@@ -10,7 +10,12 @@ pub struct KeyEvent {
 }
 
 /// 从按键序列中判定扫码。返回清洗后的条码，或 None（判定为人工输入）。
-pub fn detect_scan(events: &[KeyEvent], gap_ms: u64, prefix_to_strip: Option<char>, suffix_to_strip: Option<char>) -> Option<String> {
+pub fn detect_scan(
+    events: &[KeyEvent],
+    gap_ms: u64,
+    prefix_to_strip: Option<char>,
+    suffix_to_strip: Option<char>,
+) -> Option<String> {
     if events.is_empty() || !events.last()?.is_enter {
         return None;
     }
@@ -25,12 +30,20 @@ pub fn detect_scan(events: &[KeyEvent], gap_ms: u64, prefix_to_strip: Option<cha
     }
     let mut code: String = body.iter().map(|e| e.ch).collect();
     if let Some(p) = prefix_to_strip {
-        if code.starts_with(p) { code.remove(0); }
+        if code.starts_with(p) {
+            code.remove(0);
+        }
     }
     if let Some(s) = suffix_to_strip {
-        if code.ends_with(s) { code.pop(); }
+        if code.ends_with(s) {
+            code.pop();
+        }
     }
-    if code.is_empty() { None } else { Some(code) }
+    if code.is_empty() {
+        None
+    } else {
+        Some(code)
+    }
 }
 
 /// 校验配置阈值合法性（20–200ms）。
@@ -82,7 +95,11 @@ pub fn parse_weighed_code(code: &str) -> Option<WeighedCode> {
     };
     let instore = std::str::from_utf8(&bytes[2..7]).ok()?.to_string();
     let value: i64 = std::str::from_utf8(&bytes[7..12]).ok()?.parse().ok()?;
-    Some(WeighedCode { instore_code: instore, mode, value })
+    Some(WeighedCode {
+        instore_code: instore,
+        mode,
+        value,
+    })
 }
 
 /// 计算称重行金额。重量模式向上取整到分（保守向店家）；金额模式直接采信。
@@ -105,17 +122,30 @@ mod tests {
     use super::*;
 
     fn scan(code: &str) -> Vec<KeyEvent> {
-        let mut v: Vec<KeyEvent> = code.chars().enumerate().map(|(i, ch)| KeyEvent {
-            ch, at_ms: (i as u64) * 10, is_enter: false,
-        }).collect();
-        v.push(KeyEvent { ch: '\n', at_ms: code.len() as u64 * 10, is_enter: true });
+        let mut v: Vec<KeyEvent> = code
+            .chars()
+            .enumerate()
+            .map(|(i, ch)| KeyEvent {
+                ch,
+                at_ms: (i as u64) * 10,
+                is_enter: false,
+            })
+            .collect();
+        v.push(KeyEvent {
+            ch: '\n',
+            at_ms: code.len() as u64 * 10,
+            is_enter: true,
+        });
         v
     }
 
     #[test]
     fn detect_fast_scan() {
         let ev = scan("6901234567892");
-        assert_eq!(detect_scan(&ev, 50, None, None).as_deref(), Some("6901234567892"));
+        assert_eq!(
+            detect_scan(&ev, 50, None, None).as_deref(),
+            Some("6901234567892")
+        );
     }
 
     #[test]
@@ -135,7 +165,10 @@ mod tests {
     #[test]
     fn prefix_suffix_stripped() {
         let ev = scan("%ABC*");
-        assert_eq!(detect_scan(&ev, 50, Some('%'), Some('*')).as_deref(), Some("ABC"));
+        assert_eq!(
+            detect_scan(&ev, 50, Some('%'), Some('*')).as_deref(),
+            Some("ABC")
+        );
     }
 
     #[test]
@@ -171,7 +204,11 @@ mod tests {
         let (grams, total) = weighed_line_total(1000, &parsed).unwrap();
         assert_eq!((grams, total), (100, 100));
         // 不能整除时向上取整：1001 分/kg × 1g → 2 分
-        let (_, total2) = weighed_line_total(1001, &parse_weighed_code(&ean13("22", "00123", "00001")).unwrap()).unwrap();
+        let (_, total2) = weighed_line_total(
+            1001,
+            &parse_weighed_code(&ean13("22", "00123", "00001")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(total2, 2);
     }
 

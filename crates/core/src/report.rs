@@ -15,7 +15,11 @@ pub struct DailySummary {
 }
 
 /// 日结即席查询 + 快照（幂等 upsert）。
-pub fn generate_daily_summary(conn: &Connection, business_date: &str, now: &str) -> Result<DailySummary> {
+pub fn generate_daily_summary(
+    conn: &Connection,
+    business_date: &str,
+    now: &str,
+) -> Result<DailySummary> {
     let row: (i64, i64, i64, i64) = conn.query_row(
         "SELECT COUNT(DISTINCT o.order_no),
                 COALESCE(SUM(o.pay_cents),0),
@@ -61,10 +65,16 @@ pub fn channel_distribution(conn: &Connection, business_date: &str) -> Result<Ve
          GROUP BY p.pay_channel ORDER BY p.pay_channel",
     )?;
     let rows = stmt.query_map([business_date], |r| {
-        Ok(ChannelTotal { channel: r.get(0)?, amount_cents: r.get(1)?, count: r.get(2)? })
+        Ok(ChannelTotal {
+            channel: r.get(0)?,
+            amount_cents: r.get(1)?,
+            count: r.get(2)?,
+        })
     })?;
     let mut v = Vec::new();
-    for row in rows { v.push(row?); }
+    for row in rows {
+        v.push(row?);
+    }
     Ok(v)
 }
 
@@ -74,12 +84,14 @@ pub fn verify_channel_sum(conn: &Connection, business_date: &str) -> Result<bool
         "SELECT COALESCE(SUM(p.amount_cents),0) FROM payment_record p
          JOIN sales_order o ON o.order_no=p.order_no
          WHERE p.status='SUCCESS' AND o.business_date=?1",
-        [business_date], |r| r.get(0),
+        [business_date],
+        |r| r.get(0),
     )?;
     let order_sum: i64 = conn.query_row(
         "SELECT COALESCE(SUM(pay_cents),0) FROM sales_order
          WHERE status IN ('COMPLETED','PARTIAL_REFUND') AND business_date=?1",
-        [business_date], |r| r.get(0),
+        [business_date],
+        |r| r.get(0),
     )?;
     Ok(channel_sum == order_sum)
 }
@@ -102,10 +114,17 @@ pub fn sales_by_product(conn: &Connection, from: &str, to: &str) -> Result<Vec<P
          GROUP BY i.sku_id ORDER BY i.sku_id",
     )?;
     let rows = stmt.query_map(params![from, to], |r| {
-        Ok(ProductSales { sku_id: r.get(0)?, qty: r.get(1)?, sales_cents: r.get(2)?, discount_cents: r.get(3)? })
+        Ok(ProductSales {
+            sku_id: r.get(0)?,
+            qty: r.get(1)?,
+            sales_cents: r.get(2)?,
+            discount_cents: r.get(3)?,
+        })
     })?;
     let mut v = Vec::new();
-    for row in rows { v.push(row?); }
+    for row in rows {
+        v.push(row?);
+    }
     Ok(v)
 }
 
@@ -117,17 +136,25 @@ pub fn export_reconcile_csv(conn: &Connection, date: &str) -> Result<String> {
     )?;
     let rows = stmt.query_map([date], |r| {
         Ok((
-            r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
-            r.get::<_, String>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?,
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, i64>(4)?,
+            r.get::<_, i64>(5)?,
         ))
     })?;
-    let mut out = String::from("差异类型,日期,渠道,订单号,本地金额(元),渠道金额(元),差异金额(元),交易号,处理状态\n");
+    let mut out = String::from(
+        "差异类型,日期,渠道,订单号,本地金额(元),渠道金额(元),差异金额(元),交易号,处理状态\n",
+    );
     for row in rows {
         let (diff, d, ch, order, local, remote) = row?;
         let diff_amount = local - remote;
         out.push_str(&format!(
             "{diff},{d},{ch},{order},{},{},{},,\n",
-            cents_to_yuan(local), cents_to_yuan(remote), cents_to_yuan(diff_amount)
+            cents_to_yuan(local),
+            cents_to_yuan(remote),
+            cents_to_yuan(diff_amount)
         ));
     }
     Ok(out)
@@ -150,7 +177,8 @@ mod tests {
             "INSERT INTO payment_record(order_no,pay_channel,amount_cents,status,created_at)
              VALUES ('O1','CASH',9000,'SUCCESS','2026-11-17T00:00:00Z')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         c
     }
 
@@ -163,7 +191,9 @@ mod tests {
         assert_eq!(s1.total_sales_cents, 9000);
         assert_eq!(s1.discount_cents, 1000);
         assert_eq!(s1.total_sales_cents, s2.total_sales_cents);
-        let n: i64 = c.query_row("SELECT COUNT(*) FROM daily_summary", [], |r| r.get(0)).unwrap();
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM daily_summary", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -171,7 +201,10 @@ mod tests {
     fn channel_sum_matches_order_sum() {
         let c = setup();
         assert!(verify_channel_sum(&c, "2026-11-17").unwrap());
-        assert_eq!(channel_distribution(&c, "2026-11-17").unwrap()[0].amount_cents, 9000);
+        assert_eq!(
+            channel_distribution(&c, "2026-11-17").unwrap()[0].amount_cents,
+            9000
+        );
     }
 
     #[test]

@@ -98,7 +98,9 @@ mod tests {
             .unwrap();
         assert_eq!(count, 6);
         let max: i32 = conn
-            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0))
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(max, 6);
     }
@@ -119,15 +121,48 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         run_migrations(&mut conn).unwrap();
         let tables = [
-            "spu", "sku", "inv_stock", "inv_trans", "sales_order", "sales_order_item",
-            "parked_order", "sales_return", "sales_return_item", "shift", "sync_queue",
-            "system_config", "daily_summary", "license_local", "license_audit", "license_state",
-            "role", "permission", "role_permission", "role_limit", "user_account",
-            "operation_audit", "member", "member_asset", "member_asset_log", "coupon",
-            "payment_record", "refund_record", "reconcile_record", "platform_cert",
-            "supplier", "purchase_order", "purchase_order_item", "purchase_receipt",
-            "purchase_receipt_diff", "stocktake", "stocktake_item", "promotion",
-            "order_promotion", "master_changelog", "sync_watermark", "print_template",
+            "spu",
+            "sku",
+            "inv_stock",
+            "inv_trans",
+            "sales_order",
+            "sales_order_item",
+            "parked_order",
+            "sales_return",
+            "sales_return_item",
+            "shift",
+            "sync_queue",
+            "system_config",
+            "daily_summary",
+            "license_local",
+            "license_audit",
+            "license_state",
+            "role",
+            "permission",
+            "role_permission",
+            "role_limit",
+            "user_account",
+            "operation_audit",
+            "member",
+            "member_asset",
+            "member_asset_log",
+            "coupon",
+            "payment_record",
+            "refund_record",
+            "reconcile_record",
+            "platform_cert",
+            "supplier",
+            "purchase_order",
+            "purchase_order_item",
+            "purchase_receipt",
+            "purchase_receipt_diff",
+            "stocktake",
+            "stocktake_item",
+            "promotion",
+            "order_promotion",
+            "master_changelog",
+            "sync_watermark",
+            "print_template",
             "print_retry_queue",
         ];
         for t in tables {

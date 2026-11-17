@@ -52,9 +52,7 @@ pub fn parse_and_verify(token: &str, public_key: &[u8; 32]) -> Result<(LicensePa
     let sig_bytes = URL_SAFE_NO_PAD
         .decode(sig_b64)
         .map_err(|_| LicenseError::InvalidBase64)?;
-    let sig_arr: [u8; 64] = sig_bytes
-        .try_into()
-        .map_err(|_| LicenseError::Malformed)?;
+    let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| LicenseError::Malformed)?;
 
     let vk = VerifyingKey::from_bytes(public_key).map_err(|_| LicenseError::SigningKey)?;
     let sig = Signature::from_bytes(&sig_arr).map_err(|_| LicenseError::SignatureInvalid)?;
@@ -144,7 +142,10 @@ mod tests {
         parts[0] = Box::leak(URL_SAFE_NO_PAD.encode(decoded).into_boxed_str());
         let bad = parts.join(".");
         let err = parse_and_verify(&bad, sk.verifying_key().as_bytes()).unwrap_err();
-        assert!(matches!(err, CoreError::License(LicenseError::SignatureInvalid)));
+        assert!(matches!(
+            err,
+            CoreError::License(LicenseError::SignatureInvalid)
+        ));
     }
 
     #[test]
@@ -156,7 +157,10 @@ mod tests {
         let sig = sk.sign(&json);
         let token = encode_license(&payload, &sig.to_bytes()).unwrap();
         let err = parse_and_verify(&token, other.verifying_key().as_bytes()).unwrap_err();
-        assert!(matches!(err, CoreError::License(LicenseError::SignatureInvalid)));
+        assert!(matches!(
+            err,
+            CoreError::License(LicenseError::SignatureInvalid)
+        ));
     }
 
     #[test]

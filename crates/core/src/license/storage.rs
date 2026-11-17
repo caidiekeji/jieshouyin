@@ -100,8 +100,7 @@ impl SecureStore for EncryptedFileStore {
         out.extend_from_slice(&nonce_bytes);
         out.extend_from_slice(&ciphertext);
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| CoreError::SecureStorage(e.to_string()))?;
+            std::fs::create_dir_all(parent).map_err(|e| CoreError::SecureStorage(e.to_string()))?;
         }
         std::fs::write(&self.path, out).map_err(|e| CoreError::SecureStorage(e.to_string()))?;
         Ok(())
@@ -265,7 +264,9 @@ mod tests {
         let b = bundle();
         mirror_to_db(&conn, &b).unwrap();
         mirror_to_db(&conn, &b).unwrap();
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM license_local", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM license_local", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
     }
 }

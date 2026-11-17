@@ -74,13 +74,25 @@ pub fn recharge(
 ) -> Result<()> {
     let now = format_utc(&Utc::now());
     append_asset_log(
-        conn, member_id, PRINCIPAL, principal_cents, "RECHARGE", None,
-        &format!("RECHARGE:{recharge_no}:{PRINCIPAL}"), &now,
+        conn,
+        member_id,
+        PRINCIPAL,
+        principal_cents,
+        "RECHARGE",
+        None,
+        &format!("RECHARGE:{recharge_no}:{PRINCIPAL}"),
+        &now,
     )?;
     if bonus_cents > 0 {
         append_asset_log(
-            conn, member_id, BONUS, bonus_cents, "RECHARGE_BONUS", None,
-            &format!("RECHARGE:{recharge_no}:{BONUS}"), &now,
+            conn,
+            member_id,
+            BONUS,
+            bonus_cents,
+            "RECHARGE_BONUS",
+            None,
+            &format!("RECHARGE:{recharge_no}:{BONUS}"),
+            &now,
         )?;
     }
     Ok(())
@@ -121,14 +133,26 @@ pub fn deduct(
     let now = format_utc(&Utc::now());
     if bonus_use > 0 {
         append_asset_log(
-            conn, member_id, BONUS, -bonus_use, "SALE", Some(order_no),
-            &format!("SALE:{order_no}:{BONUS}"), &now,
+            conn,
+            member_id,
+            BONUS,
+            -bonus_use,
+            "SALE",
+            Some(order_no),
+            &format!("SALE:{order_no}:{BONUS}"),
+            &now,
         )?;
     }
     if principal_use > 0 {
         append_asset_log(
-            conn, member_id, PRINCIPAL, -principal_use, "SALE", Some(order_no),
-            &format!("SALE:{order_no}:{PRINCIPAL}"), &now,
+            conn,
+            member_id,
+            PRINCIPAL,
+            -principal_use,
+            "SALE",
+            Some(order_no),
+            &format!("SALE:{order_no}:{PRINCIPAL}"),
+            &now,
         )?;
     }
     Ok(Deduction {
@@ -161,14 +185,26 @@ pub fn refund_mirror(
     let now = format_utc(&Utc::now());
     if bonus_back > 0 {
         append_asset_log(
-            conn, member_id, BONUS, bonus_back, "REFUND", Some(order_no),
-            &format!("REFUND:{refund_no}:{BONUS}"), &now,
+            conn,
+            member_id,
+            BONUS,
+            bonus_back,
+            "REFUND",
+            Some(order_no),
+            &format!("REFUND:{refund_no}:{BONUS}"),
+            &now,
         )?;
     }
     if principal_back > 0 {
         append_asset_log(
-            conn, member_id, PRINCIPAL, principal_back, "REFUND", Some(order_no),
-            &format!("REFUND:{refund_no}:{PRINCIPAL}"), &now,
+            conn,
+            member_id,
+            PRINCIPAL,
+            principal_back,
+            "REFUND",
+            Some(order_no),
+            &format!("REFUND:{refund_no}:{PRINCIPAL}"),
+            &now,
         )?;
     }
     Ok(Deduction {
@@ -190,8 +226,14 @@ pub fn accrue_points(
         return Ok(());
     }
     append_asset_log(
-        conn, member_id, POINTS, points, "SALE_POINTS", Some(order_no),
-        &format!("SALE:{order_no}:{POINTS}"), &format_utc(&Utc::now()),
+        conn,
+        member_id,
+        POINTS,
+        points,
+        "SALE_POINTS",
+        Some(order_no),
+        &format!("SALE:{order_no}:{POINTS}"),
+        &format_utc(&Utc::now()),
     )?;
     Ok(())
 }
@@ -241,7 +283,11 @@ mod tests {
     fn setup() -> Connection {
         let mut c = open_in_memory().unwrap();
         run_migrations(&mut c).unwrap();
-        c.execute("INSERT INTO member(phone, member_code) VALUES ('13800000000','M1')", []).unwrap();
+        c.execute(
+            "INSERT INTO member(phone, member_code) VALUES ('13800000000','M1')",
+            [],
+        )
+        .unwrap();
         c
     }
 
@@ -250,8 +296,20 @@ mod tests {
         let c = setup();
         recharge(&c, 1, "R1", 10000, 2000).unwrap();
         let d = deduct(&c, 1, "ORD1", 1500).unwrap();
-        assert_eq!(d, Deduction { bonus_cents: 1500, principal_cents: 0 });
-        let bonus: i64 = c.query_row("SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='BONUS'", [], |r| r.get(0)).unwrap();
+        assert_eq!(
+            d,
+            Deduction {
+                bonus_cents: 1500,
+                principal_cents: 0
+            }
+        );
+        let bonus: i64 = c
+            .query_row(
+                "SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='BONUS'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(bonus, 500);
     }
 
@@ -260,7 +318,13 @@ mod tests {
         let c = setup();
         recharge(&c, 1, "R1", 10000, 2000).unwrap();
         let d = deduct(&c, 1, "ORD1", 5000).unwrap();
-        assert_eq!(d, Deduction { bonus_cents: 2000, principal_cents: 3000 });
+        assert_eq!(
+            d,
+            Deduction {
+                bonus_cents: 2000,
+                principal_cents: 3000
+            }
+        );
     }
 
     #[test]
@@ -271,8 +335,20 @@ mod tests {
         let d = deduct(&c, 1, "ORD1", 2000).unwrap();
         assert_eq!(d.bonus_cents, 2000);
         refund_mirror(&c, 1, "RF1", "ORD1", 1000, d).unwrap();
-        let bonus: i64 = c.query_row("SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='BONUS'", [], |r| r.get(0)).unwrap();
-        let principal: i64 = c.query_row("SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='PRINCIPAL'", [], |r| r.get(0)).unwrap();
+        let bonus: i64 = c
+            .query_row(
+                "SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='BONUS'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let principal: i64 = c
+            .query_row(
+                "SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='PRINCIPAL'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(bonus, 1000);
         assert_eq!(principal, 10000, "本金不得虚增");
     }
@@ -289,20 +365,53 @@ mod tests {
     fn idempotency_prevents_double_deduct() {
         let c = setup();
         let now = format_utc(&Utc::now());
-        assert!(append_asset_log(&c, 1, PRINCIPAL, -100, "SALE", Some("O1"), "SALE:O1:PRINCIPAL", &now).unwrap());
-        assert!(!append_asset_log(&c, 1, PRINCIPAL, -100, "SALE", Some("O1"), "SALE:O1:PRINCIPAL", &now).unwrap());
-        let bal: i64 = c.query_row("SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='PRINCIPAL'", [], |r| r.get(0)).unwrap();
+        assert!(append_asset_log(
+            &c,
+            1,
+            PRINCIPAL,
+            -100,
+            "SALE",
+            Some("O1"),
+            "SALE:O1:PRINCIPAL",
+            &now
+        )
+        .unwrap());
+        assert!(!append_asset_log(
+            &c,
+            1,
+            PRINCIPAL,
+            -100,
+            "SALE",
+            Some("O1"),
+            "SALE:O1:PRINCIPAL",
+            &now
+        )
+        .unwrap());
+        let bal: i64 = c
+            .query_row(
+                "SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='PRINCIPAL'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(bal, -100);
     }
 
     #[test]
     fn coupon_illegal_transition_rejected() {
         let c = setup();
-        c.execute("INSERT INTO coupon(coupon_code, discount_cents) VALUES ('C1', 1000)", []).unwrap();
+        c.execute(
+            "INSERT INTO coupon(coupon_code, discount_cents) VALUES ('C1', 1000)",
+            [],
+        )
+        .unwrap();
         transition_coupon(&c, "C1", "LOCKED").unwrap();
         transition_coupon(&c, "C1", "REDEEMED").unwrap();
         transition_coupon(&c, "C1", "REFUNDED").unwrap();
-        assert!(transition_coupon(&c, "C1", "REDEEMED").is_err(), "REFUNDED 为终态");
+        assert!(
+            transition_coupon(&c, "C1", "REDEEMED").is_err(),
+            "REFUNDED 为终态"
+        );
     }
 
     #[test]
@@ -313,16 +422,48 @@ mod tests {
             [],
         ).unwrap();
         expire_lazy(&c, "C2", "2026-11-17T00:00:00Z").unwrap();
-        let s: String = c.query_row("SELECT status FROM coupon WHERE coupon_code='C2'", [], |r| r.get(0)).unwrap();
+        let s: String = c
+            .query_row(
+                "SELECT status FROM coupon WHERE coupon_code='C2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(s, "EXPIRED");
     }
 
     #[test]
     fn points_allow_negative() {
         let c = setup();
-        append_asset_log(&c, 1, POINTS, 10, "EARN", None, "E:1", "2026-01-01T00:00:00Z").unwrap();
-        append_asset_log(&c, 1, POINTS, -20, "REFUND", None, "E:2", "2026-01-01T00:00:00Z").unwrap();
-        let bal: i64 = c.query_row("SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='POINTS'", [], |r| r.get(0)).unwrap();
+        append_asset_log(
+            &c,
+            1,
+            POINTS,
+            10,
+            "EARN",
+            None,
+            "E:1",
+            "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
+        append_asset_log(
+            &c,
+            1,
+            POINTS,
+            -20,
+            "REFUND",
+            None,
+            "E:2",
+            "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
+        let bal: i64 = c
+            .query_row(
+                "SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='POINTS'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(bal, -10);
     }
 

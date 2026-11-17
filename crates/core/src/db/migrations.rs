@@ -455,11 +455,35 @@ INSERT INTO print_template(template_id, paper_width_mm, content_json, is_default
 
 pub fn all() -> Vec<Migration> {
     vec![
-        Migration { version: 1, name: "init_core", up: M0001 },
-        Migration { version: 2, name: "license_rbac", up: M0002 },
-        Migration { version: 3, name: "member", up: M0003 },
-        Migration { version: 4, name: "payment", up: M0004 },
-        Migration { version: 5, name: "purchase_stocktake", up: M0005 },
-        Migration { version: 6, name: "promo_print_report", up: M0006 },
+        Migration {
+            version: 1,
+            name: "init_core",
+            up: M0001,
+        },
+        Migration {
+            version: 2,
+            name: "license_rbac",
+            up: M0002,
+        },
+        Migration {
+            version: 3,
+            name: "member",
+            up: M0003,
+        },
+        Migration {
+            version: 4,
+            name: "payment",
+            up: M0004,
+        },
+        Migration {
+            version: 5,
+            name: "purchase_stocktake",
+            up: M0005,
+        },
+        Migration {
+            version: 6,
+            name: "promo_print_report",
+            up: M0006,
+        },
     ]
 }

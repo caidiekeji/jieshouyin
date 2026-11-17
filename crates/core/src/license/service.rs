@@ -303,13 +303,19 @@ impl LicenseService {
                 conn,
                 AuditEvent::GracePeriodEntered,
                 Some(&payload.license_id),
-                None, None, json!({}), &now,
+                None,
+                None,
+                json!({}),
+                &now,
             )?,
             LicenseStatus::OFFLINE_DEGRADED => append_audit(
                 conn,
                 AuditEvent::DegradedEntered,
                 Some(&payload.license_id),
-                None, None, json!({}), &now,
+                None,
+                None,
+                json!({}),
+                &now,
             )?,
             _ => {}
         }
@@ -387,8 +393,15 @@ mod tests {
 
         fn service(&self, last: &str) -> LicenseService {
             let store = Arc::new(PlainStore::new(self.dir.join("license.json")));
-            let clock = Box::new(FixedClock::new(parse_rfc3339("2027-01-05T00:00:00Z").unwrap()));
-            LicenseService::new(store, *self.sk.verifying_key().as_bytes(), clock, parse_rfc3339(last).unwrap())
+            let clock = Box::new(FixedClock::new(
+                parse_rfc3339("2027-01-05T00:00:00Z").unwrap(),
+            ));
+            LicenseService::new(
+                store,
+                *self.sk.verifying_key().as_bytes(),
+                clock,
+                parse_rfc3339(last).unwrap(),
+            )
         }
 
         fn conn(&self) -> Connection {
@@ -403,7 +416,11 @@ mod tests {
                 product: "checkout-r".into(),
                 license_type: license_type.into(),
                 issued_at: "2026-01-01T00:00:00Z".into(),
-                valid_until: if license_type == "ANNUAL" { Some(valid_until.into()) } else { None },
+                valid_until: if license_type == "ANNUAL" {
+                    Some(valid_until.into())
+                } else {
+                    None
+                },
                 maintenance_until: Some(valid_until.into()),
                 grace_period_days: grace,
                 max_devices: 1,
