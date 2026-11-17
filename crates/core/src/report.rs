@@ -211,8 +211,8 @@ mod tests {
     fn reconcile_csv_negative_amount() {
         let c = setup();
         c.execute(
-            "INSERT INTO reconcile_record(recon_date,channel,local_amount_cents,channel_amount_cents,diff_type)
-             VALUES ('2026-11-17','WECHAT',100,150,'AMOUNT_MISMATCH')",
+            "INSERT INTO reconcile_record(recon_date,channel,local_amount_cents,channel_amount_cents,diff_type,created_at)
+             VALUES ('2026-11-17','WECHAT',100,150,'AMOUNT_MISMATCH','2026-11-17T23:59:00Z')",
             [],
         ).unwrap();
         let csv = export_reconcile_csv(&c, "2026-11-17").unwrap();

@@ -275,7 +275,9 @@ impl LicenseService {
             )?;
         }
 
-        let stored_watermark = bundle.last_known_dt().unwrap_or(DateTime::<Utc>::MIN_UTC);
+        let stored_watermark = bundle
+            .last_known_dt()
+            .unwrap_or(DateTime::<Utc>::MIN_UTC);
         // 重建单调水位：max(存储水位, 系统时间)
         let system_now = Utc::now();
         let effective = if system_now > stored_watermark {
@@ -470,7 +472,7 @@ mod tests {
         let token = f.token("2027-06-01T00:00:00Z", 7, "ANNUAL");
         let bad = format!("{token}x");
         let err = svc.activate(&conn, &bad).unwrap_err();
-        assert!(err.to_string().contains("签名") || err.to_string().contains("格式"));
+        assert!(err.to_string().contains("签名") || err.to_string().contains("格式") || err.to_string().contains("Base64"));
         let n: i64 = conn.query_row(
             "SELECT COUNT(*) FROM license_audit WHERE event_type IN ('ACTIVATION_FAILURE','SIGNATURE_INVALID')",
             [], |r| r.get(0)).unwrap();

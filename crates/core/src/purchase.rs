@@ -160,7 +160,7 @@ pub fn approve_stocktake(conn: &Connection, task_no: &str, approver_id: i64) -> 
             apply_event(
                 &tx,
                 sku,
-                diff.abs(),
+                diff, // 带符号差值：盘盈为正、盘亏为负
                 TransType::ADJUST,
                 Some(task_no),
                 Some(approver_id),
@@ -193,6 +193,12 @@ mod tests {
         .unwrap();
         c.execute(
             "INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'B1',1000)",
+            [],
+        )
+        .unwrap();
+        // 初始店仓库存行（库存为投影，SKU 建档即建 0 行）
+        c.execute(
+            "INSERT INTO inv_stock(sku_id,warehouse_type,qty,version) VALUES (1,'STORE',0,1)",
             [],
         )
         .unwrap();

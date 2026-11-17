@@ -467,8 +467,13 @@ mod tests {
             amount_cents: 6000,
             limit_key: Some("refund.max_cents"),
         };
-        // admin 无限额，需改用 cashier role_id
-        assert!(guard(&c, &req).is_ok());
+        // CASHIER(role_id=1) 有 pos.refund 权限，限额 refund.max_cents=5000
+        assert!(guard(&c, &req).is_err(), "6000 > 5000 必须触发限额");
+        let req_ok = GuardRequest {
+            amount_cents: 5000, // 等于限额：允许（超限才是拒绝）
+            ..req
+        };
+        assert!(guard(&c, &req_ok).is_ok());
     }
 
     #[test]

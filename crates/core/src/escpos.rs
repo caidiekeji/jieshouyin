@@ -248,22 +248,16 @@ use qrcode::QrCode;
 /// GB18030（用 encoding_rs 的 GBK，覆盖常用汉字）；不可编码字符回退位图占位。
 fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
     // 先整体尝试 GBK 编码（覆盖常用汉字）；无无法编码字符则直接返回。
-    let mut whole = Vec::new();
-    let (_, _, _, whole_had_errors) = encoding_rs::GBK
-        .new_encoder()
-        .encode_from_utf8(text, &mut whole, true);
+    let (bytes, _, whole_had_errors) = encoding_rs::GBK.encode(text);
     if !whole_had_errors {
-        return Ok(whole);
+        return Ok(bytes.into_owned());
     }
     // 位图回退：逐字符编码，不可编码字符生成 GS v 0 点阵占位。
     let mut out = Vec::new();
     for ch in text.chars() {
         let mut single = [0u8; 4];
         let s = ch.encode_utf8(&mut single);
-        let mut enc = Vec::new();
-        let (_, _, _, had_errors) = encoding_rs::GBK
-            .new_encoder()
-            .encode_from_utf8(s, &mut enc, true);
+        let (enc, _, had_errors) = encoding_rs::GBK.encode(s);
         if !had_errors {
             out.extend_from_slice(&enc);
         } else {

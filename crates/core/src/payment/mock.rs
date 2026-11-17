@@ -32,13 +32,13 @@ impl MockGateway {
     }
 
     /// 设置撤销时返回"订单已支付"的剧本。
+    /// 保持初始状态（通常 USERPAYING），使轮询超时后撤销遇已支付。
     pub fn set_cancel_paid(&self, out_trade_no: &str) {
         self.inner
             .lock()
             .unwrap()
             .cancel_paid
             .insert(out_trade_no.into());
-        self.set_state(out_trade_no, PaymentState::SUCCESS);
     }
 
     pub fn refund_count(&self) -> usize {

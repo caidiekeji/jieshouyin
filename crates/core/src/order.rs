@@ -360,6 +360,12 @@ mod tests {
             [],
         )
         .unwrap();
+        // 初始店仓库存行（库存为投影，SKU 建档即建 0 行）
+        c.execute(
+            "INSERT INTO inv_stock(sku_id,warehouse_type,qty,version) VALUES (1,'STORE',0,1)",
+            [],
+        )
+        .unwrap();
         c
     }
 

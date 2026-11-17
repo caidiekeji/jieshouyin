@@ -56,7 +56,9 @@ pub fn apply_event(
     operator_id: Option<i64>,
     allow_negative: bool,
 ) -> Result<i64> {
-    let signed = change_qty.abs() * trans_type.sign();
+    // change_qty 为带符号变化量（正入负出），乘以事件类型的固有方向。
+    // ADJUST 等中性类型符号为 +1，由调用方传入带符号差值（盘盈 + / 盘亏 -）。
+    let signed = change_qty * trans_type.sign();
     let current: i64 = tx
         .query_row(
             "SELECT qty FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",

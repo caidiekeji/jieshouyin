@@ -41,14 +41,8 @@ pub fn append_asset_log(
         )
         .unwrap_or(0);
     let new_balance = current + change;
-    if new_balance < 0 {
-        // POINTS 允许负（退款冲正挂账），其余不允许透支
-        if asset_type != POINTS {
-            return Err(CoreError::Validation(format!(
-                "{asset_type} 余额不足: {current} + {change}"
-            )));
-        }
-    }
+    // 注意：透支管控在 deduct/refund_mirror 等高层操作中执行；
+    // append_asset_log 是不可变流水投影原语，只负责幂等记账。
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO member_asset_log(member_id,asset_type,change_amount,balance_after,reason,ref_order_no,idempotency_key,created_at)

@@ -189,8 +189,10 @@ pub fn calc_promotions(
 
     // 第 3 层：券核销（门槛 = 应付额）
     let total_discount: i64 = applied.iter().map(|a| a.discount_cents).sum();
-    // 叠加上限：优惠 ≤ (1 - max_discount_ratio) * 原价
-    let max_allowed = ((original_total as f64) * (1.0 - max_discount_ratio)) as i64;
+    // 叠加上限：优惠 ≤ (1 - max_discount_ratio) * 原价。
+    // 用整数基点（bps）计算避免浮点误差（如 1.0-0.8=0.19999... 导致多削 1 分）。
+    let keep_bps = ((max_discount_ratio * 10000.0).round() as i64).clamp(0, 10000);
+    let max_allowed = original_total * (10000 - keep_bps) / 10000;
     if total_discount > max_allowed {
         let excess = total_discount - max_allowed;
         // 逆序削减：后应用的先削

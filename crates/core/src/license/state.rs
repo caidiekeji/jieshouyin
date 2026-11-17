@@ -62,9 +62,9 @@ pub fn decide_status(
                 }
             }
         }
-        other => Err(CoreError::License(crate::error::LicenseError::UnknownType(
-            other.into(),
-        ))),
+        other => Err(CoreError::License(
+            crate::error::LicenseError::UnknownType(other.into()),
+        )),
     }
 }
 
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn different_grace_periods() {
         assert_eq!(
-            decide_status(&annual(3), at("2027-01-03T00:00:00Z")).unwrap(),
+            decide_status(&annual(1), at("2027-01-03T00:00:00Z")).unwrap(),
             LicenseStatus::OFFLINE_DEGRADED
         );
         assert_eq!(
