@@ -20,3 +20,5 @@ tracing-appender.workspace = true
 
 [features]
 default = []
+# release 构建必须启用：嵌入 ui/dist 前端资源，否则运行时会去连 devUrl（localhost）
+custom-protocol = ["tauri/custom-protocol"]
