@@ -13,7 +13,7 @@ use super::payload::LicensePayload;
 pub struct LicenseBundle {
     pub token: String,
     pub payload: LicensePayload,
-    pub signature: [u8; 64],
+    pub signature: Vec<u8>,
     pub device_fingerprint: Option<String>,
     pub activated_at: String,
     pub last_known_time: String,
@@ -189,7 +189,7 @@ pub fn mirror_to_db(conn: &rusqlite::Connection, bundle: &LicenseBundle) -> Resu
         rusqlite::params![
             bundle.payload.license_id,
             serde_json::to_string(&bundle.payload)?,
-            hex::encode(bundle.signature),
+            hex::encode(&bundle.signature),
             bundle.device_fingerprint,
             bundle.activated_at,
             bundle.last_known_time,
@@ -221,7 +221,7 @@ mod tests {
                 store_id: "S".into(),
                 customer_name: "C".into(),
             },
-            signature: [7u8; 64],
+            signature: vec![7u8; 64],
             device_fingerprint: None,
             activated_at: "2026-01-01T00:00:00Z".into(),
             last_known_time: "2026-01-01T00:00:00Z".into(),

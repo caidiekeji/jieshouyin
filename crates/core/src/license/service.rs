@@ -1,8 +1,7 @@
 //! 启动验证序列与激活/续期/换绑服务（§4.6、§4.7）。
 
-use crate::db::open_in_memory;
 use crate::error::{CoreError, LicenseError, Result};
-use crate::time::{format_utc, parse_rfc3339, Clock, MonotonicClock};
+use crate::time::{format_utc, Clock, MonotonicClock};
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde_json::json;
@@ -148,7 +147,7 @@ impl LicenseService {
         let bundle = LicenseBundle {
             token: token.to_string(),
             payload: payload.clone(),
-            signature: sig,
+            signature: sig.to_vec(),
             device_fingerprint: current_fp.clone(),
             activated_at: now.clone(),
             last_known_time: format_utc(&effective),
@@ -194,7 +193,7 @@ impl LicenseService {
             device_fingerprint: previous.device_fingerprint,
             activated_at: previous.activated_at,
             payload: payload.clone(),
-            signature: sig,
+            signature: sig.to_vec(),
             last_known_time: format_utc(&effective),
         };
         self.store.save(&bundle)?;
@@ -372,7 +371,8 @@ mod tests {
     use super::*;
     use crate::license::payload::LicensePayload;
     use crate::license::storage::PlainStore;
-    use crate::time::FixedClock;
+    use crate::time::{parse_rfc3339, FixedClock};
+    use crate::db::open_in_memory;
     use ed25519_dalek::{Signer, SigningKey};
 
     struct Fixture {
@@ -387,7 +387,12 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             Self {
                 dir,
-                sk: SigningKey::generate(&mut rand::rngs::OsRng),
+                sk: {
+                    use rand::RngCore;
+                    let mut b = [0u8; 32];
+                    rand::rngs::OsRng.fill_bytes(&mut b);
+                    SigningKey::from_bytes(&b)
+                },
             }
         }
 

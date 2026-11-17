@@ -7,7 +7,6 @@ use argon2::password_hash::{PasswordHash, SaltString};
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, PasswordVerifier, Version};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde_json::json;
 
 /// argon2id 参数（§2、§12.3）：m=19456 KiB, t=2, p=1。
 pub fn hash_password(password: &str) -> Result<String> {
@@ -278,6 +277,7 @@ pub fn audit_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use crate::db::{open_in_memory, run_migrations};
     use crate::license::{LicensePayload, LicenseSnapshot, LicenseStatus};
 

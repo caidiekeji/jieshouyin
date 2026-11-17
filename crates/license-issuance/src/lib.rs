@@ -16,8 +16,10 @@ pub fn signing_key_from_hex(hex_key: &str) -> Result<SigningKey> {
 
 /// 生成新密钥对（init 用）。返回 (私钥 hex, 公钥 hex)。
 pub fn generate_keypair() -> (String, String) {
-    let mut rng = rand::rngs::OsRng;
-    let sk = SigningKey::generate(&mut rng);
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let sk = SigningKey::from_bytes(&bytes);
     (
         hex::encode(sk.to_bytes()),
         hex::encode(sk.verifying_key().to_bytes()),

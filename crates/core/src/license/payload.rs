@@ -55,9 +55,8 @@ pub fn parse_and_verify(token: &str, public_key: &[u8; 32]) -> Result<(LicensePa
     let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| LicenseError::Malformed)?;
 
     let vk = VerifyingKey::from_bytes(public_key).map_err(|_| LicenseError::SigningKey)?;
-    let sig = Signature::from_bytes(&sig_arr).map_err(|_| LicenseError::SignatureInvalid)?;
-    vk.verify(&json, &sig)
-        .map_err(|_| LicenseError::SignatureInvalid)?;
+    let sig = Signature::from_bytes(&sig_arr);
+    vk.verify(&json, &sig).map_err(|_| LicenseError::SignatureInvalid)?;
 
     let payload: LicensePayload = serde_json::from_slice(&json)?;
     validate_payload(&payload)?;
@@ -99,6 +98,13 @@ mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use rand::rngs::OsRng;
+    use rand::RngCore;
+
+    fn test_key() -> SigningKey {
+        let mut bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut bytes);
+        SigningKey::from_bytes(&bytes)
+    }
 
     fn sample() -> LicensePayload {
         LicensePayload {
@@ -119,8 +125,7 @@ mod tests {
 
     #[test]
     fn valid_license_roundtrip() {
-        let mut rng = OsRng;
-        let sk = SigningKey::generate(&mut rng);
+        let sk = test_key();
         let payload = sample();
         let json = serde_json::to_vec(&payload).unwrap();
         let sig = sk.sign(&json);
@@ -131,7 +136,7 @@ mod tests {
 
     #[test]
     fn tampered_payload_rejected() {
-        let sk = SigningKey::generate(&mut OsRng);
+        let sk = test_key();
         let payload = sample();
         let json = serde_json::to_vec(&payload).unwrap();
         let sig = sk.sign(&json);
@@ -150,8 +155,8 @@ mod tests {
 
     #[test]
     fn wrong_public_key_rejected() {
-        let sk = SigningKey::generate(&mut OsRng);
-        let other = SigningKey::generate(&mut OsRng);
+        let sk = test_key();
+        let other = test_key();
         let payload = sample();
         let json = serde_json::to_vec(&payload).unwrap();
         let sig = sk.sign(&json);
@@ -165,7 +170,7 @@ mod tests {
 
     #[test]
     fn malformed_and_oversize_rejected() {
-        let sk = SigningKey::generate(&mut OsRng);
+        let sk = test_key();
         assert!(parse_and_verify("no-dot", sk.verifying_key().as_bytes()).is_err());
         assert!(parse_and_verify(&"x".repeat(4097), sk.verifying_key().as_bytes()).is_err());
     }
@@ -173,7 +178,8 @@ mod tests {
     #[test]
     fn display_groups_64() {
         let s = "a".repeat(130);
-        let lines: Vec<&str> = format_for_display(&s).lines().collect();
+        let formatted = format_for_display(&s);
+        let lines: Vec<&str> = formatted.lines().collect();
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0].len(), 64);
         assert_eq!(lines[2].len(), 2);

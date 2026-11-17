@@ -84,8 +84,7 @@ fn read_machine_guid() -> Option<String> {
 
 #[cfg(windows)]
 fn read_volume_serial() -> Option<String> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
+    use std::ptr;
     use windows_sys::Win32::Storage::FileSystem::GetVolumeInformationW;
 
     let root: Vec<u16> = "C:\\\0".encode_utf16().collect();
@@ -121,7 +120,6 @@ fn read_volume_serial() -> Option<String> {
         };
         if rc2 == 0 {
             // 指纹计算失败不影响激活，降级为未绑定
-            let _ = OsString::from("fallback");
             return None;
         }
     }

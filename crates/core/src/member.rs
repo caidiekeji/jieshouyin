@@ -6,7 +6,6 @@ use crate::error::{CoreError, Result};
 use crate::time::format_utc;
 use chrono::Utc;
 use rusqlite::{params, Connection};
-use serde_json::json;
 
 pub const PRINCIPAL: &str = "PRINCIPAL";
 pub const BONUS: &str = "BONUS";
@@ -49,7 +48,7 @@ pub fn append_asset_log(
             )));
         }
     }
-    let tx = conn.transaction()?;
+    let tx = conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO member_asset_log(member_id,asset_type,change_amount,balance_after,reason,ref_order_no,idempotency_key,created_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
@@ -278,6 +277,7 @@ pub fn expire_lazy(conn: &Connection, coupon_code: &str, now: &str) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use crate::db::{open_in_memory, run_migrations};
 
     fn setup() -> Connection {

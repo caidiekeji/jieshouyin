@@ -10,6 +10,13 @@ pub trait Clock: Send + Sync {
     fn now(&self) -> DateTime<Utc>;
 }
 
+/// 允许 Box<dyn Clock> 本身作为 Clock 使用（MonotonicClock 泛型需要）。
+impl Clock for Box<dyn Clock> {
+    fn now(&self) -> DateTime<Utc> {
+        (**self).now()
+    }
+}
+
 /// 生产时钟：读取系统 UTC 时间。这是唯一允许直接读系统时间的地方。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemClock;

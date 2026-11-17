@@ -7,6 +7,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(non_camel_case_types)] // 事件类型字符串与文档 §10.1 一致
 pub enum TransType {
     PURCHASE_IN,
     SALE,

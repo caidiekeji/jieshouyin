@@ -1,11 +1,10 @@
 //! 支付渠道子系统（§6）。统一 trait 隔离渠道实现；桌面端不开监听端口；
 //! v1 闭环 = 付款码同步/轮询 + Native 查单轮询，不依赖回调。
 
-use crate::error::{CoreError, Result};
-use std::collections::HashMap;
-use std::sync::Mutex;
+use crate::error::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)] // 状态/类型字符串与文档一致
 pub enum Channel {
     CASH,
     WECHAT,
@@ -25,6 +24,7 @@ impl Channel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)] // 状态/类型字符串与文档一致
 pub enum PayMode {
     MICROPAY,
     NATIVE,
@@ -213,6 +213,7 @@ pub fn route_refund(shares: &[(Channel, i64)], total: i64) -> Result<Vec<(Channe
 
 /// 对账差异分级（§6.7）：只告警冻结，绝不自动抹平。
 #[derive(Debug, Clone, PartialEq)]
+#[allow(non_camel_case_types)] // 状态/类型字符串与文档一致
 pub enum DiffType {
     MISSING_REMOTE,
     MISSING_LOCAL,
@@ -241,6 +242,7 @@ pub mod mock;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     #[test]
     fn out_trade_no_attempts() {

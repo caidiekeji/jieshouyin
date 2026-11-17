@@ -42,7 +42,7 @@ pub fn receive_purchase(
         |r| r.get(0),
     )?;
     if status == "RECEIVED" || status == "CLOSED" {
-        return Err(CoreError::Validation("采购单已验收，不可重复验收"));
+        return Err(CoreError::Validation("采购单已验收，不可重复验收".into()));
     }
     let receipt_id = {
         conn.execute(

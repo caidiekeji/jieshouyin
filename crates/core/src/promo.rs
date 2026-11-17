@@ -43,6 +43,7 @@ impl CartLine {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(non_camel_case_types)] // 状态/类型字符串与文档一致
 pub enum Scope {
     SINGLE_ITEM,
     ORDER_LEVEL,

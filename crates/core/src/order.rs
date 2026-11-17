@@ -5,11 +5,12 @@
 use crate::error::{CoreError, Result};
 use crate::inventory::{allows_negative, apply_event, TransType};
 use crate::time::format_utc;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use rusqlite::{params, Connection};
 use serde_json::json;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)] // 状态/类型字符串与文档一致
 pub enum OrderStatus {
     PENDING_PAYMENT,
     COMPLETED,
@@ -135,7 +136,7 @@ pub fn cancel_order(tx: &Connection, order_no: &str) -> Result<()> {
         |r| r.get(0),
     )?;
     if status != "PENDING_PAYMENT" {
-        return Err(CoreError::Validation("仅待支付订单可取消"));
+        return Err(CoreError::Validation("仅待支付订单可取消".into()));
     }
     tx.execute(
         "UPDATE sales_order SET status='CANCELED' WHERE order_no=?1",
@@ -158,11 +159,11 @@ pub fn void_order(
         |r| r.get(0),
     )?;
     if paid_via_scan {
-        return Err(CoreError::Validation("扫码已支付订单只能退款，不能作废"));
+        return Err(CoreError::Validation("扫码已支付订单只能退款，不能作废".into()));
     }
     let allowed = status == "PENDING_PAYMENT" || (status == "COMPLETED" && is_today);
     if !allowed {
-        return Err(CoreError::Validation("该订单不满足作废条件"));
+        return Err(CoreError::Validation("该订单不满足作废条件".into()));
     }
     if status == "COMPLETED" {
         let items: Vec<(i64, i64)> = {
@@ -260,7 +261,7 @@ pub fn create_return(
             |r| r.get(0),
         )?;
         if already + qty > line_qty {
-            return Err(CoreError::Validation("累计退货数量超过行数量"));
+            return Err(CoreError::Validation("累计退货数量超过行数量".into()));
         }
         tx.execute(
             "UPDATE sales_order_item SET returned_qty=?1 WHERE item_id=?2",

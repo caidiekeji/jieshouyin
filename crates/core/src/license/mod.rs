@@ -11,7 +11,7 @@ pub mod storage;
 pub use audit::AuditEvent;
 pub use fingerprint::device_fingerprint;
 pub use payload::{encode_license, parse_and_verify, LicensePayload};
-pub use service::LicenseService;
+pub use service::{LicenseService, LicenseSnapshot};
 pub use state::{decide_status, LicenseStatus};
 pub use storage::{LicenseBundle, SecureStore};
 

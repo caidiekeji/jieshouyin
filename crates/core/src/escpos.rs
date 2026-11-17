@@ -197,7 +197,7 @@ pub fn render_receipt(
                 let qr = QrCode::new(content.as_bytes())
                     .map_err(|e| CoreError::Print(format!("二维码生成失败: {e}")))?;
                 let matrix = qr
-                    .render::<u8>()
+                    .render::<bool>()
                     .quiet_zone(false)
                     .module_dimensions(1, 1)
                     .build();
@@ -213,7 +213,7 @@ pub fn render_receipt(
                         let mut b = 0u8;
                         for bit in 0..8 {
                             let col = byte * 8 + bit;
-                            if col < modules && matrix[(col, row)] != 0 {
+                            if col < modules && matrix[(col, row)] {
                                 b |= 0x80 >> bit;
                             }
                         }
@@ -226,7 +226,7 @@ pub fn render_receipt(
                             let mut b = 0u8;
                             for bit in 0..8 {
                                 let col = byte * 8 + bit;
-                                if col < modules && matrix[(col, row)] != 0 {
+                                if col < modules && matrix[(col, row)] {
                                     b |= 0x80 >> bit;
                                 }
                             }
@@ -260,32 +260,28 @@ use qrcode::QrCode;
 
 /// GB18030（用 encoding_rs 的 GBK，覆盖常用汉字）；不可编码字符回退位图占位。
 fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
-    let encoder = encoding_rs::GBK.new_encoder();
-    let (result, _, replaced) = encoder.encode_from_utf8(text, &mut Vec::new(), true);
-    if !replaced {
-        let mut out = Vec::new();
-        let (_, _, r) = encoding_rs::GBK
-            .new_encoder()
-            .encode_from_utf8(text, &mut out, true);
-        if !r {
-            return Ok(out);
-        }
+    // 先整体尝试 GBK 编码（覆盖常用汉字）；无无法编码字符则直接返回。
+    let mut whole = Vec::new();
+    let (_, _, _, whole_had_errors) = encoding_rs::GBK
+        .new_encoder()
+        .encode_from_utf8(text, &mut whole, true);
+    if !whole_had_errors {
+        return Ok(whole);
     }
-    // 位图回退：对不可编码字符生成 12x12 点阵占位（GS v 0 头 + 数据）
+    // 位图回退：逐字符编码，不可编码字符生成 GS v 0 点阵占位。
     let mut out = Vec::new();
     for ch in text.chars() {
         let mut single = [0u8; 4];
         let s = ch.encode_utf8(&mut single);
         let mut enc = Vec::new();
-        let (_, _, r) = encoding_rs::GBK
+        let (_, _, _, had_errors) = encoding_rs::GBK
             .new_encoder()
             .encode_from_utf8(s, &mut enc, true);
-        if !r {
+        if !had_errors {
             out.extend_from_slice(&enc);
         } else {
             out.extend_from_slice(GS_V0);
             out.extend_from_slice(&[0x00, 0x02, 0x00, 0x02]); // 16x16 dots
-                                                              // 简单框形占位
             for row in 0..2u8 {
                 for col in 0..2u8 {
                     out.push(if row == 0 || col == 0 { 0x80 } else { 0x01 });
@@ -293,7 +289,6 @@ fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
             }
         }
     }
-    let _ = result;
     Ok(out)
 }
 

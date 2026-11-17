@@ -1,9 +1,7 @@
 //! 授权审计（§4.9）：只增不改，不存完整激活码明文。
 
-use crate::db::open_in_memory;
 use crate::error::Result;
 use rusqlite::{params, Connection};
-use serde_json::json;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AuditEvent {
@@ -92,11 +90,10 @@ pub fn export_archive(conn: &Connection, before: &str) -> Result<String> {
             "{id},{ev},{},{},{},{},{at}\n",
             lic.unwrap_or_default(),
             hash.unwrap_or_default(),
-            fp.unwrap_or_default()
+            fp.unwrap_or_default(),
+            detail.unwrap_or_default()
         ));
-        let _ = detail; // detail 含 JSON 逗号，归档简化为列占位，完整记录仍在库中
     }
-    let _ = json!({});
     Ok(out)
 }
 
@@ -106,6 +103,7 @@ mod tests {
     use crate::db::{open_in_memory, run_migrations};
     use crate::time::format_utc;
     use chrono::Utc;
+    use serde_json::json;
 
     #[test]
     fn audit_appends_only() {
