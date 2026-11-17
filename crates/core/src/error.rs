@@ -1,5 +1,6 @@
 //! 统一错误类型。所有领域错误都映射为明确变体，禁止用 panic 处理可预期失败。
 
+use serde::Serializer;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -63,6 +64,14 @@ pub enum CoreError {
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
+
+/// Tauri IPC 要求命令错误可序列化：统一序列化为人类可读的错误消息字符串，
+/// 前端按 { message } 形态接收（Tauri 2 对 Serialize 错误会包装为字符串值）。
+impl serde::Serialize for CoreError {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum LicenseError {
