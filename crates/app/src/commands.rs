@@ -26,7 +26,7 @@ use checkout_core::promo::{Promotion, Scope as PromoScope};
 use checkout_core::rbac::{self, Session};
 use checkout_core::time::parse_rfc3339;
 use chrono::{DateTime, Utc};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Manager, State};
@@ -70,8 +70,6 @@ fn cfg_f64(conn: &Connection, key: &str, default: f64) -> f64 {
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(default)
 }
-
-use rusqlite::OptionalExtension;
 
 /// 启动：迁移 → 许可证验证 → 管理员初始化 → 加载状态。
 #[tauri::command]
@@ -488,7 +486,8 @@ pub fn checkout(
     let mut cart_lines: Vec<checkout_core::promo::CartLine> = Vec::new();
     for l in &lines {
         let mut cl = checkout_core::promo::CartLine::new(l.sku_id, l.qty, l.unit_price_cents)?;
-        if let Some(mid) = member_id {
+        // 识别到会员才装载会员价（未识别会员时按原价）
+        if member_id.is_some() {
             let mp: Option<i64> = conn
                 .query_row(
                     "SELECT member_price_cents FROM sku WHERE sku_id=?1",
@@ -3382,7 +3381,7 @@ pub fn get_order_detail(order_no: String, state: State<'_, AppState>) -> Result<
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::orderview::order_detail(&conn, order_no.trim())
+    checkout_core::orderview::order_detail(&conn, order_no.trim())?
         .ok_or_else(|| CoreError::Validation("订单不存在".into()))
 }
 
