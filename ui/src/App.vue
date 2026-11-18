@@ -2,8 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, formatMoney, today, type LicenseSnapshot, type ProductHit, type CartLine } from './api'
 import Icon from './components/Icon.vue'
+import ProductAdmin from './components/ProductAdmin.vue'
 
-type View = 'boot' | 'activate' | 'login' | 'pos' | 'parked' | 'report' | 'settings'
+type View = 'boot' | 'activate' | 'login' | 'pos' | 'products' | 'parked' | 'report' | 'settings'
 const view = ref<View>('boot')
 const bootError = ref('')
 const license = ref<LicenseSnapshot | null>(null)
@@ -213,6 +214,7 @@ onMounted(() => {
   if (saved) applyTheme(saved)
 })
 function goPOS() { view.value = 'pos' }
+function goProducts() { view.value = 'products' }
 function goParked() { loadParked() }
 function goReport() { view.value = 'report'; loadReport() }
 function goSettings() { view.value = 'settings' }
@@ -281,6 +283,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         <div class="logo"><Icon name="scan" :size="20" /><span>Checkout-R</span></div>
         <nav class="nav">
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="18" />收银</button>
+          <button :class="['nav-btn', { active: view === 'products' }]" @click="goProducts"><Icon name="box" :size="18" />商品</button>
           <button :class="['nav-btn', { active: view === 'parked' }]" @click="goParked"><Icon name="park" :size="18" />挂单</button>
           <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="18" />报表</button>
           <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="18" />设置</button>
@@ -339,6 +342,9 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           </div>
         </section>
       </main>
+
+      <!-- 商品管理 -->
+      <ProductAdmin v-else-if="view === 'products'" />
 
       <!-- 挂单 -->
       <main v-else-if="view === 'parked'" class="main-simple">

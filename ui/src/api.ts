@@ -29,6 +29,28 @@ export interface CartLine {
   name?: string
 }
 
+export interface ProductRow {
+  sku_id: number
+  spu_id: number
+  name: string
+  barcode: string | null
+  category_id: number
+  category_name: string
+  unit: string
+  sale_price_cents: number
+  cost_price_cents: number
+  is_weighed: boolean
+  status: number
+  qty: number
+  alert_qty: number
+}
+
+export interface Category {
+  category_id: number
+  parent_id: number | null
+  name: string
+}
+
 export const api = {
   bootstrap: () => invoke<LicenseSnapshot>('bootstrap'),
   initAdmin: (username: string, password: string) =>
@@ -52,6 +74,28 @@ export const api = {
   dailyReport: (date: string) =>
     invoke<{ order_count: number; total_sales_cents: number; refund_cents: number; discount_cents: number }>('daily_report', { date }),
   printReceipt: (orderNo: string) => invoke<string>('print_receipt', { orderNo }),
+  createProduct: (p: {
+    name: string
+    barcode: string | null
+    categoryId: number
+    unit: string
+    salePriceCents: number
+    costPriceCents: number
+    isWeighed: boolean
+    initialQty: number
+    alertQty: number
+  }) => invoke<number>('create_product', p),
+  listProducts: (keyword: string, limit: number) =>
+    invoke<ProductRow[]>('list_products', { keyword, limit }),
+  updateProduct: (skuId: number, salePriceCents: number, alertQty: number) =>
+    invoke<void>('update_product', { skuId, salePriceCents, alertQty }),
+  setProductStatus: (spuId: number, status: number) =>
+    invoke<void>('set_product_status', { spuId, status }),
+  listCategories: () => invoke<Category[]>('list_categories'),
+  createCategory: (parentId: number | null, name: string) =>
+    invoke<number>('create_category', { parentId, name }),
+  adjustStock: (skuId: number, changeQty: number, reason: string) =>
+    invoke<number>('adjust_stock', { skuId, changeQty, reason }),
   shiftReport: (shiftId: number) => invoke<unknown[]>('shift_report', { shiftId }),
   createProduct: (name: string, barcode: string, priceCents: number) =>
     invoke<number>('create_product', { name, barcode, priceCents }),

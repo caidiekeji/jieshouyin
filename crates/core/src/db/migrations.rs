@@ -453,6 +453,18 @@ INSERT INTO print_template(template_id, paper_width_mm, content_json, is_default
   0, datetime('now'));
 "#;
 
+/// 0007：商品管理补全（F-11/F-12/F-15）——多级类目表、库存预警阈值。
+const M0007: &str = r#"
+CREATE TABLE category (
+    category_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id   INTEGER REFERENCES category(category_id),
+    name        TEXT    NOT NULL,
+    status      INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO category(category_id, parent_id, name) VALUES (1, NULL, '未分类');
+ALTER TABLE sku ADD COLUMN alert_qty INTEGER NOT NULL DEFAULT 0;
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -484,6 +496,11 @@ pub fn all() -> Vec<Migration> {
             version: 6,
             name: "promo_print_report",
             up: M0006,
+        },
+        Migration {
+            version: 7,
+            name: "category_alert_qty",
+            up: M0007,
         },
     ]
 }

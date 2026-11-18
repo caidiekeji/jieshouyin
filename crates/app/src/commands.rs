@@ -122,7 +122,7 @@ pub struct ProductHit {
     pub is_weighed: bool,
 }
 
-/// 商品识别（F-01）：条码精确匹配，模糊搜索兜底。
+/// 商品识别（F-01）：条码精确匹配，模糊搜索兜底。停用商品不参与识别。
 #[tauri::command]
 pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec<ProductHit>> {
     let conn = state
@@ -133,7 +133,7 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed
          FROM sku s JOIN spu p ON p.spu_id=s.spu_id
-         WHERE s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1
+         WHERE p.status=1 AND (s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1)
          ORDER BY (s.barcode = ?2) DESC LIMIT 20",
     )?;
     use rusqlite::params;
@@ -422,34 +422,249 @@ pub fn shift_report(
     checkout_core::order::shift_summary(&conn, shift_id)
 }
 
-/// 商品档案创建（F-11）：SPU/SKU 分离。
+/// 商品档案创建（F-11/F-12）：SPU/SKU 分离，需 product.edit 权限。
 #[tauri::command]
 pub fn create_product(
     name: String,
-    barcode: String,
-    price_cents: i64,
+    barcode: Option<String>,
+    category_id: i64,
+    unit: String,
+    sale_price_cents: i64,
+    cost_price_cents: i64,
+    is_weighed: bool,
+    initial_qty: i64,
+    alert_qty: i64,
     state: State<'_, AppState>,
 ) -> Result<i64> {
     let license = state
         .license
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    license.gate("pos.core")?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
     let conn = state
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    let code = format!("SPU{}", chrono::Utc::now().timestamp_millis());
-    conn.execute(
-        "INSERT INTO spu(category_id,spu_name,spu_code) VALUES (1,?1,?2)",
-        rusqlite::params![name, code],
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: "report.standard",
+            permission: "product.edit",
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: parse_rfc3339(&now_str())?,
+            amount_cents: 0,
+            limit_key: None,
+        },
     )?;
-    let spu_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (?1,?2,?3)",
-        rusqlite::params![spu_id, barcode, price_cents],
+    let operator_id = session.user_id;
+    drop(session);
+    drop(license);
+    checkout_core::product::create_product(
+        &conn,
+        category_id,
+        &name,
+        barcode.as_deref(),
+        &unit,
+        sale_price_cents,
+        cost_price_cents,
+        is_weighed,
+        initial_qty,
+        alert_qty,
+        Some(operator_id),
+    )
+}
+
+#[tauri::command]
+pub fn list_products(
+    keyword: String,
+    limit: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::product::ProductRow>> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    license.gate("report.standard")?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::product::list_products(&conn, &keyword, limit)
+}
+
+#[tauri::command]
+pub fn update_product(
+    sku_id: i64,
+    sale_price_cents: i64,
+    alert_qty: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: "report.standard",
+            permission: "product.edit",
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: parse_rfc3339(&now_str())?,
+            amount_cents: 0,
+            limit_key: None,
+        },
     )?;
-    Ok(conn.last_insert_rowid())
+    drop(session);
+    drop(license);
+    checkout_core::product::update_product(&conn, sku_id, sale_price_cents, alert_qty)
+}
+
+#[tauri::command]
+pub fn set_product_status(spu_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: "report.standard",
+            permission: "product.edit",
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: parse_rfc3339(&now_str())?,
+            amount_cents: 0,
+            limit_key: None,
+        },
+    )?;
+    drop(session);
+    drop(license);
+    checkout_core::product::set_product_status(&conn, spu_id, status)
+}
+
+#[tauri::command]
+pub fn list_categories(
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::product::Category>> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    license.gate("report.standard")?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::product::list_categories(&conn)
+}
+
+#[tauri::command]
+pub fn create_category(
+    parent_id: Option<i64>,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: "report.standard",
+            permission: "product.edit",
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: parse_rfc3339(&now_str())?,
+            amount_cents: 0,
+            limit_key: None,
+        },
+    )?;
+    drop(session);
+    drop(license);
+    checkout_core::product::create_category(&conn, parent_id, &name)
+}
+
+/// 库存调整（inventory.adjust，F-13/F-14）：带符号差值，原因入 inv_trans 审计。
+#[tauri::command]
+pub fn adjust_stock(
+    sku_id: i64,
+    change_qty: i64,
+    reason: String,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: "report.standard",
+            permission: "inventory.adjust",
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: parse_rfc3339(&now_str())?,
+            amount_cents: 0,
+            limit_key: None,
+        },
+    )?;
+    let operator_id = session.user_id;
+    drop(session);
+    drop(license);
+    checkout_core::product::adjust_stock(&conn, sku_id, change_qty, &reason, Some(operator_id))
 }
 
 /// 启动应用（Tauri 2）。
@@ -488,6 +703,12 @@ pub fn run() {
             print_receipt,
             shift_report,
             create_product,
+            list_products,
+            update_product,
+            set_product_status,
+            list_categories,
+            create_category,
+            adjust_stock,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");

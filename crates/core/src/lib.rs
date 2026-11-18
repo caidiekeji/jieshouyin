@@ -10,6 +10,7 @@ pub mod member;
 pub mod money;
 pub mod order;
 pub mod payment;
+pub mod product;
 pub mod promo;
 pub mod purchase;
 pub mod rbac;
