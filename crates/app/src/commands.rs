@@ -1048,12 +1048,18 @@ pub fn create_promotion(
         return Err(CoreError::Validation("促销名称不能为空".into()));
     }
     if scope != "SINGLE_ITEM" && scope != "ORDER_LEVEL" {
-        return Err(CoreError::Validation("scope 仅允许 SINGLE_ITEM / ORDER_LEVEL".into()));
+        return Err(CoreError::Validation(
+            "scope 仅允许 SINGLE_ITEM / ORDER_LEVEL".into(),
+        ));
     }
     if discount_rate.is_none() == discount_cents.is_none() {
         return Err(CoreError::Validation("折扣率与满减额必须二选一".into()));
     }
-    let promo_type = if discount_rate.is_some() { "DISCOUNT" } else { "FULL_CUT" };
+    let promo_type = if discount_rate.is_some() {
+        "DISCOUNT"
+    } else {
+        "FULL_CUT"
+    };
     let condition = serde_json::json!({
         "min_qty": min_qty,
         "min_amount_cents": min_amount_cents,
@@ -1083,7 +1089,11 @@ pub fn create_promotion(
 }
 
 #[tauri::command]
-pub fn set_promotion_status(promotion_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
+pub fn set_promotion_status(
+    promotion_id: i64,
+    status: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
     let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
     if status != 0 && status != 1 {
         return Err(CoreError::Validation("status 仅允许 0/1".into()));
