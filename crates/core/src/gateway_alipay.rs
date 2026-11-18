@@ -10,7 +10,7 @@ use crate::paycreds::AlipayCred;
 use crate::payment::{CancelResult, PayOutcome, PayRequest, PaymentGateway, PaymentState};
 use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
 use rsa::pkcs8::DecodePrivateKey;
-use rsa::signature::{SignatureEncoding, Signer, Verifier};
+use rsa::signature::{Signer, Verifier};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde_json::Value;
 use sha2::Sha256;

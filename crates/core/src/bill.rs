@@ -166,8 +166,8 @@ fn split_csv_line(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut in_quotes = false;
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
+    let chars = line.chars();
+    for c in chars {
         match c {
             '"' => in_quotes = !in_quotes,
             ',' if !in_quotes => {
@@ -253,7 +253,8 @@ pub fn reconcile_channel(
         if row.is_refund {
             // 退款行：本地应有对应 refund_record，缺失则状态差异
             let has = locals.iter().any(|l| {
-                l.order_no == row.out_trade_no || by_out.get(row.out_trade_no.as_str()).is_some()
+                l.order_no == row.out_trade_no
+                    || by_out.contains_key(row.out_trade_no.as_str())
             });
             if !has {
                 summary.status_mismatch += 1;

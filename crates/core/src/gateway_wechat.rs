@@ -11,7 +11,7 @@ use crate::paycreds::WechatCred;
 use crate::payment::{CancelResult, PayOutcome, PayRequest, PaymentGateway, PaymentState};
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
-use rsa::signature::{SignatureEncoding, Signer};
+use rsa::signature::Signer;
 use rsa::RsaPrivateKey;
 use sha2::Sha256;
 use wechatpay_v3::model::{NativeParams, RefundsParams};
