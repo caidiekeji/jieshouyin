@@ -701,7 +701,10 @@ pub fn list_purchase_orders(state: State<'_, AppState>) -> Result<Vec<PurchaseOr
 
 /// 采购单明细（含已收数量），用于验收录入。
 #[tauri::command]
-pub fn get_purchase_items(po_no: String, state: State<'_, AppState>) -> Result<Vec<PurchaseItemRow>> {
+pub fn get_purchase_items(
+    po_no: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<PurchaseItemRow>> {
     let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
     let mut stmt = conn.prepare(
         "SELECT i.item_id, i.sku_id, COALESCE(p.spu_name,''), i.ordered_qty, i.received_qty, i.unit_cost_cents
