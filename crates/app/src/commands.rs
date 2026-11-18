@@ -50,6 +50,48 @@ pub fn has_users(state: State<'_, AppState>) -> Result<bool> {
     Ok(count > 0)
 }
 
+/// 后台管理命令统一门禁（§12.2 顺序）：授权状态（entitlement=report.standard，
+/// 降级态后台受限）→ 会话 → RBAC 权限。返回 (operator_id, conn)；
+/// license/session 锁在返回前释放，调用方继续持有 conn 做业务写入。
+fn admin_guard(
+    state: &AppState,
+    permission: &str,
+) -> Result<(i64, std::sync::MutexGuard<'_, rusqlite::Connection>)> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let operator_id = {
+        let s = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+        checkout_core::rbac::guard(
+            &conn,
+            &checkout_core::rbac::GuardRequest {
+                entitlement: "report.standard",
+                permission,
+                session: s,
+                license: &license,
+                sensitive_auth: None,
+                current_nonce: "",
+                now: parse_rfc3339(&now_str())?,
+                amount_cents: 0,
+                limit_key: None,
+            },
+        )?;
+        s.user_id
+    };
+    drop(session);
+    drop(license);
+    Ok((operator_id, conn))
+}
+
 #[tauri::command]
 pub fn get_license(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
     Ok(state
@@ -436,36 +478,7 @@ pub fn create_product(
     alert_qty: i64,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = state
-        .session
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::rbac::guard(
-        &conn,
-        &checkout_core::rbac::GuardRequest {
-            entitlement: "report.standard",
-            permission: "product.edit",
-            session,
-            license: &license,
-            sensitive_auth: None,
-            current_nonce: "",
-            now: parse_rfc3339(&now_str())?,
-            amount_cents: 0,
-            limit_key: None,
-        },
-    )?;
-    let operator_id = session.user_id;
-    drop(session);
-    drop(license);
+    let (operator_id, conn) = admin_guard(&state, "product.edit")?;
     checkout_core::product::create_product(
         &conn,
         category_id,
@@ -506,69 +519,13 @@ pub fn update_product(
     alert_qty: i64,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = state
-        .session
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::rbac::guard(
-        &conn,
-        &checkout_core::rbac::GuardRequest {
-            entitlement: "report.standard",
-            permission: "product.edit",
-            session,
-            license: &license,
-            sensitive_auth: None,
-            current_nonce: "",
-            now: parse_rfc3339(&now_str())?,
-            amount_cents: 0,
-            limit_key: None,
-        },
-    )?;
-    drop(session);
-    drop(license);
+    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
     checkout_core::product::update_product(&conn, sku_id, sale_price_cents, alert_qty)
 }
 
 #[tauri::command]
 pub fn set_product_status(spu_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = state
-        .session
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::rbac::guard(
-        &conn,
-        &checkout_core::rbac::GuardRequest {
-            entitlement: "report.standard",
-            permission: "product.edit",
-            session,
-            license: &license,
-            sensitive_auth: None,
-            current_nonce: "",
-            now: parse_rfc3339(&now_str())?,
-            amount_cents: 0,
-            limit_key: None,
-        },
-    )?;
-    drop(session);
-    drop(license);
+    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
     checkout_core::product::set_product_status(&conn, spu_id, status)
 }
 
@@ -594,35 +551,7 @@ pub fn create_category(
     name: String,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = state
-        .session
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::rbac::guard(
-        &conn,
-        &checkout_core::rbac::GuardRequest {
-            entitlement: "report.standard",
-            permission: "product.edit",
-            session,
-            license: &license,
-            sensitive_auth: None,
-            current_nonce: "",
-            now: parse_rfc3339(&now_str())?,
-            amount_cents: 0,
-            limit_key: None,
-        },
-    )?;
-    drop(session);
-    drop(license);
+    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
     checkout_core::product::create_category(&conn, parent_id, &name)
 }
 
@@ -634,37 +563,291 @@ pub fn adjust_stock(
     reason: String,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = state
-        .session
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::rbac::guard(
-        &conn,
-        &checkout_core::rbac::GuardRequest {
-            entitlement: "report.standard",
-            permission: "inventory.adjust",
-            session,
-            license: &license,
-            sensitive_auth: None,
-            current_nonce: "",
-            now: parse_rfc3339(&now_str())?,
-            amount_cents: 0,
-            limit_key: None,
-        },
-    )?;
-    let operator_id = session.user_id;
-    drop(session);
-    drop(license);
+    let (operator_id, conn) = admin_guard(&state, "inventory.adjust")?;
     checkout_core::product::adjust_stock(&conn, sku_id, change_qty, &reason, Some(operator_id))
+}
+
+// ===== 采购入库与盘点（§10）=====
+
+#[derive(Debug, Deserialize)]
+pub struct PurchaseItemInput {
+    pub sku_id: i64,
+    pub ordered_qty: i64,
+    pub unit_cost_cents: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReceiveItemInput {
+    pub item_id: i64,
+    pub received_qty: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PurchaseOrderRow {
+    pub po_no: String,
+    pub supplier_name: String,
+    pub status: String,
+    pub total_cents: i64,
+    pub created_at: String,
+    pub item_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PurchaseItemRow {
+    pub item_id: i64,
+    pub sku_id: i64,
+    pub product_name: String,
+    pub ordered_qty: i64,
+    pub received_qty: Option<i64>,
+    pub unit_cost_cents: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SupplierRow {
+    pub supplier_id: i64,
+    pub name: String,
+    pub contact: Option<String>,
+    pub phone: Option<String>,
+}
+
+fn gen_no(prefix: &str) -> String {
+    format!("{}{}", prefix, chrono::Utc::now().timestamp_millis())
+}
+
+#[tauri::command]
+pub fn create_supplier(
+    name: String,
+    contact: Option<String>,
+    phone: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    if name.trim().is_empty() {
+        return Err(CoreError::Validation("供应商名不能为空".into()));
+    }
+    conn.execute(
+        "INSERT INTO supplier(name,contact,phone) VALUES (?1,?2,?3)",
+        rusqlite::params![name.trim(), contact, phone],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+pub fn list_suppliers(state: State<'_, AppState>) -> Result<Vec<SupplierRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let mut stmt = conn.prepare(
+        "SELECT supplier_id, name, contact, phone FROM supplier WHERE status=1 ORDER BY supplier_id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(SupplierRow {
+            supplier_id: r.get(0)?,
+            name: r.get(1)?,
+            contact: r.get(2)?,
+            phone: r.get(3)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 创建采购单（DRAFT）：验收前不影响库存（§10.2）。
+#[tauri::command]
+pub fn create_purchase_order(
+    supplier_id: i64,
+    items: Vec<PurchaseItemInput>,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    if items.is_empty() {
+        return Err(CoreError::Validation("采购单明细不能为空".into()));
+    }
+    let po_no = gen_no("PO");
+    let rows: Vec<(i64, i64, i64)> = items
+        .into_iter()
+        .map(|i| (i.sku_id, i.ordered_qty, i.unit_cost_cents))
+        .collect();
+    checkout_core::purchase::create_purchase_order(&conn, &po_no, supplier_id, &rows)?;
+    Ok(po_no)
+}
+
+#[tauri::command]
+pub fn list_purchase_orders(state: State<'_, AppState>) -> Result<Vec<PurchaseOrderRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let mut stmt = conn.prepare(
+        "SELECT o.po_no, COALESCE(s.name,''), o.status, o.total_cents, o.created_at,
+                (SELECT COUNT(*) FROM purchase_order_item i WHERE i.po_no=o.po_no)
+         FROM purchase_order o LEFT JOIN supplier s ON s.supplier_id=o.supplier_id
+         ORDER BY o.created_at DESC LIMIT 100",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(PurchaseOrderRow {
+            po_no: r.get(0)?,
+            supplier_name: r.get(1)?,
+            status: r.get(2)?,
+            total_cents: r.get(3)?,
+            created_at: r.get(4)?,
+            item_count: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 采购单明细（含已收数量），用于验收录入。
+#[tauri::command]
+pub fn get_purchase_items(po_no: String, state: State<'_, AppState>) -> Result<Vec<PurchaseItemRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let mut stmt = conn.prepare(
+        "SELECT i.item_id, i.sku_id, COALESCE(p.spu_name,''), i.ordered_qty, i.received_qty, i.unit_cost_cents
+         FROM purchase_order_item i
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE i.po_no=?1 ORDER BY i.item_id",
+    )?;
+    let rows = stmt.query_map([&po_no], |r| {
+        Ok(PurchaseItemRow {
+            item_id: r.get(0)?,
+            sku_id: r.get(1)?,
+            product_name: r.get(2)?,
+            ordered_qty: r.get(3)?,
+            received_qty: r.get(4)?,
+            unit_cost_cents: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 验收入库：逐行录实收，差异留痕；通过后产生 PURCHASE_IN 事件。
+#[tauri::command]
+pub fn receive_purchase(
+    po_no: String,
+    received: Vec<ReceiveItemInput>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let rows: Vec<(i64, i64)> = received
+        .into_iter()
+        .map(|r| (r.item_id, r.received_qty))
+        .collect();
+    checkout_core::purchase::receive_purchase(&conn, &po_no, &rows, operator_id)
+}
+
+#[derive(Debug, Serialize)]
+pub struct StocktakeRow {
+    pub task_no: String,
+    pub status: String,
+    pub created_at: String,
+    pub item_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StocktakeItemRow {
+    pub item_id: i64,
+    pub sku_id: i64,
+    pub product_name: String,
+    pub book_qty: i64,
+    pub counted_qty: Option<i64>,
+    pub diff_qty: Option<i64>,
+}
+
+#[tauri::command]
+pub fn list_stocktakes(state: State<'_, AppState>) -> Result<Vec<StocktakeRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let mut stmt = conn.prepare(
+        "SELECT t.task_no, t.status, t.created_at,
+                (SELECT COUNT(*) FROM stocktake_item i WHERE i.stocktake_id=t.stocktake_id)
+         FROM stocktake t ORDER BY t.created_at DESC LIMIT 100",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(StocktakeRow {
+            task_no: r.get(0)?,
+            status: r.get(1)?,
+            created_at: r.get(2)?,
+            item_count: r.get(3)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 盘点任务明细（账面/实盘/差异）。
+#[tauri::command]
+pub fn get_stocktake_items(
+    task_no: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<StocktakeItemRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let mut stmt = conn.prepare(
+        "SELECT i.id, i.sku_id, COALESCE(p.spu_name,''), i.book_qty,
+                i.counted_qty, i.diff_qty
+         FROM stocktake_item i
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         JOIN stocktake t ON t.stocktake_id=i.stocktake_id
+         WHERE t.task_no=?1 ORDER BY i.id",
+    )?;
+    let rows = stmt.query_map([&task_no], |r| {
+        Ok(StocktakeItemRow {
+            item_id: r.get(0)?,
+            sku_id: r.get(1)?,
+            product_name: r.get(2)?,
+            book_qty: r.get(3)?,
+            counted_qty: r.get(4)?,
+            diff_qty: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 创建盘点任务：写入账面快照。
+#[tauri::command]
+pub fn create_stocktake(sku_ids: Vec<i64>, state: State<'_, AppState>) -> Result<String> {
+    let (operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    if sku_ids.is_empty() {
+        return Err(CoreError::Validation("盘点商品不能为空".into()));
+    }
+    let task_no = gen_no("ST");
+    checkout_core::purchase::create_stocktake(&conn, &task_no, &sku_ids, operator_id)?;
+    Ok(task_no)
+}
+
+/// 实盘录入（盘点差异 → DIFF_REVIEW 待审批）。
+#[tauri::command]
+pub fn record_count(
+    task_no: String,
+    counts: Vec<ReceiveItemInput>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let rows: Vec<(i64, i64)> = counts
+        .into_iter()
+        .map(|c| (c.item_id, c.received_qty))
+        .collect();
+    checkout_core::purchase::record_count(&conn, &task_no, &rows)
+}
+
+/// 盘点审批（stocktake.approve）：差异产生 ADJUST 事件，不覆盖库存。
+#[tauri::command]
+pub fn approve_stocktake(task_no: String, state: State<'_, AppState>) -> Result<()> {
+    let (approver_id, conn) = admin_guard(&state, "stocktake.approve")?;
+    checkout_core::purchase::approve_stocktake(&conn, &task_no, approver_id)
 }
 
 /// 启动应用（Tauri 2）。
@@ -709,6 +892,17 @@ pub fn run() {
             list_categories,
             create_category,
             adjust_stock,
+            create_supplier,
+            list_suppliers,
+            create_purchase_order,
+            list_purchase_orders,
+            get_purchase_items,
+            receive_purchase,
+            list_stocktakes,
+            get_stocktake_items,
+            create_stocktake,
+            record_count,
+            approve_stocktake,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");

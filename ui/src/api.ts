@@ -51,6 +51,47 @@ export interface Category {
   name: string
 }
 
+export interface SupplierRow {
+  supplier_id: number
+  name: string
+  contact: string | null
+  phone: string | null
+}
+
+export interface PurchaseOrderRow {
+  po_no: string
+  supplier_name: string
+  status: string
+  total_cents: number
+  created_at: string
+  item_count: number
+}
+
+export interface PurchaseItemRow {
+  item_id: number
+  sku_id: number
+  product_name: string
+  ordered_qty: number
+  received_qty: number | null
+  unit_cost_cents: number
+}
+
+export interface StocktakeRow {
+  task_no: string
+  status: string
+  created_at: string
+  item_count: number
+}
+
+export interface StocktakeItemRow {
+  item_id: number
+  sku_id: number
+  product_name: string
+  book_qty: number
+  counted_qty: number | null
+  diff_qty: number | null
+}
+
 export const api = {
   bootstrap: () => invoke<LicenseSnapshot>('bootstrap'),
   initAdmin: (username: string, password: string) =>
@@ -96,6 +137,23 @@ export const api = {
     invoke<number>('create_category', { parentId, name }),
   adjustStock: (skuId: number, changeQty: number, reason: string) =>
     invoke<number>('adjust_stock', { skuId, changeQty, reason }),
+  createSupplier: (name: string, contact: string | null, phone: string | null) =>
+    invoke<number>('create_supplier', { name, contact, phone }),
+  listSuppliers: () => invoke<SupplierRow[]>('list_suppliers'),
+  createPurchaseOrder: (
+    supplierId: number,
+    items: { sku_id: number; ordered_qty: number; unit_cost_cents: number }[]
+  ) => invoke<string>('create_purchase_order', { supplierId, items }),
+  listPurchaseOrders: () => invoke<PurchaseOrderRow[]>('list_purchase_orders'),
+  getPurchaseItems: (poNo: string) => invoke<PurchaseItemRow[]>('get_purchase_items', { poNo }),
+  receivePurchase: (poNo: string, received: { item_id: number; received_qty: number }[]) =>
+    invoke<void>('receive_purchase', { poNo, received }),
+  listStocktakes: () => invoke<StocktakeRow[]>('list_stocktakes'),
+  getStocktakeItems: (taskNo: string) => invoke<StocktakeItemRow[]>('get_stocktake_items', { taskNo }),
+  createStocktake: (skuIds: number[]) => invoke<string>('create_stocktake', { skuIds }),
+  recordCount: (taskNo: string, counts: { item_id: number; received_qty: number }[]) =>
+    invoke<void>('record_count', { taskNo, counts }),
+  approveStocktake: (taskNo: string) => invoke<void>('approve_stocktake', { taskNo }),
   shiftReport: (shiftId: number) => invoke<unknown[]>('shift_report', { shiftId }),
 }
 
