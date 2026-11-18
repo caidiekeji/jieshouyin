@@ -37,12 +37,13 @@ pub fn yuan_str_to_cents(s: &str) -> Result<i64> {
     };
     let negative = mantissa.starts_with('-');
     let digits: String = mantissa.chars().filter(|c| c.is_ascii_digit()).collect();
-    let point = mantissa
-        .find('.')
-        .map(|i| i as i32)
-        .unwrap_or(mantissa.len() as i32);
-    // 总小数位 = 原小数位 - 指数
-    let frac_len = (mantissa.len() as i32 - point) - exp;
+    // 小数点后实际位数（不含小数点字符本身）
+    let frac_places = match mantissa.find('.') {
+        Some(i) => (mantissa.len() as i32) - i as i32 - 1,
+        None => 0,
+    };
+    // 结果单位是分：以两位小数为基准，总移位 = 原小数位 - 指数 - 2
+    let frac_len = frac_places - exp - 2;
     let mut value: i64 = digits
         .parse()
         .map_err(|_| CoreError::Validation(format!("非法金额: {t}")))?;
