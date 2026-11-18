@@ -5,6 +5,7 @@ import Icon from './components/Icon.vue'
 import ProductAdmin from './components/ProductAdmin.vue'
 import SupplyAdmin from './components/SupplyAdmin.vue'
 import MemberAdmin from './components/MemberAdmin.vue'
+import { ICON_SIZE, MS_PER_DAY, TOAST_DURATION_MS } from './constants'
 
 type View = 'boot' | 'activate' | 'login' | 'pos' | 'products' | 'supply' | 'member' | 'parked' | 'report' | 'settings'
 const view = ref<View>('boot')
@@ -39,7 +40,7 @@ const banner = computed(() => {
     if (!ends) return '试用期进行中'
     const days = Math.max(
       1,
-      Math.ceil((new Date(ends).getTime() - Date.now()) / 86400000)
+      Math.ceil((new Date(ends).getTime() - Date.now()) / MS_PER_DAY)
     )
     return `试用期剩余 ${days} 天，到期后需激活`
   }
@@ -52,7 +53,7 @@ const subtotal = computed(() => cart.value.reduce((s, l) => s + l.qty * l.unit_p
 
 function showToast(msg: string) {
   toast.value = msg
-  setTimeout(() => (toast.value = ''), 4000)
+  setTimeout(() => (toast.value = ''), TOAST_DURATION_MS)
 }
 
 onMounted(async () => {
@@ -328,7 +329,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
     <div v-else-if="view === 'activate'" class="center-screen">
       <div class="card auth-card">
         <div class="brand">
-          <div class="brand-mark"><Icon name="scan" :size="24" /></div>
+          <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
           <div>
             <h1>Checkout-R</h1>
             <p class="muted">离线优先收银系统</p>
@@ -353,7 +354,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
     <div v-else-if="view === 'login'" class="center-screen">
       <div class="card auth-card">
         <div class="brand">
-          <div class="brand-mark"><Icon name="user" :size="24" /></div>
+          <div class="brand-mark"><Icon name="user" :size="ICON_SIZE.xxl" /></div>
           <div><h1>登录</h1><p class="muted">输入账号密码开始收银</p></div>
         </div>
         <input v-model="loginUser" class="input" placeholder="用户名" />
@@ -373,17 +374,17 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
     <!-- 主界面 -->
     <div v-else class="shell">
       <header class="topbar">
-        <div class="logo"><Icon name="scan" :size="20" /><span>Checkout-R</span></div>
+        <div class="logo"><Icon name="scan" :size="ICON_SIZE.xl" /><span>Checkout-R</span></div>
         <nav class="nav">
-          <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="18" />收银</button>
-          <button :class="['nav-btn', { active: view === 'products' }]" @click="goProducts"><Icon name="box" :size="18" />商品</button>
-          <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="park" :size="18" />采购盘点</button>
-          <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="users" :size="18" />会员营销</button>
-          <button :class="['nav-btn', { active: view === 'parked' }]" @click="goParked"><Icon name="park" :size="18" />挂单</button>
-          <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="18" />报表</button>
-          <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="18" />设置</button>
+          <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
+          <button :class="['nav-btn', { active: view === 'products' }]" @click="goProducts"><Icon name="box" :size="ICON_SIZE.lg" />商品</button>
+          <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="park" :size="ICON_SIZE.lg" />采购盘点</button>
+          <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="users" :size="ICON_SIZE.lg" />会员营销</button>
+          <button :class="['nav-btn', { active: view === 'parked' }]" @click="goParked"><Icon name="park" :size="ICON_SIZE.lg" />挂单</button>
+          <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.lg" />报表</button>
+          <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="ICON_SIZE.lg" />设置</button>
         </nav>
-        <div class="user"><Icon name="user" :size="16" /><span>{{ currentUser }}</span><button class="link" @click="doLogout">退出</button></div>
+        <div class="user"><Icon name="user" :size="ICON_SIZE.md" /><span>{{ currentUser }}</span><button class="link" @click="doLogout">退出</button></div>
       </header>
 
       <div v-if="banner" class="banner">{{ banner }}</div>
@@ -393,7 +394,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         <section class="panel product-panel">
           <div class="search-row">
             <input v-model="keyword" class="input" placeholder="扫码 / 条码 / 商品名" @keyup.enter="search" />
-            <button class="btn" @click="search"><Icon name="scan" :size="16" />识别</button>
+            <button class="btn" @click="search"><Icon name="scan" :size="ICON_SIZE.md" />识别</button>
           </div>
           <div class="product-list">
             <div v-for="p in products" :key="p.sku_id" class="product-item" @click="addToCart(p)">
@@ -410,9 +411,9 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             <div v-for="(l, i) in cart" :key="l.sku_id" class="cart-line">
               <div class="line-name">{{ l.name || `SKU ${l.sku_id}` }}</div>
               <div class="qty-ctrl">
-                <button @click="changeQty(i, -1)"><Icon name="minus" :size="14" /></button>
+                <button @click="changeQty(i, -1)"><Icon name="minus" :size="ICON_SIZE.sm" /></button>
                 <span>{{ l.qty }}</span>
-                <button @click="changeQty(i, 1)"><Icon name="plus" :size="14" /></button>
+                <button @click="changeQty(i, 1)"><Icon name="plus" :size="ICON_SIZE.sm" /></button>
               </div>
               <span class="price">¥{{ formatMoney(l.qty * l.unit_price_cents) }}</span>
             </div>
@@ -431,9 +432,9 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             </div>
             <div class="actions">
               <button class="btn" @click="park">挂单</button>
-              <button class="btn primary" @click="submitCheckout"><Icon name="check" :size="16" />收款</button>
+              <button class="btn primary" @click="submitCheckout"><Icon name="check" :size="ICON_SIZE.md" />收款</button>
             </div>
-            <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="16" />重打小票 {{ lastOrder }}</button>
+            <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
           </div>
         </section>
       </main>
@@ -537,7 +538,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           </div>
           <div class="user-mgmt">
             <p class="muted small">员工管理（仅管理员可见可用，user.manage 权限）</p>
-            <button class="btn" @click="showUserMgmt = !showUserMgmt; showUserMgmt && loadUsers()"><Icon name="users" :size="16" />展开员工管理</button>
+            <button class="btn" @click="showUserMgmt = !showUserMgmt; showUserMgmt && loadUsers()"><Icon name="users" :size="ICON_SIZE.md" />展开员工管理</button>
             <div v-if="showUserMgmt">
               <table class="tbl">
                 <thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>

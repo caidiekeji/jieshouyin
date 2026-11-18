@@ -2,6 +2,15 @@
 import { onMounted, ref } from 'vue'
 import { api, formatMoney, type MemberRow, type PromotionRow } from '../api'
 import Icon from './Icon.vue'
+import {
+  CENTS_PER_YUAN,
+  DISCOUNT_ZHE_FACTOR,
+  ERROR_DURATION_MS,
+  ICON_SIZE,
+  PAGE_SIZE,
+  PROMO_DEFAULT_PRIORITY,
+  TOAST_DURATION_MS,
+} from '../constants'
 
 const tab = ref<'member' | 'promo'>('member')
 const err = ref('')
@@ -10,12 +19,12 @@ const okMsg = ref('')
 function fail(msg: unknown) {
   err.value = String(msg)
   okMsg.value = ''
-  setTimeout(() => (err.value = ''), 6000)
+  setTimeout(() => (err.value = ''), ERROR_DURATION_MS)
 }
 function done(msg: string) {
   okMsg.value = msg
   err.value = ''
-  setTimeout(() => (okMsg.value = ''), 4000)
+  setTimeout(() => (okMsg.value = ''), TOAST_DURATION_MS)
 }
 
 // ===== 会员 =====
@@ -31,7 +40,7 @@ const bonus = ref('')
 
 async function reloadMembers() {
   try {
-    members.value = await api.listMembers(memberKw.value.trim(), 100)
+    members.value = await api.listMembers(memberKw.value.trim(), PAGE_SIZE.MEMBERS)
   } catch (e) {
     fail(e)
   }
@@ -61,8 +70,8 @@ async function submitRecharge() {
   try {
     await api.rechargeMember(
       rechargeMemberId.value,
-      Math.round(parseFloat(principal.value || '0') * 100),
-      Math.round(parseFloat(bonus.value || '0') * 100)
+      Math.round(parseFloat(principal.value || '0') * CENTS_PER_YUAN),
+      Math.round(parseFloat(bonus.value || '0') * CENTS_PER_YUAN)
     )
     rechargeMemberId.value = null
     done('充值成功')
@@ -78,7 +87,7 @@ const showCreatePromo = ref(false)
 const pForm = ref({
   name: '',
   scope: 'SINGLE_ITEM' as string,
-  priority: 100,
+  priority: PROMO_DEFAULT_PRIORITY,
   exclusive: false,
   stackable: false,
   minQty: 0,
@@ -106,9 +115,9 @@ async function addPromo() {
       exclusive: pForm.value.exclusive,
       stackable: pForm.value.stackable,
       minQty: pForm.value.minQty,
-      minAmountCents: Math.round(parseFloat(pForm.value.minAmount || '0') * 100),
+      minAmountCents: Math.round(parseFloat(pForm.value.minAmount || '0') * CENTS_PER_YUAN),
       discountRate: isRate ? parseFloat(pForm.value.discountRate || '0') : null,
-      discountCents: isRate ? null : Math.round(parseFloat(pForm.value.discountAmount || '0') * 100),
+      discountCents: isRate ? null : Math.round(parseFloat(pForm.value.discountAmount || '0') * CENTS_PER_YUAN),
       targetSkus: [],
       validFrom: null,
       validUntil: null
@@ -154,8 +163,8 @@ onMounted(() => {
     <template v-if="tab === 'member'">
       <div class="toolbar">
         <input v-model="memberKw" class="input" placeholder="搜索手机号 / 会员名 / 会员号" @keyup.enter="reloadMembers" />
-        <button class="btn" @click="reloadMembers"><Icon name="refresh" :size="16" />查询</button>
-        <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="16" />新增会员</button>
+        <button class="btn" @click="reloadMembers"><Icon name="refresh" :size="ICON_SIZE.md" />查询</button>
+        <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />新增会员</button>
       </div>
 
       <div v-if="showCreate" class="card">
@@ -203,7 +212,7 @@ onMounted(() => {
     <!-- 促销 -->
     <template v-else>
       <div class="toolbar">
-        <button class="btn primary" @click="showCreatePromo = !showCreatePromo"><Icon name="plus" :size="16" />新建促销</button>
+        <button class="btn primary" @click="showCreatePromo = !showCreatePromo"><Icon name="plus" :size="ICON_SIZE.md" />新建促销</button>
       </div>
 
       <div v-if="showCreatePromo" class="card">
@@ -249,7 +258,7 @@ onMounted(() => {
                 <span v-if="p.min_qty === 0 && p.min_amount_cents === 0">无门槛</span>
               </td>
               <td>
-                <span v-if="p.discount_rate != null">{{ (p.discount_rate * 10).toFixed(1) }} 折</span>
+                <span v-if="p.discount_rate != null">{{ (p.discount_rate * DISCOUNT_ZHE_FACTOR).toFixed(1) }} 折</span>
                 <span v-else>减 {{ formatMoney(p.discount_cents ?? 0) }}</span>
               </td>
               <td>{{ p.priority }}</td>
@@ -265,22 +274,37 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
-.tab-row { display: flex; gap: 8px; }
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+/* 组件层：只引用语义层 token，不出现裸值 */
+.page-head { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3); }
+.tab-row { display: flex; gap: var(--space-2); }
+.toolbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
 .toolbar .input { flex: 1; }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th, .tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-.tbl th { color: var(--muted); font-weight: 600; font-size: 12px; }
-.btn-sm { padding: 2px 8px; font-size: 12px; }
-.input-sm { width: 70px; padding: 2px 6px; font-size: 12px; }
-.form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
-.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-.checkbox-label { flex-direction: row !important; align-items: center; gap: 6px !important; }
-.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.ok-msg { color: var(--ok, #27ae60); font-size: 13px; margin-bottom: 8px; }
-.inline-form { display: flex; gap: 8px; align-items: center; }
-.card { margin-bottom: 12px; }
-.mono { font-family: monospace; }
-.warning-text { color: var(--danger, #c0392b); }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
+.tbl th, .tbl td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--border);
+}
+.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); }
+.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
+.input-sm {
+  width: var(--control-input-sm-width);
+  padding: var(--space-0_5) var(--space-2);
+  font-size: var(--font-xs);
+}
+.form-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2); margin-bottom: var(--space-2);
+}
+.form-grid label {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  font-size: var(--font-xs); color: var(--muted);
+}
+.checkbox-label { flex-direction: row !important; align-items: center; gap: var(--space-2) !important; }
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.ok-msg { color: var(--success-text); font-size: var(--font-sm); margin-bottom: var(--space-2); }
+.inline-form { display: flex; gap: var(--space-2); align-items: center; }
+.card { margin-bottom: var(--space-3); }
+.mono { font-family: var(--font-family-mono); }
+.warning-text { color: var(--danger); }
 </style>

@@ -2,6 +2,12 @@
 //! 门禁统一入口按 §12.2 顺序执行。
 
 use crate::state::{build_license_service, init_db, AppState};
+use checkout_core::constants::{
+    ENT_POS_CORE, ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH,
+    PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_POS_REFUND, PERM_POS_VOID,
+    PERM_PRODUCT_EDIT, PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE, PERM_USER_MANAGE, ROLE_ADMIN,
+    ROLE_CASHIER, ROLE_MANAGER,
+};
 use checkout_core::error::{CoreError, Result};
 use checkout_core::license::LicenseSnapshot;
 use checkout_core::rbac::{self, Session};
@@ -74,7 +80,7 @@ fn admin_guard<'a>(
         checkout_core::rbac::guard(
             &conn,
             &checkout_core::rbac::GuardRequest {
-                entitlement: "report.standard",
+                entitlement: ENT_REPORT_STANDARD,
                 permission,
                 session: s,
                 license: &license,
@@ -236,7 +242,7 @@ pub fn checkout(
         .license
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    license.gate("pos.core")?; // 降级态仍放行
+    license.gate(ENT_POS_CORE)?; // 降级态仍放行
     let session = state
         .session
         .lock()
@@ -292,10 +298,10 @@ pub fn checkout(
         let tx = conn.unchecked_transaction()?;
         for (i, p) in payments.iter().enumerate() {
             let channel = match p.channel.as_str() {
-                "CASH" => checkout_core::payment::Channel::CASH,
-                "STORED_VALUE" => checkout_core::payment::Channel::STORED_VALUE,
-                "WECHAT" => checkout_core::payment::Channel::WECHAT,
-                "ALIPAY" => checkout_core::payment::Channel::ALIPAY,
+                PAY_CASH => checkout_core::payment::Channel::CASH,
+                PAY_STORED_VALUE => checkout_core::payment::Channel::STORED_VALUE,
+                PAY_WECHAT => checkout_core::payment::Channel::WECHAT,
+                PAY_ALIPAY => checkout_core::payment::Channel::ALIPAY,
                 other => return Err(CoreError::Validation(format!("未知支付渠道: {other}"))),
             };
             let out_trade_no = checkout_core::payment::make_out_trade_no(&order_no, i as u32 + 1);
@@ -478,7 +484,7 @@ pub fn create_product(
     alert_qty: i64,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let (operator_id, conn) = admin_guard(&state, "product.edit")?;
+    let (operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::product::create_product(
         &conn,
         category_id,
@@ -504,7 +510,7 @@ pub fn list_products(
         .license
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    license.gate("report.standard")?;
+    license.gate(ENT_REPORT_STANDARD)?;
     let conn = state
         .conn
         .lock()
@@ -519,13 +525,13 @@ pub fn update_product(
     alert_qty: i64,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::product::update_product(&conn, sku_id, sale_price_cents, alert_qty)
 }
 
 #[tauri::command]
 pub fn set_product_status(spu_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
-    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::product::set_product_status(&conn, spu_id, status)
 }
 
@@ -537,7 +543,7 @@ pub fn list_categories(
         .license
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    license.gate("report.standard")?;
+    license.gate(ENT_REPORT_STANDARD)?;
     let conn = state
         .conn
         .lock()
@@ -551,7 +557,7 @@ pub fn create_category(
     name: String,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::product::create_category(&conn, parent_id, &name)
 }
 
@@ -563,7 +569,7 @@ pub fn adjust_stock(
     reason: String,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let (operator_id, conn) = admin_guard(&state, "inventory.adjust")?;
+    let (operator_id, conn) = admin_guard(&state, PERM_INVENTORY_ADJUST)?;
     checkout_core::product::adjust_stock(&conn, sku_id, change_qty, &reason, Some(operator_id))
 }
 
@@ -849,7 +855,7 @@ pub fn record_count(
 /// 盘点审批（stocktake.approve）：差异产生 ADJUST 事件，不覆盖库存。
 #[tauri::command]
 pub fn approve_stocktake(task_no: String, state: State<'_, AppState>) -> Result<()> {
-    let (approver_id, conn) = admin_guard(&state, "stocktake.approve")?;
+    let (approver_id, conn) = admin_guard(&state, PERM_STOCKTAKE_APPROVE)?;
     checkout_core::purchase::approve_stocktake(&conn, &task_no, approver_id)
 }
 
@@ -876,7 +882,7 @@ pub fn create_member(
     name: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let (_operator_id, conn) = admin_guard(&state, "report.view")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     if let Some(p) = &phone {
         if p.trim().is_empty() {
             return Err(CoreError::Validation("手机号不能为空".into()));
@@ -896,7 +902,7 @@ pub fn list_members(
     limit: i64,
     state: State<'_, AppState>,
 ) -> Result<Vec<MemberRow>> {
-    let (_operator_id, conn) = admin_guard(&state, "report.view")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(&format!(
         "SELECT m.member_id, m.phone, m.member_code, m.name, m.status,
@@ -937,7 +943,7 @@ pub fn recharge_member(
     bonus_cents: i64,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let (operator_id, conn) = admin_guard(&state, "report.view")?;
+    let (operator_id, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     if principal_cents <= 0 || bonus_cents < 0 {
         return Err(CoreError::Validation("充值金额非法".into()));
     }
@@ -1011,7 +1017,7 @@ fn row_to_promotion_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<PromotionRow>
 
 #[tauri::command]
 pub fn list_promotions(state: State<'_, AppState>) -> Result<Vec<PromotionRow>> {
-    let (_operator_id, conn) = admin_guard(&state, "report.view")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     let mut stmt = conn.prepare(
         "SELECT promotion_id, name, scope, priority, exclusive, stackable,
                 NULL, NULL, condition_json, action_json, valid_from, valid_until, status
@@ -1043,7 +1049,7 @@ pub fn create_promotion(
     valid_until: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     if name.trim().is_empty() {
         return Err(CoreError::Validation("促销名称不能为空".into()));
     }
@@ -1094,7 +1100,7 @@ pub fn set_promotion_status(
     status: i64,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     if status != 0 && status != 1 {
         return Err(CoreError::Validation("status 仅允许 0/1".into()));
     }
@@ -1135,8 +1141,8 @@ pub fn void_order_cmd(order_no: String, state: State<'_, AppState>) -> Result<()
     checkout_core::rbac::guard(
         &conn,
         &checkout_core::rbac::GuardRequest {
-            entitlement: "pos.core",
-            permission: "pos.void",
+            entitlement: ENT_POS_CORE,
+            permission: PERM_POS_VOID,
             session,
             license: &license,
             sensitive_auth: None,
@@ -1246,15 +1252,15 @@ pub fn refund_order(
     checkout_core::rbac::guard(
         &conn,
         &checkout_core::rbac::GuardRequest {
-            entitlement: "pos.core",
-            permission: "pos.refund",
+            entitlement: ENT_POS_CORE,
+            permission: PERM_POS_REFUND,
             session,
             license: &license,
             sensitive_auth: None,
             current_nonce: "",
             now: parse_rfc3339(&now_str())?,
             amount_cents: total,
-            limit_key: Some("refund.max_cents"),
+            limit_key: Some(LIMIT_REFUND_MAX_CENTS),
         },
     )?;
     let operator_id = session.user_id;
@@ -1290,8 +1296,17 @@ pub fn refund_order(
             price * it.qty
         })
         .collect();
-    let total =
-        checkout_core::order::create_return(&tx, &return_no, &order_no, None, operator_id, None, &rows, &refunds, operator_id)?;
+    let total = checkout_core::order::create_return(
+        &tx,
+        &return_no,
+        &order_no,
+        None,
+        operator_id,
+        None,
+        &rows,
+        &refunds,
+        operator_id,
+    )?;
     tx.commit()?;
     Ok(total)
 }
@@ -1313,12 +1328,15 @@ pub fn create_user(
     role_name: String,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let (_operator_id, conn) = admin_guard(&state, "user.manage")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_USER_MANAGE)?;
     if username.trim().is_empty() {
         return Err(CoreError::Validation("用户名不能为空".into()));
     }
-    if !matches!(role_name.as_str(), "CASHIER" | "MANAGER" | "ADMIN") {
-        return Err(CoreError::Validation("角色仅允许 CASHIER / MANAGER / ADMIN".into()));
+    if !matches!(role_name.as_str(), ROLE_CASHIER | ROLE_MANAGER | ROLE_ADMIN) {
+        return Err(CoreError::Validation(format!(
+            "角色仅允许 {} / {} / {}",
+            ROLE_CASHIER, ROLE_MANAGER, ROLE_ADMIN
+        )));
     }
     checkout_core::rbac::validate_password_policy(&password)?;
     let hash = checkout_core::rbac::hash_password(&password)?;
@@ -1336,7 +1354,7 @@ pub fn create_user(
 
 #[tauri::command]
 pub fn list_users(state: State<'_, AppState>) -> Result<Vec<UserRow>> {
-    let (_operator_id, conn) = admin_guard(&state, "user.manage")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_USER_MANAGE)?;
     let mut stmt = conn.prepare(
         "SELECT u.user_id, u.username, r.role_name, u.status
          FROM user_account u JOIN role r ON r.role_id=u.role_id ORDER BY u.user_id",
@@ -1358,7 +1376,7 @@ pub fn list_users(state: State<'_, AppState>) -> Result<Vec<UserRow>> {
 
 #[tauri::command]
 pub fn set_user_status(user_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
-    let (_operator_id, conn) = admin_guard(&state, "user.manage")?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_USER_MANAGE)?;
     if status != 0 && status != 1 {
         return Err(CoreError::Validation("status 仅允许 0/1".into()));
     }

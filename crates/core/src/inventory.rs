@@ -1,6 +1,10 @@
 //! 库存事件模型（§10.1）：先定义事件，再定义余额。
 //! inv_stock 不直接 UPDATE 数字，增减必经 inv_trans 事件投影。
 
+use crate::constants::{
+    TRANS_ADJUST, TRANS_LOSS, TRANS_PURCHASE_IN, TRANS_PURCHASE_RETURN, TRANS_RETURN, TRANS_SALE,
+    TRANS_TRANSFER_IN, TRANS_TRANSFER_OUT, TRANS_VOID,
+};
 use crate::error::{CoreError, Result};
 use crate::time::format_utc;
 use chrono::Utc;
@@ -23,15 +27,15 @@ pub enum TransType {
 impl TransType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            TransType::PURCHASE_IN => "PURCHASE_IN",
-            TransType::SALE => "SALE",
-            TransType::RETURN => "RETURN",
-            TransType::VOID => "VOID",
-            TransType::PURCHASE_RETURN => "PURCHASE_RETURN",
-            TransType::ADJUST => "ADJUST",
-            TransType::LOSS => "LOSS",
-            TransType::TRANSFER_IN => "TRANSFER_IN",
-            TransType::TRANSFER_OUT => "TRANSFER_OUT",
+            TransType::PURCHASE_IN => TRANS_PURCHASE_IN,
+            TransType::SALE => TRANS_SALE,
+            TransType::RETURN => TRANS_RETURN,
+            TransType::VOID => TRANS_VOID,
+            TransType::PURCHASE_RETURN => TRANS_PURCHASE_RETURN,
+            TransType::ADJUST => TRANS_ADJUST,
+            TransType::LOSS => TRANS_LOSS,
+            TransType::TRANSFER_IN => TRANS_TRANSFER_IN,
+            TransType::TRANSFER_OUT => TRANS_TRANSFER_OUT,
         }
     }
 

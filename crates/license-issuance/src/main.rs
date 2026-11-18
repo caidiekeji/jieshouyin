@@ -1,8 +1,9 @@
 //! 激活码签发 CLI（§4.12）。私钥通过环境变量 CHECKOUT_PRIVATE_KEY 或 --key 提供，
 //! 私钥文件不提交仓库。
 
+use checkout_core::constants::LICENSE_ANNUAL;
 use checkout_core::error::{CoreError, Result};
-use checkout_core::license::payload::{parse_and_verify, LicensePayload};
+use checkout_core::license::payload::{parse_and_verify, LicensePayload, EXPECTED_PRODUCT};
 use clap::{Parser, Subcommand};
 use license_issuance::{
     generate_keypair, issue, rebind_payload, renew_payload, signing_key_from_hex,
@@ -142,10 +143,10 @@ fn run() -> Result<()> {
             let now = chrono::Utc::now().to_rfc3339();
             let payload = LicensePayload {
                 license_id: format!("lic_{}", uuid_like()),
-                product: "checkout-r".into(),
+                product: EXPECTED_PRODUCT.into(),
                 license_type: license_type.clone(),
                 issued_at: now,
-                valid_until: if license_type == "ANNUAL" {
+                valid_until: if license_type == LICENSE_ANNUAL {
                     valid_until
                 } else {
                     None

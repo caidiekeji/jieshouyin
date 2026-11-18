@@ -2,6 +2,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, formatMoney, type ProductRow, type Category } from '../api'
 import Icon from './Icon.vue'
+import {
+  CENTS_PER_YUAN,
+  CURRENCY_DECIMALS,
+  ERROR_DURATION_MS,
+  ICON_SIZE,
+  PAGE_SIZE,
+  TOAST_DURATION_MS,
+} from '../constants'
 
 const products = ref<ProductRow[]>([])
 const categories = ref<Category[]>([])
@@ -43,18 +51,18 @@ const lowStockCount = computed(
 function fail(msg: unknown) {
   err.value = String(msg)
   okMsg.value = ''
-  setTimeout(() => (err.value = ''), 6000)
+  setTimeout(() => (err.value = ''), ERROR_DURATION_MS)
 }
 function done(msg: string) {
   okMsg.value = msg
   err.value = ''
-  setTimeout(() => (okMsg.value = ''), 4000)
+  setTimeout(() => (okMsg.value = ''), TOAST_DURATION_MS)
 }
 
 async function reload() {
   loading.value = true
   try {
-    products.value = await api.listProducts(keyword.value.trim(), 200)
+    products.value = await api.listProducts(keyword.value.trim(), PAGE_SIZE.PRODUCTS)
     categories.value = await api.listCategories()
   } catch (e) {
     fail(e)
@@ -64,8 +72,8 @@ async function reload() {
 }
 
 async function createProduct() {
-  const sale = Math.round(parseFloat(form.value.salePrice || '0') * 100)
-  const cost = Math.round(parseFloat(form.value.costPrice || '0') * 100)
+  const sale = Math.round(parseFloat(form.value.salePrice || '0') * CENTS_PER_YUAN)
+  const cost = Math.round(parseFloat(form.value.costPrice || '0') * CENTS_PER_YUAN)
   try {
     await api.createProduct({
       name: form.value.name,
@@ -89,14 +97,14 @@ async function createProduct() {
 
 function startEdit(p: ProductRow) {
   editSku.value = p.sku_id
-  editPrice.value = (p.sale_price_cents / 100).toFixed(2)
+  editPrice.value = (p.sale_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS)
   editAlert.value = String(p.alert_qty)
 }
 
 async function saveEdit() {
   if (editSku.value == null) return
   try {
-    await api.updateProduct(editSku.value, Math.round(parseFloat(editPrice.value || '0') * 100), parseInt(editAlert.value || '0', 10))
+    await api.updateProduct(editSku.value, Math.round(parseFloat(editPrice.value || '0') * CENTS_PER_YUAN), parseInt(editAlert.value || '0', 10))
     editSku.value = null
     done('已保存')
     await reload()
@@ -155,15 +163,15 @@ onMounted(reload)
     <div class="page-head">
       <h2>商品管理</h2>
       <p v-if="lowStockCount > 0" class="muted small warning-text">
-        <Icon name="alert" :size="14" /> {{ lowStockCount }} 个商品库存低于预警值
+        <Icon name="alert" :size="ICON_SIZE.sm" /> {{ lowStockCount }} 个商品库存低于预警值
       </p>
     </div>
 
     <div class="toolbar">
       <input v-model="keyword" class="input" placeholder="搜索商品名 / 条码" @keyup.enter="reload" />
-      <button class="btn" @click="reload"><Icon name="refresh" :size="16" />查询</button>
-      <button class="btn" @click="showCategory = !showCategory"><Icon name="box" :size="16" />分类</button>
-      <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="16" />新增商品</button>
+      <button class="btn" @click="reload"><Icon name="refresh" :size="ICON_SIZE.md" />查询</button>
+      <button class="btn" @click="showCategory = !showCategory"><Icon name="box" :size="ICON_SIZE.md" />分类</button>
+      <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />新增商品</button>
     </div>
 
     <p v-if="err" class="error">{{ err }}</p>
@@ -176,7 +184,7 @@ onMounted(reload)
       </div>
       <div class="inline-form">
         <input v-model="newCategoryName" class="input" placeholder="新分类名称" @keyup.enter="addCategory" />
-        <button class="btn" @click="addCategory"><Icon name="plus" :size="16" />添加分类</button>
+        <button class="btn" @click="addCategory"><Icon name="plus" :size="ICON_SIZE.md" />添加分类</button>
       </div>
     </div>
 
@@ -225,7 +233,7 @@ onMounted(reload)
               <span v-else class="edit-row">
                 <input v-model="editPrice" class="input input-sm" />
                 <input v-model="editAlert" class="input input-sm" placeholder="预警" />
-                <button class="btn btn-sm" @click="saveEdit"><Icon name="check" :size="14" /></button>
+                <button class="btn btn-sm" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" /></button>
               </span>
             </td>
             <td :class="{ 'warning-text': p.qty <= p.alert_qty }">
@@ -233,8 +241,8 @@ onMounted(reload)
             </td>
             <td>{{ p.status === 1 ? '在售' : '停用' }}</td>
             <td class="actions">
-              <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="14" />改价</button>
-              <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="box" :size="14" />库存</button>
+              <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
+              <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="box" :size="ICON_SIZE.sm" />库存</button>
               <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
             </td>
           </tr>
@@ -259,25 +267,43 @@ onMounted(reload)
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+/* 组件层：只引用语义层 token，不出现裸值 */
+.page-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-3); }
+.toolbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
 .toolbar .input { flex: 1; }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th, .tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-.tbl th { color: var(--muted); font-weight: 600; font-size: 12px; }
-.row-disabled { opacity: 0.5; }
-.warning-text { color: var(--danger, #c0392b); }
-.actions { display: flex; gap: 6px; }
-.edit-row { display: inline-flex; gap: 4px; align-items: center; }
-.btn-sm { padding: 2px 8px; font-size: 12px; }
-.input-sm { width: 70px; padding: 2px 6px; font-size: 12px; }
-.form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
-.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-.checkbox-label { flex-direction: row !important; align-items: center; gap: 6px !important; }
-.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.chip { background: var(--border); border-radius: 12px; padding: 3px 12px; font-size: 12px; }
-.ok-msg { color: var(--ok, #27ae60); font-size: 13px; margin-bottom: 8px; }
-.inline-form { display: flex; gap: 8px; align-items: center; }
-.card { margin-bottom: 12px; }
-.mono { font-family: monospace; }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
+.tbl th, .tbl td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--border);
+}
+.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); }
+.row-disabled { opacity: var(--opacity-disabled); }
+.warning-text { color: var(--danger); }
+.actions { display: flex; gap: var(--space-2); }
+.edit-row { display: inline-flex; gap: var(--space-1); align-items: center; }
+.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
+.input-sm {
+  width: var(--control-input-sm-width);
+  padding: var(--space-0_5) var(--space-2);
+  font-size: var(--font-xs);
+}
+.form-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2); margin-bottom: var(--space-2);
+}
+.form-grid label {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  font-size: var(--font-xs); color: var(--muted);
+}
+.checkbox-label { flex-direction: row !important; align-items: center; gap: var(--space-2) !important; }
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.chip {
+  background: var(--border); border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3); font-size: var(--font-xs);
+}
+.ok-msg { color: var(--success-text); font-size: var(--font-sm); margin-bottom: var(--space-2); }
+.inline-form { display: flex; gap: var(--space-2); align-items: center; }
+.card { margin-bottom: var(--space-3); }
+.mono { font-family: var(--font-family-mono); }
 </style>

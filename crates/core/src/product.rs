@@ -1,6 +1,7 @@
 //! 商品主数据（F-11/F-12/F-15）：SPU/SKU 档案、多级类目、库存台账查询。
 //! 库存增减必经 inventory::apply_event（F-13），本模块只提供档案与查询。
 
+use crate::constants::TRANS_INITIAL;
 use crate::error::{CoreError, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -132,7 +133,7 @@ pub fn create_product(
             sku_id,
             initial_qty,
             crate::inventory::TransType::PURCHASE_IN,
-            Some("INITIAL"),
+            Some(TRANS_INITIAL),
             operator_id,
             false,
         )?;

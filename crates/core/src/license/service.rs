@@ -1,5 +1,10 @@
 //! 启动验证序列与激活/续期/换绑服务（§4.6、§4.7）。
 
+use crate::constants::{
+    CLOCK_SKEW_TOLERANCE_HOURS, ENT_POS_CORE, ENT_REPORT_STANDARD, LICENSE_ANNUAL, LICENSE_NONE,
+    LICENSE_TRIAL, STATE_KEY_TRIAL, STATUS_TRIAL_ACTIVE, STATUS_UNACTIVATED, TRIAL_DAYS,
+    TRIAL_ENTITLEMENTS,
+};
 use crate::error::{CoreError, LicenseError, Result};
 use crate::time::{format_utc, parse_rfc3339, Clock, MonotonicClock};
 use chrono::{DateTime, Utc};
@@ -174,11 +179,14 @@ impl LicenseService {
             Some(&payload.license_id),
             None,
             None,
-            json!({"from":"UNACTIVATED","to":status.as_str()}),
+            json!({"from":STATUS_UNACTIVATED,"to":status.as_str()}),
             &now,
         )?;
         // 激活成功后删除试用记录：授权失效回到 UNACTIVATED 时试用不得复活
-        conn.execute("DELETE FROM license_state WHERE state_key = 'trial'", [])?;
+        conn.execute(
+            "DELETE FROM license_state WHERE state_key = ?1",
+            [STATE_KEY_TRIAL],
+        )?;
         Ok(self.snapshot(status, &payload))
     }
 
@@ -285,7 +293,7 @@ impl LicenseService {
         } else {
             stored_watermark
         };
-        if system_now < stored_watermark - chrono::Duration::hours(24) {
+        if system_now < stored_watermark - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS) {
             append_audit(
                 conn,
                 AuditEvent::ClockRollbackDetected,
@@ -336,14 +344,13 @@ impl LicenseService {
     /// - 到期 → UNACTIVATED，激活界面；激活成功 → 删除试用记录，永不复活
     /// - 边界（如实声明）：纯离线架构下删除数据目录可重置试用，无法技术强制
     fn handle_trial(&self, conn: &Connection) -> Result<LicenseSnapshot> {
-        const TRIAL_DAYS: i64 = 15;
         let system_now = Utc::now();
         let now = format_utc(&system_now);
 
         let row: Option<(String, Option<String>)> = conn
             .query_row(
-                "SELECT updated_at, valid_until FROM license_state WHERE state_key = 'trial'",
-                [],
+                "SELECT updated_at, valid_until FROM license_state WHERE state_key = ?1",
+                [STATE_KEY_TRIAL],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .ok();
@@ -357,7 +364,7 @@ impl LicenseService {
                 } else {
                     start
                 };
-                if system_now < start - chrono::Duration::hours(24) {
+                if system_now < start - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS) {
                     append_audit(
                         conn,
                         AuditEvent::ClockRollbackDetected,
@@ -405,9 +412,12 @@ impl LicenseService {
                 )?;
                 conn.execute(
                     "INSERT INTO license_state(state_key,state,license_type,entitlements_json,valid_until,maintenance_until,updated_at)
-                     VALUES ('trial','TRIAL_ACTIVE','TRIAL',?1,?2,NULL,?3)",
+                     VALUES (?1,?2,?3,?4,?5,NULL,?6)",
                     rusqlite::params![
-                        serde_json::to_string(&Self::TRIAL_ENTITLEMENTS)?,
+                        STATE_KEY_TRIAL,
+                        STATUS_TRIAL_ACTIVE,
+                        LICENSE_TRIAL,
+                        serde_json::to_string(&TRIAL_ENTITLEMENTS)?,
                         format_utc(&ends),
                         &now,
                     ],
@@ -419,17 +429,11 @@ impl LicenseService {
         }
     }
 
-    /// 试用期全功能 entitlement（与文档 §4.2 示例一致）
-    const TRIAL_ENTITLEMENTS: [&str; 3] = ["pos.core", "report.standard", "member.basic"];
-
     fn trial_snapshot(ends: DateTime<Utc>) -> LicenseSnapshot {
         LicenseSnapshot {
             status: LicenseStatus::TRIAL_ACTIVE,
             payload: None,
-            entitlements: Self::TRIAL_ENTITLEMENTS
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            entitlements: TRIAL_ENTITLEMENTS.iter().map(|s| s.to_string()).collect(),
             valid_until: Some(format_utc(&ends)),
             maintenance_until: None,
             trial_ends_at: Some(format_utc(&ends)),
@@ -452,9 +456,9 @@ impl LicenseService {
             Some(p) => p.license_type.as_str().to_string(),
             None => {
                 if snap.status == LicenseStatus::TRIAL_ACTIVE {
-                    "TRIAL".to_string()
+                    LICENSE_TRIAL.to_string()
                 } else {
-                    "NONE".to_string()
+                    LICENSE_NONE.to_string()
                 }
             }
         };
@@ -533,7 +537,7 @@ mod tests {
                 product: "checkout-r".into(),
                 license_type: license_type.into(),
                 issued_at: "2026-01-01T00:00:00Z".into(),
-                valid_until: if license_type == "ANNUAL" {
+                valid_until: if license_type == LICENSE_ANNUAL {
                     Some(valid_until.into())
                 } else {
                     None
@@ -542,7 +546,7 @@ mod tests {
                 grace_period_days: grace,
                 max_devices: 1,
                 device_fingerprint: None,
-                entitlements: vec!["pos.core".into(), "report.standard".into()],
+                entitlements: vec![ENT_POS_CORE.into(), ENT_REPORT_STANDARD.into()],
                 store_id: "S".into(),
                 customer_name: "T".into(),
             };

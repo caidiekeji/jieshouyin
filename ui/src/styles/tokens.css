@@ -1,0 +1,286 @@
+/* ============================================================
+ * 设计令牌 · 三层体系
+ *
+ * primitives 原料层：只有刻度没有含义，任何组件都不得直接引用。
+ * semantic   语义层：表达「用在哪」，暗色模式只翻转这一层。
+ * component  组件层：在组件 <style> 内声明局部变量，引用语义层。
+ *
+ * 推导依据：B 端收银工作台——操作密集、扫读为主、色彩克制、动效极低。
+ * ============================================================ */
+
+/* ---------- primitives：色阶 ---------- */
+:root {
+  /* 品牌蓝阶：以现有品牌色 #1558d6 为 600，沿明度双向派生（纯色，无渐变） */
+  --p-brand-50: #eef4ff;
+  --p-brand-100: #d9e6ff;
+  --p-brand-200: #bcd3ff;
+  --p-brand-300: #8eb4ff;
+  --p-brand-400: #5a8df5;
+  --p-brand-500: #2f6be8;
+  --p-brand-600: #1558d6;
+  --p-brand-700: #0f47b3;
+  --p-brand-800: #103b8a;
+  --p-brand-900: #0f316e;
+
+  /* 中性阶：掺入蓝相，避免纯灰；0/900 同时是亮/暗两极画布 */
+  --p-neutral-0: #ffffff;
+  --p-neutral-25: #f8fafc;
+  --p-neutral-50: #f4f6fa;
+  --p-neutral-100: #e9edf3;
+  --p-neutral-200: #dfe4ec;
+  --p-neutral-300: #c4ccd8;
+  --p-neutral-400: #98a3b3;
+  --p-neutral-500: #6b7684;
+  --p-neutral-600: #4a5563;
+  --p-neutral-700: #2d3746;
+  --p-neutral-800: #1b2430;
+  --p-neutral-900: #141922;
+
+  /* 危险： destructive 动作与校验错误 */
+  --p-danger-50: #fdecea;
+  --p-danger-100: #f9d5d0;
+  --p-danger-500: #c0392b;
+  --p-danger-600: #a32d22;
+  --p-danger-700: #7f231a;
+  --p-danger-900: #3a1f1c;
+
+  /* 成功： 完成态、正向结果 */
+  --p-success-50: #e7f6ed;
+  --p-success-500: #1f9254;
+  --p-success-600: #18794e;
+  --p-success-900: #153325;
+
+  /* 警示： 试用期、到期提醒；暖黄与品牌蓝区分，不与危险色混淆 */
+  --p-warning-50: #fff6e0;
+  --p-warning-100: #f0d999;
+  --p-warning-500: #b7791f;
+  --p-warning-700: #8a5b00;
+  --p-warning-900: #3a2f14;
+  --p-warning-950: #5a4a20;
+
+  /* 暗色表面： 深底带蓝相，相邻层靠提亮区分而非描边 */
+  --p-surface-dark-1: #141922;
+  --p-surface-dark-2: #1e2530;
+  --p-surface-dark-3: #252d3a;
+  --p-border-dark: #313b49;
+
+  /* ---------- primitives：刻度 ---------- */
+
+  /* 间距基数 4px：由表格内最紧凑呼吸空间决定；2px 半步仅供极小控件内边距 */
+  --p-space-0: 0;
+  --p-space-0_5: 2px;
+  --p-space-1: 4px;
+  --p-space-2: 8px;
+  --p-space-3: 12px;
+  --p-space-4: 16px;
+  --p-space-5: 20px;
+  --p-space-6: 24px;
+  --p-space-7: 28px;
+  --p-space-8: 32px;
+  --p-space-10: 40px;
+  --p-space-12: 48px;
+
+  /* 字号：锚定正文 14px（收银屏高密度），上下各派生两级 */
+  --p-font-2xs: 10px;
+  --p-font-xs: 12px;
+  --p-font-sm: 13px;
+  --p-font-base: 14px;
+  --p-font-md: 16px;
+  --p-font-lg: 18px;
+  --p-font-xl: 20px;
+  --p-font-2xl: 22px;
+
+  /* 行高 */
+  --p-line-tight: 1.3;
+  --p-line-normal: 1.5;
+
+  /* 字族：跟随系统，收银机无需下载字体 */
+  --p-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --p-font-mono: 'SFMono-Regular', Consolas, monospace;
+
+  /* 圆角：全站工具感性格，四级足够覆盖最小控件到卡片 */
+  --p-radius-xs: 4px;
+  --p-radius-sm: 6px;
+  --p-radius-md: 8px;
+  --p-radius-lg: 10px;
+  --p-radius-pill: 999px;
+  --p-radius-circle: 50%;
+
+  /* 描边：全站统一 1px，靠颜色而非粗细区分层级 */
+  --p-border-width: 1px;
+
+  /* 阴影：只有「卡片」与「浮层」两级海拔 */
+  --p-shadow-card: 0 2px 10px rgba(20, 35, 60, 0.08);
+  --p-shadow-float: 0 2px 12px rgba(0, 0, 0, 0.3);
+
+  /* 动效：工具类仅保留状态切换 120ms；spinner 是持续运动单独一档 */
+  --p-duration-fast: 120ms;
+  --p-duration-spin: 800ms;
+  --p-ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+  /* 层级：按谁该盖住谁排成链，禁止裸数字 */
+  --p-z-base: 0;
+  --p-z-raised: 10;
+  --p-z-overlay: 100;
+  --p-z-modal: 200;
+  --p-z-toast: 300;
+}
+
+/* ---------- semantic：亮色（表达用在哪） ---------- */
+:root {
+  /* 平面层级 */
+  --bg: var(--p-neutral-50);
+  --panel: var(--p-neutral-0);
+  --panel-raised: var(--p-neutral-0);
+  --surface-subtle: var(--p-neutral-25);
+
+  /* 文字层级 */
+  --text: var(--p-neutral-800);
+  --text-muted: var(--p-neutral-500);
+  --text-on-brand: var(--p-neutral-0);
+  --text-strong: var(--p-neutral-900);
+
+  /* 分组与控件描边 */
+  --border: var(--p-neutral-200);
+  --border-strong: var(--p-neutral-300);
+
+  /* 主色生命周期 */
+  --brand: var(--p-brand-600);
+  --brand-hover: var(--p-brand-700);
+  --brand-subtle: var(--p-brand-50);
+  --brand-border: var(--p-brand-300);
+
+  /* 语义色生命周期 */
+  --danger: var(--p-danger-500);
+  --danger-hover: var(--p-danger-600);
+  --danger-subtle: var(--p-danger-50);
+  --danger-border: var(--p-danger-100);
+  --success: var(--p-success-500);
+  --success-text: var(--p-success-600);
+  --success-subtle: var(--p-success-50);
+  --warning: var(--p-warning-500);
+  --warning-text: var(--p-warning-700);
+  --warning-subtle: var(--p-warning-50);
+  --warning-border: var(--p-warning-100);
+
+  /* 海拔 */
+  --shadow: var(--p-shadow-card);
+  --shadow-float: var(--p-shadow-card);
+
+  /* 浮层专用反色底（亮色下深底白字，保证与卡片区分） */
+  --toast-bg: var(--p-neutral-800);
+  --toast-text: var(--p-neutral-0);
+}
+
+/* ---------- semantic：暗色（只翻转本层，primitives 不动） ---------- */
+:root[data-theme='dark'] {
+  /* 平面层级：深底带色相，靠提亮表达海拔 */
+  --bg: var(--p-surface-dark-1);
+  --panel: var(--p-surface-dark-2);
+  --panel-raised: var(--p-surface-dark-3);
+  --surface-subtle: var(--p-surface-dark-3);
+
+  /* 文字层级：降纯度，避免纯白刺眼 */
+  --text: var(--p-neutral-100);
+  --text-muted: var(--p-neutral-400);
+  --text-on-brand: var(--p-neutral-0);
+  --text-strong: var(--p-neutral-0);
+
+  /* 描边 */
+  --border: var(--p-border-dark);
+  --border-strong: var(--p-neutral-600);
+
+  /* 主色：暗底下提亮一档保证对比度 */
+  --brand: var(--p-brand-400);
+  --brand-hover: var(--p-brand-300);
+  --brand-subtle: var(--p-brand-900);
+  --brand-border: var(--p-brand-700);
+
+  /* 语义色：文字色提亮，淡底转深色 */
+  --danger: var(--p-danger-500);
+  --danger-hover: var(--p-danger-600);
+  --danger-subtle: var(--p-danger-900);
+  --danger-border: var(--p-danger-700);
+  --success: var(--p-success-500);
+  --success-text: var(--p-success-500);
+  --success-subtle: var(--p-success-900);
+  --warning: var(--p-warning-500);
+  --warning-text: var(--p-warning-100);
+  --warning-subtle: var(--p-warning-900);
+  --warning-border: var(--p-warning-950);
+
+  /* 暗色下阴影失效，海拔改由表面提亮承担 */
+  --shadow: var(--p-shadow-float);
+  --shadow-float: var(--p-shadow-float);
+
+  --toast-bg: var(--p-surface-dark-3);
+  --toast-text: var(--p-neutral-0);
+}
+
+/* ---------- semantic：布局尺度（表达位置，不属于原料刻度） ---------- */
+:root {
+  --layout-topbar-height: 56px;
+  --layout-auth-width: 460px;
+  --layout-content-width: 900px;
+  --layout-cart-width: 400px;
+
+  --control-input-sm-width: 80px;
+  --control-qty-size: 24px;
+  --control-spinner-size: 36px;
+  --control-brandmark-size: 42px;
+  --control-spinner-border-width: 3px;
+
+  --layout-wide-max: 92%;
+  --layout-pay-label-width: 120px;
+  --layout-toast-max-width: 80%;
+  --opacity-disabled: 0.5;
+
+  /* 组件唯一可用入口：语义化的刻度别名。
+   * 组件只引用下面这些名字，绝不直接碰 --p-* 原料层。 */
+  --space-0: var(--p-space-0);
+  --space-0_5: var(--p-space-0_5);
+  --space-1: var(--p-space-1);
+  --space-2: var(--p-space-2);
+  --space-3: var(--p-space-3);
+  --space-4: var(--p-space-4);
+  --space-5: var(--p-space-5);
+  --space-6: var(--p-space-6);
+  --space-7: var(--p-space-7);
+  --space-8: var(--p-space-8);
+  --space-10: var(--p-space-10);
+  --space-12: var(--p-space-12);
+
+  --font-2xs: var(--p-font-2xs);
+  --font-xs: var(--p-font-xs);
+  --font-sm: var(--p-font-sm);
+  --font-base: var(--p-font-base);
+  --font-md: var(--p-font-md);
+  --font-lg: var(--p-font-lg);
+  --font-xl: var(--p-font-xl);
+  --font-2xl: var(--p-font-2xl);
+  --line-tight: var(--p-line-tight);
+  --line-normal: var(--p-line-normal);
+  --font-family: var(--p-font-sans);
+  --font-family-mono: var(--p-font-mono);
+
+  --radius-xs: var(--p-radius-xs);
+  --radius-sm: var(--p-radius-sm);
+  --radius-md: var(--p-radius-md);
+  --radius-lg: var(--p-radius-lg);
+  --radius-pill: var(--p-radius-pill);
+  --radius-circle: var(--p-radius-circle);
+  --border-width: var(--p-border-width);
+
+  --duration-fast: var(--p-duration-fast);
+  --duration-spin: var(--p-duration-spin);
+  --ease-out: var(--p-ease-out);
+
+  --z-base: var(--p-z-base);
+  --z-raised: var(--p-z-raised);
+  --z-overlay: var(--p-z-overlay);
+  --z-modal: var(--p-z-modal);
+  --z-toast: var(--p-z-toast);
+
+  /* 兼容旧组件中使用的短名 */
+  --muted: var(--text-muted);
+}

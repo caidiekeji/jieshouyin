@@ -1,6 +1,9 @@
 //! 支付渠道子系统（§6）。统一 trait 隔离渠道实现；桌面端不开监听端口；
 //! v1 闭环 = 付款码同步/轮询 + Native 查单轮询，不依赖回调。
 
+use crate::constants::{
+    PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT,
+};
 use crate::error::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,10 +18,10 @@ pub enum Channel {
 impl Channel {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Channel::CASH => "CASH",
-            Channel::WECHAT => "WECHAT",
-            Channel::ALIPAY => "ALIPAY",
-            Channel::STORED_VALUE => "STORED_VALUE",
+            Channel::CASH => PAY_CASH,
+            Channel::WECHAT => PAY_WECHAT,
+            Channel::ALIPAY => PAY_ALIPAY,
+            Channel::STORED_VALUE => PAY_STORED_VALUE,
         }
     }
 }
@@ -33,8 +36,8 @@ pub enum PayMode {
 impl PayMode {
     pub fn as_str(&self) -> &'static str {
         match self {
-            PayMode::MICROPAY => "MICROPAY",
-            PayMode::NATIVE => "NATIVE",
+            PayMode::MICROPAY => PAY_MODE_MICROPAY,
+            PayMode::NATIVE => PAY_MODE_NATIVE,
         }
     }
 }

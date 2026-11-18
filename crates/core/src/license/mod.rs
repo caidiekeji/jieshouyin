@@ -16,4 +16,5 @@ pub use state::{decide_status, LicenseStatus};
 pub use storage::{LicenseBundle, SecureStore};
 
 /// 前台生存性操作所需 entitlement。任何非 UNACTIVATED 状态都不得阻断。
-pub const ENT_POS_CORE: &str = "pos.core";
+/// 值定义在 constants.rs，此处重导出以保持 `license::ENT_POS_CORE` 兼容。
+pub use crate::constants::ENT_POS_CORE;

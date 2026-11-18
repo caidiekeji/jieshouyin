@@ -2,6 +2,7 @@
 //! 激活码 = Base64URL(payload_json) + "." + Base64URL(signature)
 //! 签名防篡改，非加密；载荷不得含明文敏感信息。
 
+use crate::constants::{LICENSE_ANNUAL, LICENSE_PERPETUAL};
 use crate::error::{CoreError, LicenseError, Result};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -75,10 +76,10 @@ fn validate_payload(p: &LicensePayload) -> Result<()> {
         return Err(LicenseError::MissingField("license_id".into()).into());
     }
     match p.license_type.as_str() {
-        "PERPETUAL" | "ANNUAL" => {}
+        LICENSE_PERPETUAL | LICENSE_ANNUAL => {}
         other => return Err(LicenseError::UnknownType(other.into()).into()),
     }
-    if p.license_type == "ANNUAL" && p.valid_until.is_none() {
+    if p.license_type == LICENSE_ANNUAL && p.valid_until.is_none() {
         return Err(LicenseError::MissingField("valid_until".into()).into());
     }
     Ok(())

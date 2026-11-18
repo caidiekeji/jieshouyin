@@ -1,5 +1,9 @@
 //! 授权状态机（§4.5）。所有判定以 effective_now 为时间基准。
 
+use crate::constants::{
+    LICENSE_ANNUAL, LICENSE_PERPETUAL, STATUS_ACTIVE, STATUS_GRACE_PERIOD, STATUS_OFFLINE_DEGRADED,
+    STATUS_TRIAL_ACTIVE, STATUS_UNACTIVATED,
+};
 use crate::error::{CoreError, Result};
 use crate::time::parse_rfc3339;
 use chrono::{DateTime, Duration, Utc};
@@ -20,11 +24,11 @@ pub enum LicenseStatus {
 impl LicenseStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            LicenseStatus::UNACTIVATED => "UNACTIVATED",
-            LicenseStatus::TRIAL_ACTIVE => "TRIAL_ACTIVE",
-            LicenseStatus::ACTIVE => "ACTIVE",
-            LicenseStatus::GRACE_PERIOD => "GRACE_PERIOD",
-            LicenseStatus::OFFLINE_DEGRADED => "OFFLINE_DEGRADED",
+            LicenseStatus::UNACTIVATED => STATUS_UNACTIVATED,
+            LicenseStatus::TRIAL_ACTIVE => STATUS_TRIAL_ACTIVE,
+            LicenseStatus::ACTIVE => STATUS_ACTIVE,
+            LicenseStatus::GRACE_PERIOD => STATUS_GRACE_PERIOD,
+            LicenseStatus::OFFLINE_DEGRADED => STATUS_OFFLINE_DEGRADED,
         }
     }
 
@@ -49,8 +53,8 @@ pub fn decide_status(
     effective_now: DateTime<Utc>,
 ) -> Result<LicenseStatus> {
     match payload.license_type.as_str() {
-        "PERPETUAL" => Ok(LicenseStatus::ACTIVE),
-        "ANNUAL" => {
+        LICENSE_PERPETUAL => Ok(LicenseStatus::ACTIVE),
+        LICENSE_ANNUAL => {
             let valid_until = payload.valid_until.as_ref().ok_or(CoreError::License(
                 crate::error::LicenseError::MissingField("valid_until".into()),
             ))?;

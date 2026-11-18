@@ -1,5 +1,6 @@
 // Tauri invoke 封装。所有命令名与后端 invoke_handler 注册清单一一对应。
 import { invoke } from '@tauri-apps/api/core'
+import { CENTS_PER_YUAN, CURRENCY_DECIMALS, DATE_PART_DIGITS } from './constants'
 
 export interface LicenseSnapshot {
   status:
@@ -225,10 +226,10 @@ export const api = {
 export function formatMoney(cents: number): string {
   const sign = cents < 0 ? '-' : ''
   const abs = Math.abs(cents)
-  return `${sign}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`
+  return `${sign}${Math.floor(abs / CENTS_PER_YUAN)}.${String(abs % CENTS_PER_YUAN).padStart(CURRENCY_DECIMALS, '0')}`
 }
 
 export function today(): string {
   const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(DATE_PART_DIGITS, '0')}-${String(d.getDate()).padStart(DATE_PART_DIGITS, '0')}`
 }

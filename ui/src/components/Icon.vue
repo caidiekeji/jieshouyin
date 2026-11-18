@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { ICON_SIZE } from '../constants'
 // 自绘 SVG 图标（Lucide 风格 path），不使用 emoji，符合界面硬约束。
 const props = defineProps<{
   name: 'scan' | 'cart' | 'cash' | 'park' | 'report' | 'settings' | 'user' | 'print' | 'close' | 'check' | 'plus' | 'minus' | 'refresh' | 'box' | 'edit' | 'alert' | 'users'
   size?: number
 }>()
-const size = props.size ?? 20
+const size = props.size ?? ICON_SIZE.xl
 
 const paths: Record<string, string> = {
   scan: 'M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M3 12h18',

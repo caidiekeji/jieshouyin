@@ -11,6 +11,14 @@ import {
   type StocktakeItemRow
 } from '../api'
 import Icon from './Icon.vue'
+import {
+  CENTS_PER_YUAN,
+  CURRENCY_DECIMALS,
+  ERROR_DURATION_MS,
+  ICON_SIZE,
+  PAGE_SIZE,
+  TOAST_DURATION_MS,
+} from '../constants'
 
 const tab = ref<'purchase' | 'stocktake'>('purchase')
 const err = ref('')
@@ -19,12 +27,12 @@ const okMsg = ref('')
 function fail(msg: unknown) {
   err.value = String(msg)
   okMsg.value = ''
-  setTimeout(() => (err.value = ''), 6000)
+  setTimeout(() => (err.value = ''), ERROR_DURATION_MS)
 }
 function done(msg: string) {
   okMsg.value = msg
   err.value = ''
-  setTimeout(() => (okMsg.value = ''), 4000)
+  setTimeout(() => (okMsg.value = ''), TOAST_DURATION_MS)
 }
 
 // ===== 供应商 =====
@@ -73,7 +81,7 @@ async function reloadPos() {
 
 async function searchForPo() {
   try {
-    poCandidates.value = await api.listProducts(poSearch.value.trim(), 10)
+    poCandidates.value = await api.listProducts(poSearch.value.trim(), PAGE_SIZE.LOOKUP)
   } catch (e) {
     fail(e)
   }
@@ -81,7 +89,7 @@ async function searchForPo() {
 
 function addPoLine(p: ProductRow) {
   if (poLines.value.some((l) => l.sku_id === p.sku_id)) return
-  poLines.value.push({ sku_id: p.sku_id, name: p.name, qty: 1, cost: (p.cost_price_cents / 100).toFixed(2) })
+  poLines.value.push({ sku_id: p.sku_id, name: p.name, qty: 1, cost: (p.cost_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS) })
   poCandidates.value = []
   poSearch.value = ''
 }
@@ -91,7 +99,7 @@ function removePoLine(i: number) {
 }
 
 const poTotalCents = computed(() =>
-  poLines.value.reduce((s, l) => s + l.qty * Math.round(parseFloat(l.cost || '0') * 100), 0)
+  poLines.value.reduce((s, l) => s + l.qty * Math.round(parseFloat(l.cost || '0') * CENTS_PER_YUAN), 0)
 )
 
 async function submitPo() {
@@ -103,7 +111,7 @@ async function submitPo() {
       poLines.value.map((l) => ({
         sku_id: l.sku_id,
         ordered_qty: l.qty,
-        unit_cost_cents: Math.round(parseFloat(l.cost || '0') * 100)
+        unit_cost_cents: Math.round(parseFloat(l.cost || '0') * CENTS_PER_YUAN)
       }))
     )
     showCreatePo.value = false
@@ -168,7 +176,7 @@ async function reloadStocktakes() {
 
 async function searchForSt() {
   try {
-    stCandidates.value = await api.listProducts(stSearch.value.trim(), 10)
+    stCandidates.value = await api.listProducts(stSearch.value.trim(), PAGE_SIZE.LOOKUP)
   } catch (e) {
     fail(e)
   }
@@ -275,8 +283,8 @@ onMounted(() => {
     <!-- 采购入库 -->
     <template v-if="tab === 'purchase'">
       <div class="toolbar">
-        <button class="btn" @click="showSupplier = !showSupplier"><Icon name="users" :size="16" />供应商</button>
-        <button class="btn primary" @click="showCreatePo = !showCreatePo"><Icon name="plus" :size="16" />新建采购单</button>
+        <button class="btn" @click="showSupplier = !showSupplier"><Icon name="users" :size="ICON_SIZE.md" />供应商</button>
+        <button class="btn primary" @click="showCreatePo = !showCreatePo"><Icon name="plus" :size="ICON_SIZE.md" />新建采购单</button>
       </div>
 
       <div v-if="showSupplier" class="card">
@@ -296,15 +304,15 @@ onMounted(() => {
 
       <div v-if="showCreatePo" class="card">
         <h3>新建采购单</h3>
-        <div class="inline-form" style="margin-bottom: 8px">
+        <div class="inline-form mb-2">
           <select v-model="poSupplierId" class="input">
             <option :value="null" disabled>选择供应商</option>
             <option v-for="s in suppliers" :key="s.supplier_id" :value="s.supplier_id">{{ s.name }}</option>
           </select>
         </div>
-        <div class="inline-form" style="margin-bottom: 8px">
+        <div class="inline-form mb-2">
           <input v-model="poSearch" class="input" placeholder="搜索商品加入采购单" @keyup.enter="searchForPo" />
-          <button class="btn" @click="searchForPo"><Icon name="scan" :size="16" />搜索</button>
+          <button class="btn" @click="searchForPo"><Icon name="scan" :size="ICON_SIZE.md" />搜索</button>
         </div>
         <div v-for="p in poCandidates" :key="p.sku_id" class="candidate" @click="addPoLine(p)">
           {{ p.name }}（库存 {{ p.qty }}）
@@ -318,7 +326,7 @@ onMounted(() => {
               <td>{{ l.name }}</td>
               <td><input v-model.number="l.qty" class="input input-sm" type="number" min="1" /></td>
               <td><input v-model="l.cost" class="input input-sm" /></td>
-              <td><button class="btn btn-sm ghost" @click="removePoLine(i)"><Icon name="close" :size="14" /></button></td>
+              <td><button class="btn btn-sm ghost" @click="removePoLine(i)"><Icon name="close" :size="ICON_SIZE.sm" /></button></td>
             </tr>
           </tbody>
         </table>
@@ -371,14 +379,14 @@ onMounted(() => {
     <!-- 库存盘点 -->
     <template v-else>
       <div class="toolbar">
-        <button class="btn primary" @click="showCreateSt = !showCreateSt"><Icon name="plus" :size="16" />新建盘点任务</button>
+        <button class="btn primary" @click="showCreateSt = !showCreateSt"><Icon name="plus" :size="ICON_SIZE.md" />新建盘点任务</button>
       </div>
 
       <div v-if="showCreateSt" class="card">
         <h3>新建盘点任务</h3>
-        <div class="inline-form" style="margin-bottom: 8px">
+        <div class="inline-form mb-2">
           <input v-model="stSearch" class="input" placeholder="搜索商品加入盘点" @keyup.enter="searchForSt" />
-          <button class="btn" @click="searchForSt"><Icon name="scan" :size="16" />搜索</button>
+          <button class="btn" @click="searchForSt"><Icon name="scan" :size="ICON_SIZE.md" />搜索</button>
         </div>
         <div v-for="p in stCandidates" :key="p.sku_id" class="candidate" @click="addStLine(p)">
           {{ p.name }}（账面 {{ p.qty }}）
@@ -386,7 +394,7 @@ onMounted(() => {
         <div class="chip-row" v-if="stLines.length">
           <span v-for="(l, i) in stLines" :key="l.sku_id" class="chip">
             {{ l.name }}
-            <button class="link" @click="removeStLine(i)"><Icon name="close" :size="12" /></button>
+            <button class="link" @click="removeStLine(i)"><Icon name="close" :size="ICON_SIZE.xs" /></button>
           </span>
         </div>
         <button class="btn primary" @click="submitSt">创建任务</button>
@@ -454,22 +462,39 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
-.tab-row { display: flex; gap: 8px; }
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th, .tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-.tbl th { color: var(--muted); font-weight: 600; font-size: 12px; }
-.btn-sm { padding: 2px 8px; font-size: 12px; }
-.input-sm { width: 90px; padding: 2px 6px; font-size: 12px; }
-.form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.chip { background: var(--border); border-radius: 12px; padding: 3px 12px; font-size: 12px; }
-.candidate { padding: 4px 10px; cursor: pointer; border-radius: 6px; font-size: 13px; }
+/* 组件层：只引用语义层 token，不出现裸值 */
+.page-head { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3); }
+.tab-row { display: flex; gap: var(--space-2); }
+.toolbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
+.tbl th, .tbl td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--border);
+}
+.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); }
+.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
+.input-sm {
+  width: var(--control-input-sm-width);
+  padding: var(--space-0_5) var(--space-2);
+  font-size: var(--font-xs);
+}
+.form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.chip {
+  background: var(--border); border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3); font-size: var(--font-xs);
+}
+.candidate {
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer; border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+}
 .candidate:hover { background: var(--border); }
-.ok-msg { color: var(--ok, #27ae60); font-size: 13px; margin-bottom: 8px; }
-.inline-form { display: flex; gap: 8px; align-items: center; }
-.card { margin-bottom: 12px; }
-.mono { font-family: monospace; }
-.warning-text { color: var(--danger, #c0392b); }
+.ok-msg { color: var(--success-text); font-size: var(--font-sm); margin-bottom: var(--space-2); }
+.inline-form { display: flex; gap: var(--space-2); align-items: center; }
+.mb-2 { margin-bottom: var(--space-2); }
+.card { margin-bottom: var(--space-3); }
+.mono { font-family: var(--font-family-mono); }
+.warning-text { color: var(--danger); }
 </style>
