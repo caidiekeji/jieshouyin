@@ -7,9 +7,8 @@ use checkout_core::constants::{
     CFG_NATIVE_POLL_MS, CFG_NATIVE_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY, CFG_PAY_CHANNEL_CASH,
     CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN, CFG_PRINT_HOST,
     CFG_PRINT_PORT, CFG_SCAN_GAP_MS, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
-    DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_NATIVE_POLL_MS,
-    DEFAULT_NATIVE_TIMEOUT_S, DEFAULT_POINTS_PER_YUAN, ENT_MEMBER_BASIC, ENT_POS_CORE,
-    ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY,
+    DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_PER_YUAN,
+    ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY,
     PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_POS_REFUND,
     PERM_POS_VOID, PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT, PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE,
     PERM_SYSTEM_CONFIG, PERM_USER_MANAGE, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER,
@@ -17,9 +16,10 @@ use checkout_core::constants::{
 use checkout_core::error::{CoreError, Result};
 use checkout_core::license::LicenseSnapshot;
 use checkout_core::payment::{
-    run_micropay, Channel as PayChannel, PayMode, PayRequest, PaymentState,
+    run_micropay, Channel as PayChannel, PayMode, PayRequest, PaymentGateway, PaymentState,
 };
 use checkout_core::promo::{Promotion, Scope as PromoScope};
+use checkout_core::paycreds::SecretStore;
 use checkout_core::rbac::{self, Session};
 use checkout_core::time::parse_rfc3339;
 use chrono::{DateTime, Utc};
@@ -280,6 +280,7 @@ fn member_level(conn: &Connection, member_id: i64) -> Result<Option<i32>> {
         |r| r.get::<_, Option<i32>>(0),
     )
     .optional()
+    .map(|o| o.flatten())
     .map_err(Into::into)
 }
 
@@ -1702,7 +1703,7 @@ pub fn void_order_cmd(
             &tx,
             "void_order",
             Some(operator_id),
-            approver_id,
+            Some(approver_id),
             serde_json::json!({"order_no": order_no}),
             &now_str(),
         )?;
@@ -1890,7 +1891,7 @@ pub fn refund_order(
             &order_no,
             member_id,
             operator_id,
-            approver_id,
+            Some(approver_id),
             &rows,
             &refunds,
             operator_id,
@@ -1920,7 +1921,7 @@ pub fn refund_order(
             &tx,
             "refund_order",
             Some(operator_id),
-            approver_id,
+            Some(approver_id),
             serde_json::json!({"order_no": order_no, "return_no": return_no, "amount_cents": total}),
             &now_str(),
         )?;
@@ -1957,7 +1958,7 @@ pub fn refund_order(
                         &conn,
                         "refund_channel_failed",
                         Some(operator_id),
-                        approver_id,
+                        Some(approver_id),
                         serde_json::json!({"refund_no": refund_no, "error": e.to_string()}),
                         &now_str(),
                     )?;
@@ -2652,7 +2653,7 @@ pub fn cancel_native_pay(order_no: String, state: State<'_, AppState>) -> Result
     };
     conn.execute(
         "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND status='PENDING'",
-        [order_no],
+        [order_no.clone()],
     )?;
     release_order_coupon(&conn, &order_no)?;
     checkout_core::rbac::audit_operation(
