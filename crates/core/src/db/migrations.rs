@@ -470,6 +470,107 @@ const M0008: &str = r#"
 ALTER TABLE sales_order ADD COLUMN coupon_code TEXT;
 "#;
 
+/// M0009：行业分类模板 + 商品图片。
+/// category_template 存放三套行业的分类树预设（path 用 / 分隔层级），
+/// 选定时按模板写入 category 表；sku 增加本地上传图片与在线图片地址两个来源。
+const M0009: &str = r#"
+CREATE TABLE category_template (
+    template_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    industry    TEXT    NOT NULL,
+    path        TEXT    NOT NULL,
+    sort_no     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_category_template_industry ON category_template(industry, sort_no);
+
+INSERT INTO category_template(industry, path, sort_no) VALUES
+ ('SUPERMARKET','食品饮料',1),
+ ('SUPERMARKET','食品饮料/休闲零食',2),
+ ('SUPERMARKET','食品饮料/米面粮油',3),
+ ('SUPERMARKET','食品饮料/调味干货',4),
+ ('SUPERMARKET','食品饮料/饮料冲调',5),
+ ('SUPERMARKET','食品饮料/冷冻食品',6),
+ ('SUPERMARKET','食品饮料/乳品早餐',7),
+ ('SUPERMARKET','生鲜果蔬',8),
+ ('SUPERMARKET','生鲜果蔬/新鲜蔬菜',9),
+ ('SUPERMARKET','生鲜果蔬/时令水果',10),
+ ('SUPERMARKET','生鲜果蔬/肉禽蛋品',11),
+ ('SUPERMARKET','生鲜果蔬/水产海鲜',12),
+ ('SUPERMARKET','日用百货',13),
+ ('SUPERMARKET','日用百货/纸品清洁',14),
+ ('SUPERMARKET','日用百货/厨房用品',15),
+ ('SUPERMARKET','日用百货/家居杂品',16),
+ ('SUPERMARKET','日用百货/五金工具',17),
+ ('SUPERMARKET','母婴用品',18),
+ ('SUPERMARKET','母婴用品/奶粉辅食',19),
+ ('SUPERMARKET','母婴用品/纸尿裤湿巾',20),
+ ('SUPERMARKET','母婴用品/洗护用品',21),
+ ('SUPERMARKET','个护化妆',22),
+ ('SUPERMARKET','个护化妆/洗护发',23),
+ ('SUPERMARKET','个护化妆/口腔护理',24),
+ ('SUPERMARKET','个护化妆/彩妆护肤',25),
+ ('SUPERMARKET','酒水饮料',26),
+ ('SUPERMARKET','酒水饮料/白酒',27),
+ ('SUPERMARKET','酒水饮料/啤酒',28),
+ ('SUPERMARKET','酒水饮料/红酒洋酒',29),
+ ('CLOTHING','女装',1),
+ ('CLOTHING','女装/上衣T恤',2),
+ ('CLOTHING','女装/衬衫针织',3),
+ ('CLOTHING','女装/外套风衣',4),
+ ('CLOTHING','女装/裤装',5),
+ ('CLOTHING','女装/裙装',6),
+ ('CLOTHING','男装',7),
+ ('CLOTHING','男装/上衣T恤',8),
+ ('CLOTHING','男装/衬衫',9),
+ ('CLOTHING','男装/外套夹克',10),
+ ('CLOTHING','男装/西裤休闲裤',11),
+ ('CLOTHING','童装',12),
+ ('CLOTHING','童装/婴儿连体衣',13),
+ ('CLOTHING','童装/儿童上衣',14),
+ ('CLOTHING','童装/儿童裤装',15),
+ ('CLOTHING','童装/儿童外套',16),
+ ('CLOTHING','鞋靴',17),
+ ('CLOTHING','鞋靴/运动鞋',18),
+ ('CLOTHING','鞋靴/男鞋',19),
+ ('CLOTHING','鞋靴/女鞋',20),
+ ('CLOTHING','鞋靴/童鞋',21),
+ ('CLOTHING','箱包配件',22),
+ ('CLOTHING','箱包配件/双肩包',23),
+ ('CLOTHING','箱包配件/单肩挎包',24),
+ ('CLOTHING','箱包配件/钱包',25),
+ ('CLOTHING','箱包配件/帽子',26),
+ ('CLOTHING','箱包配件/皮带围巾',27),
+ ('CLOTHING','纺织配件',28),
+ ('CLOTHING','纺织配件/内衣家居服',29),
+ ('CLOTHING','纺织配件/袜子',30),
+ ('CLOTHING','纺织配件/毛巾浴巾',31),
+ ('RESTAURANT','经典中餐',1),
+ ('RESTAURANT','经典中餐/凉菜',2),
+ ('RESTAURANT','经典中餐/热菜',3),
+ ('RESTAURANT','经典中餐/汤羹',4),
+ ('RESTAURANT','经典中餐/主食',5),
+ ('RESTAURANT','特色小吃',6),
+ ('RESTAURANT','特色小吃/面食',7),
+ ('RESTAURANT','特色小吃/米线粉',8),
+ ('RESTAURANT','特色小吃/饺子馄饨',9),
+ ('RESTAURANT','特色小吃/炸物烧烤',10),
+ ('RESTAURANT','饮品',11),
+ ('RESTAURANT','饮品/奶茶',12),
+ ('RESTAURANT','饮品/鲜果茶',13),
+ ('RESTAURANT','饮品/咖啡',14),
+ ('RESTAURANT','饮品/气泡水',15),
+ ('RESTAURANT','甜品',16),
+ ('RESTAURANT','甜品/蛋糕',17),
+ ('RESTAURANT','甜品/布丁',18),
+ ('RESTAURANT','甜品/冰淇淋',19),
+ ('RESTAURANT','酒水',20),
+ ('RESTAURANT','酒水/啤酒',21),
+ ('RESTAURANT','酒水/白酒',22),
+ ('RESTAURANT','酒水/红酒',23);
+
+ALTER TABLE sku ADD COLUMN image_path TEXT;
+ALTER TABLE sku ADD COLUMN image_url TEXT;
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -511,6 +612,11 @@ pub fn all() -> Vec<Migration> {
             version: 8,
             name: "order_coupon_code",
             up: M0008,
+        },
+        Migration {
+            version: 9,
+            name: "industry_category_template_product_image",
+            up: M0009,
         },
     ]
 }

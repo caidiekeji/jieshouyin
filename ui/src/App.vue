@@ -13,11 +13,15 @@ import {
   type CategorySales,
   type CashierSales,
   type ConfigRow,
+  type StoreProfile,
+  type IndustryOption,
 } from './api'
 import Icon from './components/Icon.vue'
 import ProductAdmin from './components/ProductAdmin.vue'
 import SupplyAdmin from './components/SupplyAdmin.vue'
 import MemberAdmin from './components/MemberAdmin.vue'
+import OrderDetailPanel from './components/OrderDetailPanel.vue'
+import RefundPanel from './components/RefundPanel.vue'
 import {
   ICON_SIZE,
   MS_PER_DAY,
@@ -30,7 +34,20 @@ import {
   PAY_CRED_FIELDS,
 } from './constants'
 
-type View = 'boot' | 'activate' | 'login' | 'pos' | 'products' | 'supply' | 'member' | 'parked' | 'report' | 'settings'
+type View =
+  | 'boot'
+  | 'industry'
+  | 'activate'
+  | 'login'
+  | 'pos'
+  | 'products'
+  | 'supply'
+  | 'member'
+  | 'parked'
+  | 'report'
+  | 'settings'
+  | 'refund'
+  | 'order'
 const view = ref<View>('boot')
 const bootError = ref('')
 const license = ref<LicenseSnapshot | null>(null)
@@ -43,8 +60,21 @@ const loginError = ref('')
 const activateToken = ref('')
 const activateError = ref('')
 const renewMode = ref(false)
+/** 激活方式：在线激活（联系激活服务）或离线导入激活码 */
+const activateMode = ref<'online' | 'offline'>('online')
+const activateCustomer = ref('')
 const theme = ref<'light' | 'dark'>('light')
 const currentUser = ref('')
+
+// ===== 门店档案与行业（多行业适配）=====
+const storeProfile = ref<StoreProfile | null>(null)
+const industries = ref<IndustryOption[]>([])
+const pendingIndustry = ref('')
+const storeNameDraft = ref('')
+/** 订单详情页当前单号 */
+const orderNo = ref('')
+/** 退款页预置单号（从订单详情跳转时带入） */
+const refundOrderNo = ref('')
 
 // 收银状态
 const keyword = ref('')
@@ -103,7 +133,22 @@ const banner = computed(() => {
   return ''
 })
 
-const subtotal = computed(() => cart.value.reduce((s, l) => s + l.qty * l.unit_price_cents, 0))
+const subtotal = computed(() => cart.value.reduce((s, l) => s + l.qty * effectivePrice(l), 0))
+
+/** 行成交价：识别会员后按会员价显示（结算时与促销取优由后端裁决，前端只负责如实呈现）。 */
+function effectivePrice(l: { unit_price_cents: number; member_price_cents?: number | null }): number {
+  const mp = l.member_price_cents
+  if (mp != null && mp > 0 && mp < l.unit_price_cents) return mp
+  return l.unit_price_cents
+}
+
+/** 商品的会员价：未识别会员或未配置会员价时返回 null。 */
+function memberPriceOf(p: ProductHit): number | null {
+  if (memberId.value == null) return null
+  const mp = p.member_price_cents
+  if (mp == null || mp <= 0 || mp >= p.price_cents) return null
+  return mp
+}
 
 function showToast(msg: string, isError = false) {
   toast.value = msg
@@ -148,6 +193,7 @@ async function findMember() {
   if (!phone) {
     memberId.value = null
     memberBalances.value = null
+    for (const l of cart.value) l.member_price_cents = null
     return
   }
   try {
@@ -156,6 +202,7 @@ async function findMember() {
     if (!m) {
       memberId.value = null
       memberBalances.value = null
+      for (const l of cart.value) l.member_price_cents = null
       showToast('未找到会员', true)
       return
     }
@@ -165,9 +212,22 @@ async function findMember() {
       bonus_cents: m.bonus_cents,
       points: m.points,
     }
+    await refreshCartMemberPrices()
     showToast(`会员已识别：${m.name ?? m.member_code}`)
   } catch (e) {
     showToast(String(e), true)
+  }
+}
+
+/** 识别会员后刷新购物车行的会员价：已有行也要按会员价成交。 */
+async function refreshCartMemberPrices() {
+  if (!cart.value.length) return
+  try {
+    const rows = await api.memberPrices(cart.value.map((l) => l.sku_id))
+    const map = new Map(rows.map((r) => [r.sku_id, r.member_price_cents]))
+    for (const l of cart.value) l.member_price_cents = map.get(l.sku_id) ?? null
+  } catch {
+    // 会员价刷新失败不阻断收银：后端结算仍会按会员价取优
   }
 }
 
@@ -235,6 +295,13 @@ function focusScan() {
 onMounted(async () => {
   try {
     license.value = await api.bootstrap()
+    await loadStoreProfile()
+    if (!storeProfile.value?.configured) {
+      // 首次启动：先选行业并设店名，再进入激活/登录
+      view.value = 'industry'
+      await loadIndustries()
+      return
+    }
     if (license.value.status === 'UNACTIVATED') {
       view.value = 'activate'
     } else {
@@ -246,6 +313,100 @@ onMounted(async () => {
     bootError.value = String(e)
   }
 })
+
+// ===== 门店档案与行业 =====
+async function loadStoreProfile() {
+  try {
+    storeProfile.value = await api.getStoreProfile()
+    storeNameDraft.value = storeProfile.value.store_name
+    if (storeProfile.value.industry) pendingIndustry.value = storeProfile.value.industry
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+async function loadIndustries() {
+  try {
+    industries.value = await api.listIndustries()
+    pendingIndustry.value = pendingIndustry.value || industries.value[0]?.id || ''
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+/** 选定行业并写入分类模板 */
+async function confirmIndustry() {
+  if (!pendingIndustry.value) {
+    showToast('请选择行业', true)
+    return
+  }
+  try {
+    storeProfile.value = await api.selectIndustry(pendingIndustry.value)
+    showToast(`已切换为${storeProfile.value.industry_name}`)
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+/** 保存店名 */
+async function saveStoreName() {
+  try {
+    storeProfile.value = await api.setStoreName(storeNameDraft.value)
+    showToast('店名已保存')
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+/** 首次启动完成（行业 + 店名）后进入下一步 */
+async function finishIndustrySetup() {
+  if (!storeNameDraft.value.trim()) {
+    showToast('请填写店名', true)
+    return
+  }
+  try {
+    // 行业若与当前档案不同，先落地该行业的分类模板，再保存店名
+    if (pendingIndustry.value && pendingIndustry.value !== storeProfile.value?.industry) {
+      storeProfile.value = await api.selectIndustry(pendingIndustry.value)
+    }
+    storeProfile.value = await api.setStoreName(storeNameDraft.value)
+    await loadStoreProfile()
+    if (storeProfile.value?.configured) {
+      view.value = license.value?.status === 'UNACTIVATED' ? 'activate' : 'login'
+      if (view.value === 'login') needAdmin.value = !(await api.hasUsers())
+    }
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+function gotoRefund(orderNo?: string) {
+  refundOrderNo.value = orderNo ?? ''
+  view.value = 'refund'
+}
+
+function gotoOrder(no: string) {
+  orderNo.value = no
+  view.value = 'order'
+}
+
+/** 在线激活：向激活服务换取授权码，失败时提示可改用离线导入 */
+async function submitActivateOnline() {
+  activateError.value = ''
+  try {
+    license.value = await api.activateOnline(
+      activateToken.value.trim(),
+      activateCustomer.value.trim() || null
+    )
+    if (license.value.status !== 'UNACTIVATED') {
+      view.value = 'login'
+      needAdmin.value = !(await api.hasUsers())
+      showToast('激活成功')
+    }
+  } catch (e) {
+    activateError.value = `${String(e)}（网络不可达时可切换为离线导入激活码）`
+  }
+}
 
 async function submitActivate() {
   activateError.value = ''
@@ -306,7 +467,14 @@ async function search() {
 function addToCart(p: ProductHit) {
   const existing = cart.value.find((l) => l.sku_id === p.sku_id)
   if (existing) existing.qty += 1
-  else cart.value.push({ sku_id: p.sku_id, qty: 1, unit_price_cents: p.price_cents, name: p.spu_name })
+  else
+    cart.value.push({
+      sku_id: p.sku_id,
+      qty: 1,
+      unit_price_cents: p.price_cents,
+      member_price_cents: memberPriceOf(p),
+      name: p.spu_name,
+    })
   keyword.value = ''
   products.value = []
 }
@@ -603,6 +771,8 @@ async function exportReconcile() {
 // ===== 系统配置（§15/§14）=====
 const configs = ref<ConfigRow[]>([])
 const configDraft = ref<Record<string, string>>({})
+/** 仅渲染后端标注为可编辑的配置项；门店名称与所属行业由「门店信息」卡片管理。 */
+const editableConfigs = computed(() => configs.value.filter((c) => c.editable))
 async function loadConfigs() {
   try {
     configs.value = await api.getConfigs()
@@ -623,6 +793,13 @@ async function saveConfig(key: string) {
   } catch (e) {
     showToast(String(e), true)
   }
+}
+
+/** 开关型配置：点击即翻转并保存（'1' 启用 / '0' 停用）。 */
+async function toggleConfigSwitch(key: string) {
+  const next = configDraft.value[key] === '1' ? '0' : '1'
+  configDraft.value[key] = next
+  await saveConfig(key)
 }
 
 // ===== 打印重试队列（§7.6）=====
@@ -870,7 +1047,7 @@ function goPOS() { view.value = 'pos'; focusScan(); loadPayChannels() }
 function goProducts() { view.value = 'products' }
 function goParked() { loadParked() }
 function goReport() { view.value = 'report'; loadReport(); loadReports(); loadShift() }
-function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadCoupons(); loadPaymentSettings() }
+function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadCoupons(); loadPaymentSettings(); loadIndustries(); loadStoreProfile() }
 function doLogout() { api.logout(); view.value = 'login'; currentUser.value = '' }
 </script>
 
@@ -884,6 +1061,42 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
       <p>正在初始化系统…</p>
     </div>
 
+    <!-- 行业选择与门店设置（首次启动） -->
+    <div v-else-if="view === 'industry'" class="center-screen">
+      <div class="card auth-card industry-card">
+        <div class="brand">
+          <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
+          <div>
+            <h1>Checkout-R</h1>
+            <p class="muted">选择经营行业，系统据此预置商品分类</p>
+          </div>
+        </div>
+        <h2>选择行业</h2>
+        <div class="industry-list">
+          <button
+            v-for="ind in industries"
+            :key="ind.id"
+            :class="['industry-item', { active: pendingIndustry === ind.id }]"
+            @click="pendingIndustry = ind.id"
+          >
+            <strong>{{ ind.name }}</strong>
+            <span class="muted small">{{ ind.description }}</span>
+            <span class="muted small">默认单位：{{ ind.default_unit }}</span>
+          </button>
+        </div>
+        <label class="field-label">
+          店名
+          <input v-model="storeNameDraft" class="input" placeholder="如 城南生活超市" maxlength="30" />
+        </label>
+        <div class="actions">
+          <button class="btn" @click="loadIndustries">刷新行业列表</button>
+          <button class="btn" @click="confirmIndustry">仅应用行业分类</button>
+          <button class="btn primary" @click="finishIndustrySetup">完成设置并开始使用</button>
+        </div>
+        <p class="muted small">行业分类可在设置页随时调整，切换只新增分类不删除已有商品。</p>
+      </div>
+    </div>
+
     <!-- 激活 -->
     <div v-else-if="view === 'activate'" class="center-screen">
       <div class="card auth-card">
@@ -891,15 +1104,38 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
           <div>
             <h1>Checkout-R</h1>
-            <p class="muted">离线优先收银系统</p>
+            <p class="muted">收银系统授权</p>
           </div>
         </div>
         <h2>{{ renewMode ? '导入续期码' : '设备激活' }}</h2>
-        <p class="muted small">激活为纯离线过程，全程不发起网络请求。</p>
-        <textarea v-model="activateToken" rows="5" placeholder="粘贴激活码（Base64URL.签名）" class="input mono"></textarea>
-        <p v-if="activateError" class="error">{{ activateError }}</p>
-        <button class="btn primary" @click="submitActivate">{{ renewMode ? '续期' : '激活' }}</button>
-        <button class="btn ghost" @click="renewMode = !renewMode">{{ renewMode ? '返回激活' : '已有授权，导入续期码' }}</button>
+        <div class="tab-row">
+          <button :class="['btn', { primary: activateMode === 'online' }]" @click="activateMode = 'online'">在线激活</button>
+          <button :class="['btn', { primary: activateMode === 'offline' }]" @click="activateMode = 'offline'">离线导入</button>
+        </div>
+
+        <template v-if="!renewMode && activateMode === 'online'">
+          <p class="muted small">输入购买后获得的激活码，联网向激活服务换取授权；授权在本机验签后保存。</p>
+          <input v-model="activateCustomer" class="input" placeholder="门店名称（选填，用于授权登记）" />
+          <input v-model="activateToken" class="input mono" placeholder="激活码" />
+          <p v-if="activateError" class="error">{{ activateError }}</p>
+          <button class="btn primary" @click="submitActivateOnline">联网激活</button>
+          <p class="muted small">未配置激活服务或网络不通时，请切换到「离线导入」。</p>
+        </template>
+
+        <template v-else>
+          <p class="muted small">
+            {{ renewMode ? '粘贴续期码（Base64URL.签名），本机验签后立即生效。' : '粘贴激活码（Base64URL.签名），全程不发起网络请求。' }}
+          </p>
+          <textarea v-model="activateToken" rows="5" placeholder="粘贴激活码（Base64URL.签名）" class="input mono"></textarea>
+          <p v-if="activateError" class="error">{{ activateError }}</p>
+          <button class="btn primary" @click="submitActivate">{{ renewMode ? '续期' : '激活' }}</button>
+        </template>
+
+        <button v-if="!renewMode" class="btn ghost" @click="renewMode = !renewMode">
+          {{ renewMode ? '返回激活' : '已有授权，导入续期码' }}
+        </button>
+        <button v-else class="btn ghost" @click="renewMode = false">返回激活</button>
+
         <div v-if="needAdmin" class="inline-form">
           <h3>初始化管理员</h3>
           <input v-model="adminUser" class="input" placeholder="用户名" />
@@ -933,13 +1169,19 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
     <!-- 主界面 -->
     <div v-else class="shell">
       <header class="topbar">
-        <div class="logo"><Icon name="scan" :size="ICON_SIZE.xl" /><span>Checkout-R</span></div>
+        <div class="logo">
+          <Icon name="scan" :size="ICON_SIZE.xl" />
+          <span>{{ storeProfile?.store_name || 'Checkout-R' }}</span>
+          <span v-if="storeProfile?.industry_name" class="badge">{{ storeProfile.industry_name }}</span>
+        </div>
         <nav class="nav">
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
           <button :class="['nav-btn', { active: view === 'products' }]" @click="goProducts"><Icon name="box" :size="ICON_SIZE.lg" />商品</button>
           <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="park" :size="ICON_SIZE.lg" />采购盘点</button>
           <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="users" :size="ICON_SIZE.lg" />会员营销</button>
           <button :class="['nav-btn', { active: view === 'parked' }]" @click="goParked"><Icon name="park" :size="ICON_SIZE.lg" />挂单</button>
+          <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="refresh" :size="ICON_SIZE.lg" />退款</button>
+          <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)"><Icon name="print" :size="ICON_SIZE.lg" />订单</button>
           <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.lg" />报表</button>
           <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="ICON_SIZE.lg" />设置</button>
         </nav>
@@ -964,8 +1206,14 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           </div>
           <div class="product-list">
             <div v-for="p in products" :key="p.sku_id" class="product-item" @click="addToCart(p)">
-              <div><strong>{{ p.spu_name }}</strong><span class="muted small"> {{ p.barcode }}</span></div>
-              <span class="price">¥{{ formatMoney(p.price_cents) }}</span>
+              <div>
+                <strong>{{ p.spu_name }}</strong>
+                <span class="muted small"> {{ p.barcode }}</span>
+              </div>
+              <div class="price-stack">
+                <span class="price">¥{{ formatMoney(p.price_cents) }}</span>
+                <span v-if="memberPriceOf(p)" class="price member">会员 ¥{{ formatMoney(memberPriceOf(p)!) }}</span>
+              </div>
             </div>
             <div v-if="!products.length" class="empty">扫码枪自动识别，或输入条码/商品名回车</div>
           </div>
@@ -983,13 +1231,16 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <h3>购物车 <span class="badge">{{ cart.length }}</span></h3>
           <div class="cart-list">
             <div v-for="(l, i) in cart" :key="`${l.sku_id}-${i}`" class="cart-line">
-              <div class="line-name">{{ l.name || `SKU ${l.sku_id}` }}</div>
+              <div class="line-name">
+                {{ l.name || `SKU ${l.sku_id}` }}
+                <span v-if="l.member_price_cents" class="tag">会员价</span>
+              </div>
               <div class="qty-ctrl">
                 <button @click="changeQty(i, -1)"><Icon name="minus" :size="ICON_SIZE.sm" /></button>
                 <span>{{ l.qty }}</span>
                 <button @click="changeQty(i, 1)"><Icon name="plus" :size="ICON_SIZE.sm" /></button>
               </div>
-              <span class="price">¥{{ formatMoney(l.qty * l.unit_price_cents) }}</span>
+              <span class="price">¥{{ formatMoney(l.qty * effectivePrice(l)) }}</span>
             </div>
             <div v-if="!cart.length" class="empty">购物车为空</div>
           </div>
@@ -1181,6 +1432,22 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         </div>
       </main>
 
+      <!-- 退款 -->
+      <RefundPanel
+        v-else-if="view === 'refund'"
+        :initial-order-no="refundOrderNo"
+        :request-auth="requireSensitiveAuth"
+        @detail="gotoOrder"
+      />
+
+      <!-- 订单详情 -->
+      <OrderDetailPanel
+        v-else-if="view === 'order'"
+        :order-no="orderNo"
+        @refund="gotoRefund"
+        @search="gotoOrder"
+      />
+
       <!-- 设置 -->
       <main v-else class="main-simple">
         <div class="card wide">
@@ -1225,13 +1492,56 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         </div>
 
         <div class="card wide">
-          <h3>系统配置</h3>
-          <div v-for="c in configs" :key="c.config_key" class="config-row">
-            <span class="config-key">{{ c.config_key }}</span>
-            <input v-model="configDraft[c.config_key]" class="input" />
-            <button class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
+          <h3>门店信息</h3>
+          <div class="form-grid">
+            <label>
+              店名
+              <input v-model="storeNameDraft" class="input" maxlength="30" placeholder="如 城南生活超市" />
+            </label>
+            <label>
+              所属行业
+              <select v-model="pendingIndustry" class="input">
+                <option v-for="ind in industries" :key="ind.id" :value="ind.id">{{ ind.name }}</option>
+              </select>
+            </label>
           </div>
-          <p class="muted small">扫码阈值 20–200ms；业务日切点 HH:MM；折扣上限 0–1。</p>
+          <div class="op-form">
+            <button class="btn primary" @click="saveStoreName">保存店名</button>
+            <button class="btn" @click="confirmIndustry">应用行业分类</button>
+          </div>
+          <p class="muted small">
+            当前：{{ storeProfile?.industry_name || '未设置' }} · {{ storeProfile?.store_name || '未命名门店' }}。
+            切换行业只新增分类模板，不影响已有商品。
+          </p>
+        </div>
+
+        <div class="card wide">
+          <h3>系统配置</h3>
+          <div v-for="c in editableConfigs" :key="c.config_key" class="config-row config-row-stacked">
+            <div class="config-label">
+              <strong>{{ c.label }}</strong>
+              <span class="muted small">{{ c.description }}</span>
+            </div>
+            <div class="config-control">
+              <button
+                v-if="c.kind === 'switch'"
+                class="btn btn-sm"
+                :class="{ primary: configDraft[c.config_key] === '1' }"
+                @click="toggleConfigSwitch(c.config_key)"
+              >
+                {{ configDraft[c.config_key] === '1' ? '已启用' : '已停用' }}
+              </button>
+              <input
+                v-else
+                v-model="configDraft[c.config_key]"
+                class="input"
+                :type="c.kind === 'text' ? 'text' : 'number'"
+                :step="c.kind === 'decimal' ? '0.01' : '1'"
+              />
+              <button class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
+            </div>
+          </div>
+          <p class="muted small">扫码判定间隔 20–200 毫秒；业务日切点格式 HH:MM；最大折扣率 0–1。</p>
         </div>
 
         <div class="card wide">

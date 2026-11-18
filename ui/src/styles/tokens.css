@@ -239,6 +239,8 @@
   --control-spinner-size: 36px;
   --control-brandmark-size: 42px;
   --control-spinner-border-width: 3px;
+  /* 商品缩略图：表格行高内的方形缩略图，40px 足够辨认商品又不过度抢眼 */
+  --control-thumb-size: 40px;
 
   --layout-wide-max: 92%;
   --layout-pay-label-width: 120px;

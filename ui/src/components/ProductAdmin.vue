@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { api, formatMoney, type ProductRow, type Category } from '../api'
 import Icon from './Icon.vue'
 import {
@@ -32,7 +33,10 @@ const form = ref({
   isWeighed: false,
   initialQty: 0,
   alertQty: 0,
+  imageUrl: '',
 })
+/** 新增表单选择的图片文件（file input 不能 v-model，单独持有 File） */
+const createImageFile = ref<File | null>(null)
 
 // 行内编辑
 const editSku = ref<number | null>(null)
@@ -49,9 +53,67 @@ const showCategory = ref(false)
 const newCategoryName = ref('')
 const newCategoryParent = ref<number | null>(null)
 
+// 商品图片：上传本地文件或登记在线地址
+const imageSku = ref<number | null>(null)
+const imageUrlDraft = ref('')
+
 const lowStockCount = computed(
   () => products.value.filter((p) => p.status === 1 && p.qty <= p.alert_qty).length
 )
+
+/** 读取文件为 base64 data URL（后端剥前缀后按文件头判定格式） */
+function readFileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+/** 展示地址：本地图片走资产协议，在线图片直接用 */
+function imageSrc(p: ProductRow): string | null {
+  if (p.image_path) return convertFileSrc(p.image_path)
+  if (p.image_url) return p.image_url
+  return null
+}
+
+function pickCreateImage(e: Event) {
+  const input = e.target as HTMLInputElement
+  createImageFile.value = input.files?.[0] ?? null
+}
+
+function startImage(p: ProductRow) {
+  imageSku.value = p.sku_id
+  imageUrlDraft.value = p.image_url ?? ''
+}
+
+async function uploadImage(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || imageSku.value == null) return
+  try {
+    const base64 = await readFileBase64(file)
+    await api.uploadProductImage(imageSku.value, base64)
+    done('图片已上传')
+    await reload()
+  } catch (ex) {
+    fail(ex)
+  } finally {
+    input.value = ''
+  }
+}
+
+async function saveImageUrl() {
+  if (imageSku.value == null) return
+  try {
+    await api.setProductImageUrl(imageSku.value, imageUrlDraft.value.trim())
+    done('图片地址已保存')
+    await reload()
+  } catch (e) {
+    fail(e)
+  }
+}
 
 function fail(msg: unknown) {
   err.value = String(msg)
@@ -80,7 +142,7 @@ async function createProduct() {
   const sale = Math.round(parseFloat(form.value.salePrice || '0') * CENTS_PER_YUAN)
   const cost = Math.round(parseFloat(form.value.costPrice || '0') * CENTS_PER_YUAN)
   try {
-    await api.createProduct({
+    const skuId = await api.createProduct({
       name: form.value.name,
       barcode: form.value.barcode.trim() || null,
       instoreCode: form.value.instoreCode.trim() || null,
@@ -95,8 +157,17 @@ async function createProduct() {
       initialQty: form.value.initialQty,
       alertQty: form.value.alertQty,
     })
+    // 图片：上传的本地文件优先，其次登记在线地址
+    if (createImageFile.value) {
+      const base64 = await readFileBase64(createImageFile.value)
+      await api.uploadProductImage(skuId, base64)
+    }
+    if (form.value.imageUrl.trim()) {
+      await api.setProductImageUrl(skuId, form.value.imageUrl.trim())
+    }
     showCreate.value = false
-    form.value = { name: '', barcode: '', instoreCode: '', categoryId: 1, unit: '件', salePrice: '', costPrice: '', memberPrice: '', isWeighed: false, initialQty: 0, alertQty: 0 }
+    createImageFile.value = null
+    form.value = { name: '', barcode: '', instoreCode: '', categoryId: 1, unit: '件', salePrice: '', costPrice: '', memberPrice: '', isWeighed: false, initialQty: 0, alertQty: 0, imageUrl: '' }
     done('商品已创建')
     await reload()
   } catch (e) {
@@ -229,6 +300,10 @@ onMounted(reload)
         <label>成本（元）<input v-model="form.costPrice" class="input" placeholder="如 2.10" /></label>
         <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" /></label>
         <label>库存预警值<input v-model.number="form.alertQty" class="input" type="number" min="0" /></label>
+        <label>商品图片（本地文件）
+          <input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="pickCreateImage" />
+        </label>
+        <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
         <label class="checkbox-label">
           <input v-model="form.isWeighed" type="checkbox" /> 称重商品（按克计价）
         </label>
@@ -240,6 +315,7 @@ onMounted(reload)
       <table class="tbl">
         <thead>
           <tr>
+            <th>图片</th>
             <th>名称</th>
             <th>条码</th>
             <th>分类</th>
@@ -251,6 +327,10 @@ onMounted(reload)
         </thead>
         <tbody>
           <tr v-for="p in products" :key="p.sku_id" :class="{ 'row-disabled': p.status === 0 }">
+            <td>
+              <img v-if="imageSrc(p)" :src="imageSrc(p)!" class="thumb" alt="" />
+              <span v-else class="muted small">无</span>
+            </td>
             <td>{{ p.name }}<span v-if="p.is_weighed" class="muted small">（称重/{{ p.unit }}）</span></td>
             <td class="mono">{{ p.barcode || '—' }}</td>
             <td>{{ p.category_name }}</td>
@@ -271,14 +351,28 @@ onMounted(reload)
             <td class="actions">
               <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
               <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="box" :size="ICON_SIZE.sm" />库存</button>
+              <button class="btn btn-sm" @click="startImage(p)"><Icon name="box" :size="ICON_SIZE.sm" />图片</button>
               <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
             </td>
           </tr>
           <tr v-if="products.length === 0">
-            <td colspan="7" class="muted">暂无商品，点击右上角"新增商品"创建第一个商品</td>
+            <td colspan="8" class="muted">暂无商品，点击右上角"新增商品"创建第一个商品</td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="imageSku != null" class="card">
+      <h3>商品图片（SKU {{ imageSku }}）</h3>
+      <p class="muted small">两种方式二选一或并存：上传本地文件（存本机），或登记在线图片地址（http/https）。</p>
+      <div class="form-grid">
+        <label>上传本地图片<input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="uploadImage" /></label>
+        <label>在线图片地址<input v-model="imageUrlDraft" class="input" placeholder="https://…" /></label>
+      </div>
+      <div class="op-form">
+        <button class="btn primary" @click="saveImageUrl">保存图片地址</button>
+        <button class="btn ghost" @click="imageSku = null">关闭</button>
+      </div>
     </div>
 
     <div v-if="adjustSku != null" class="card">
@@ -299,4 +393,11 @@ onMounted(reload)
 /* 表格操作列：区别于全局 .actions（POS 支付双列网格），此处为行内按钮组 */
 .actions { display: flex; gap: var(--space-2); }
 .edit-row { display: inline-flex; gap: var(--space-1); align-items: center; }
+/* 商品缩略图：固定方形，缺图不撑表格 */
+.thumb {
+  width: var(--control-thumb-size); height: var(--control-thumb-size);
+  object-fit: cover; border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--border);
+  background: var(--surface-subtle);
+}
 </style>

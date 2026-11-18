@@ -3,6 +3,7 @@
 
 pub mod audit;
 pub mod fingerprint;
+pub mod online;
 pub mod payload;
 pub mod service;
 pub mod state;
@@ -10,6 +11,7 @@ pub mod storage;
 
 pub use audit::AuditEvent;
 pub use fingerprint::device_fingerprint;
+pub use online::{request_activation, OnlineActivateRequest, OnlineActivateResponse};
 pub use payload::{encode_license, parse_and_verify, LicensePayload};
 pub use service::{LicenseService, LicenseSnapshot};
 pub use state::{decide_status, LicenseStatus};

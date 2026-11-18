@@ -96,13 +96,13 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 8);
+        assert_eq!(count, 9);
         let max: i32 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(max, 8);
+        assert_eq!(max, 9);
     }
 
     #[test]
@@ -113,7 +113,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 8);
+        assert_eq!(count, 9);
     }
 
     #[test]
@@ -164,6 +164,7 @@ mod tests {
             "sync_watermark",
             "print_template",
             "print_retry_queue",
+            "category_template",
         ];
         for t in tables {
             let n: i32 = conn

@@ -30,6 +30,10 @@ pub struct ProductRow {
     pub status: i64,
     pub qty: i64,
     pub alert_qty: i64,
+    /// 本地上传的图片路径：库内存绝对路径（前端需绝对路径转可展示地址）。
+    pub image_path: Option<String>,
+    /// 在线图片地址（http/https）。
+    pub image_url: Option<String>,
 }
 
 /// 新建分类（F-12 多级类目），返回 category_id。
@@ -155,7 +159,8 @@ pub fn list_products(conn: &Connection, keyword: &str, limit: i64) -> Result<Vec
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_id, p.spu_name, s.barcode, p.category_id, COALESCE(c.name,'未分类'),
                 p.unit, s.sale_price_cents, s.cost_price_cents, s.is_weighed, p.status,
-                COALESCE(i.qty,0), s.alert_qty, s.member_price_cents, s.instore_code
+                COALESCE(i.qty,0), s.alert_qty, s.member_price_cents, s.instore_code,
+                s.image_path, s.image_url
          FROM sku s
          JOIN spu p ON p.spu_id = s.spu_id
          LEFT JOIN category c ON c.category_id = p.category_id
@@ -180,6 +185,8 @@ pub fn list_products(conn: &Connection, keyword: &str, limit: i64) -> Result<Vec
             alert_qty: r.get(12)?,
             member_price_cents: r.get(13)?,
             instore_code: r.get(14)?,
+            image_path: r.get(15)?,
+            image_url: r.get(16)?,
         })
     })?;
     let mut out = Vec::new();
@@ -227,6 +234,48 @@ pub fn create_product_full(
         params![instore_code, member_price_cents, sku_id],
     )?;
     Ok(sku_id)
+}
+
+/// 商品图片：本地上传文件与在线地址两个来源。
+/// 两个来源各自独立登记：设置其中一个不会抹掉另一个（前端按「本地优先」展示）。
+/// 在线地址仅允许 http/https，杜绝 javascript: 等伪协议。
+pub fn set_product_image_path(
+    conn: &Connection,
+    sku_id: i64,
+    image_path: Option<&str>,
+) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE sku SET image_path=?1 WHERE sku_id=?2",
+        params![image_path, sku_id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::Validation(format!("SKU {sku_id} 不存在")));
+    }
+    Ok(())
+}
+
+/// 登记商品在线图片地址（None 表示清除）。
+pub fn set_product_image_url(
+    conn: &Connection,
+    sku_id: i64,
+    image_url: Option<&str>,
+) -> Result<()> {
+    if let Some(u) = image_url {
+        let t = u.trim();
+        if !t.is_empty() && !(t.starts_with("http://") || t.starts_with("https://")) {
+            return Err(CoreError::Validation(
+                "图片地址必须以 http:// 或 https:// 开头".into(),
+            ));
+        }
+    }
+    let n = conn.execute(
+        "UPDATE sku SET image_url=?1 WHERE sku_id=?2",
+        params![image_url, sku_id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::Validation(format!("SKU {sku_id} 不存在")));
+    }
+    Ok(())
 }
 
 /// 改价/改预警阈值/会员价（product.edit）。

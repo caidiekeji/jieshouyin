@@ -5,3 +5,8 @@ dist/
 *.log
 .env
 .DS_Store
+
+# 授权签发私钥（严禁入库）
+keys/
+*.key
+.wrangler/

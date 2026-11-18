@@ -78,3 +78,33 @@ export const ICON_SIZE = {
   xl: 20,
   xxl: 24,
 } as const
+
+/** 订单状态中文名：后端状态串为唯一来源，界面只做显示映射 */
+export const ORDER_STATUS_LABEL: Record<string, string> = {
+  PENDING_PAYMENT: '待支付',
+  COMPLETED: '已完成',
+  PARTIAL_REFUND: '部分退款',
+  REFUNDED: '已退款',
+  CANCELED: '已取消',
+  VOIDED: '已作废',
+}
+
+/** 支付渠道中文名 */
+export const PAY_CHANNEL_LABEL: Record<string, string> = {
+  CASH: '现金',
+  WECHAT: '微信',
+  ALIPAY: '支付宝',
+  STORED_VALUE: '储值',
+}
+
+/** 支付流水状态中文名 */
+export const PAY_STATUS_LABEL: Record<string, string> = {
+  PENDING: '待确认',
+  SUCCESS: '成功',
+  CLOSED: '已关闭',
+  FAILED: '失败',
+  PROCESSING: '处理中',
+}
+
+/** 订单列表默认拉取条数：一天一个门店的订单量级 */
+export const ORDER_LIST_LIMIT = 100

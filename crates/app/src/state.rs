@@ -20,6 +20,8 @@ pub struct AppState {
     pub session: Mutex<Option<Session>>,
     pub public_key: [u8; 32],
     pub license_path: PathBuf,
+    /// 应用数据目录（图片等用户数据落此处）。
+    pub data_dir: PathBuf,
     /// 渠道路由网关：凭据已配置 → 真实渠道（微信 APIv3 / 支付宝 RSA2），
     /// 未配置 → 本地确认兜底（联调与无商户号环境）。
     pub gateway: RoutingGateway,

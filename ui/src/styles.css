@@ -298,6 +298,44 @@ h2 { font-size: var(--font-lg); }
 .print-queue-row { display: flex; justify-content: space-between; align-items: center; }
 .config-row { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
 .config-key { min-width: var(--layout-pay-label-width); font-size: var(--font-sm); color: var(--text-muted); }
+/* 配置项按「说明 / 控件」两行排布：标签在上、控件在下，说明永远跟在标题下 */
+.config-row-stacked {
+  flex-direction: column; align-items: stretch; gap: var(--space-1);
+  padding-bottom: var(--space-3); border-bottom: var(--border-width) solid var(--border);
+}
+.config-row-stacked:last-of-type { border-bottom: none; }
+.config-label { display: flex; flex-direction: column; gap: var(--space-0_5); }
+.config-label strong { font-size: var(--font-sm); color: var(--text); }
+.config-control { display: flex; gap: var(--space-2); align-items: center; }
+.config-control .input { flex: 1; min-width: 0; }
+/* 行业选择：卡片式单选，每张卡片自述行业特征 */
+.industry-list {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--layout-form-col-min), 1fr));
+  gap: var(--space-3); margin-bottom: var(--space-3);
+}
+.industry-item {
+  display: flex; flex-direction: column; gap: var(--space-1); text-align: left;
+  padding: var(--space-3); cursor: pointer;
+  background: var(--surface-subtle); color: var(--text);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-md);
+}
+.industry-item:hover { border-color: var(--brand-border); }
+.industry-item.active {
+  border-color: var(--brand); background: var(--brand-subtle);
+}
+.industry-item strong { font-size: var(--font-md); }
+/* 价格竖排：原价与会员价上下对照 */
+.price-stack { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-0_5); }
+.price.member { color: var(--success-text); font-size: var(--font-sm); font-weight: 500; }
+/* 标签：分类与属性，可关闭可筛选的语义用淡底深字 */
+.tag {
+  display: inline-block; margin-left: var(--space-1);
+  padding: 0 var(--space-2); font-size: var(--font-2xs);
+  color: var(--success-text); background: var(--success-subtle);
+  border-radius: var(--radius-xs);
+}
+.field-label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-sm); color: var(--muted); }
+.input-qty { width: var(--control-input-sm-width); }
 .modal-mask {
   position: fixed; inset: 0; z-index: var(--z-overlay);
   background: var(--overlay-scrim);

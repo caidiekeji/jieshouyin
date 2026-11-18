@@ -3,10 +3,10 @@
 
 use crate::state::{build_license_service, init_db, AppState, PendingSensitive};
 use checkout_core::constants::{
-    CFG_BUSINESS_DAY_CUTOFF, CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S,
-    CFG_NATIVE_POLL_MS, CFG_NATIVE_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY, CFG_PAY_CHANNEL_CASH,
-    CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN, CFG_PRINT_HOST,
-    CFG_PRINT_PORT, CFG_SCAN_GAP_MS, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
+    CFG_ACTIVATION_ENDPOINT, CFG_ALLOW_NEGATIVE_STOCK, CFG_BUSINESS_DAY_CUTOFF,
+    CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
+    CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN,
+    CFG_SCAN_GAP_MS, CFG_STORE_NAME, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
     DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_PER_YUAN,
     ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY,
     PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT,
@@ -15,7 +15,9 @@ use checkout_core::constants::{
     ROLE_CASHIER, ROLE_MANAGER,
 };
 use checkout_core::error::{CoreError, Result};
+use checkout_core::industry::{IndustryOption, StoreProfile};
 use checkout_core::license::LicenseSnapshot;
+use checkout_core::orderview::{OrderDetail, OrderSummary};
 use checkout_core::paycreds::SecretStore;
 use checkout_core::payment::{
     run_micropay, Channel as PayChannel, PayMode, PayRequest, PaymentGateway, PaymentState,
@@ -219,6 +221,8 @@ pub struct ProductHit {
     pub spu_name: String,
     pub barcode: String,
     pub price_cents: i64,
+    /// 会员价：识别会员后按此价展示（结算时由后端与促销取优）。
+    pub member_price_cents: Option<i64>,
     pub is_weighed: bool,
 }
 
@@ -231,7 +235,8 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(
-        "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed
+        "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed,
+                s.member_price_cents
          FROM sku s JOIN spu p ON p.spu_id=s.spu_id
          WHERE p.status=1 AND (s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1)
          ORDER BY (s.barcode = ?2) DESC LIMIT 20",
@@ -244,11 +249,51 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
             barcode: r.get(2)?,
             price_cents: r.get(3)?,
             is_weighed: r.get::<_, i64>(4)? != 0,
+            member_price_cents: r.get(5)?,
         })
     })?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 批量取 SKU 会员价：识别会员后刷新购物车行的会员价（前台按会员价展示）。
+#[derive(Debug, Serialize)]
+pub struct SkuMemberPrice {
+    pub sku_id: i64,
+    pub member_price_cents: Option<i64>,
+}
+
+#[tauri::command]
+pub fn member_prices(
+    sku_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<SkuMemberPrice>> {
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    drop(session);
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let mut out = Vec::with_capacity(sku_ids.len());
+    for sku_id in sku_ids {
+        let mp: Option<i64> = conn
+            .query_row(
+                "SELECT member_price_cents FROM sku WHERE sku_id=?1",
+                [sku_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        out.push(SkuMemberPrice {
+            sku_id,
+            member_price_cents: mp,
+        });
     }
     Ok(out)
 }
@@ -1022,7 +1067,16 @@ pub fn list_products(
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    checkout_core::product::list_products(&conn, &keyword, limit)
+    let mut rows = checkout_core::product::list_products(&conn, &keyword, limit)?;
+    // 本地图片：库内是文件名，这里解析成绝对路径供前端展示
+    let img_dir = state.data_dir.join("images");
+    for r in &mut rows {
+        r.image_path = r
+            .image_path
+            .as_ref()
+            .map(|f| img_dir.join(f).to_string_lossy().to_string());
+    }
+    Ok(rows)
 }
 
 #[tauri::command]
@@ -1638,6 +1692,66 @@ pub struct ReturnItemInput {
     pub qty: i64,
 }
 
+/// 退货明细按原单行优惠还原应退金额（§8.6）。
+/// 退款试算与实际退款共用此函数，保证「界面显示的应退金额」与「实际退款金额」同口径。
+/// order_no 参与行归属校验：明细必须属于该订单，避免跨单串行。
+fn calc_refund_amounts(
+    conn: &Connection,
+    order_no: &str,
+    items: &[ReturnItemInput],
+) -> Result<(Vec<i64>, i64)> {
+    let mut refunds: Vec<i64> = Vec::new();
+    for it in items {
+        let (sku_id, qty, returned, line_total, discount): (i64, i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT sku_id,qty,returned_qty,line_total_cents,discount_cents
+                 FROM sales_order_item WHERE item_id=?1 AND order_no=?2",
+                rusqlite::params![it.order_item_id, order_no],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .map_err(|_| CoreError::Validation(format!("退货明细 {} 不属于订单 {order_no}", it.order_item_id)))?;
+        let line = checkout_core::promo::CartLine {
+            sku_id,
+            qty,
+            unit_price_cents: if qty > 0 { line_total / qty } else { 0 },
+            line_total_cents: line_total,
+            discount_cents: discount,
+            member_price_cents: None,
+            is_gift: false,
+            applied_promos: Vec::new(),
+        };
+        refunds.push(checkout_core::promo::refund_for_line(
+            &line, it.qty, returned,
+        )?);
+    }
+    let total: i64 = refunds.iter().sum();
+    Ok((refunds, total))
+}
+
+/// 退款金额试算：只算不退，供退款页在二次授权前给出确切金额。
+#[tauri::command]
+pub fn preview_refund(
+    order_no: String,
+    items: Vec<ReturnItemInput>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    drop(session);
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    if items.is_empty() {
+        return Err(CoreError::Validation("请先选择退货明细".into()));
+    }
+    let (_, total) = calc_refund_amounts(&conn, order_no.trim(), &items)?;
+    Ok(total)
+}
+
 /// 订单作废（pos.void）：仅待支付单或当日现金单；扫码已支付单只能退款。
 /// 需二次授权（批准后取得一次性 nonce，作废消费即失效），并写操作审计。
 #[tauri::command]
@@ -1795,31 +1909,16 @@ pub fn refund_order(
     }
 
     // 按原单行优惠还原每行退款额（§8.6），并累加限额校验金额
-    let mut refunds: Vec<i64> = Vec::new();
+    let (refunds, total_refund) = calc_refund_amounts(&conn, order_no.trim(), &items)?;
     let mut rows: Vec<(i64, i64, i64)> = Vec::new();
     for it in &items {
-        let (sku_id, qty, returned, line_total, discount): (i64, i64, i64, i64, i64) = conn
-            .query_row(
-                "SELECT sku_id,qty,returned_qty,line_total_cents,discount_cents
-                 FROM sales_order_item WHERE item_id=?1",
-                [it.order_item_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-            )?;
-        let line = checkout_core::promo::CartLine {
-            sku_id,
-            qty,
-            unit_price_cents: if qty > 0 { line_total / qty } else { 0 },
-            line_total_cents: line_total,
-            discount_cents: discount,
-            member_price_cents: None,
-            is_gift: false,
-            applied_promos: Vec::new(),
-        };
-        let refund = checkout_core::promo::refund_for_line(&line, it.qty, returned)?;
-        refunds.push(refund);
+        let sku_id: i64 = conn.query_row(
+            "SELECT sku_id FROM sales_order_item WHERE item_id=?1",
+            [it.order_item_id],
+            |r| r.get(0),
+        )?;
         rows.push((it.order_item_id, sku_id, it.qty));
     }
-    let total_refund: i64 = refunds.iter().sum();
 
     checkout_core::rbac::guard(
         &conn,
@@ -2051,49 +2150,52 @@ pub fn request_sensitive_auth(
 pub struct ConfigRow {
     pub config_key: String,
     pub config_value: String,
+    /// 中文名称（界面标签）。
+    pub label: String,
+    /// 中文说明（界面副标题，告诉用户这个值会改变什么）。
+    pub description: String,
+    /// 控件类型：text / number / decimal / switch。
+    pub kind: String,
+    /// 是否可在系统配置页直接编辑：false 表示由专属命令管理，界面只读展示。
+    pub editable: bool,
 }
 
 /// 读取全部系统配置（§15.1 扫码阈值 / §14.0 业务日切点 / §13.4 积分等）。
+/// 按 CONFIG_META 的顺序返回，并带上中文名称、说明与控件类型——
+/// 界面直接渲染，不再在前端维护第二份键名映射。
 #[tauri::command]
 pub fn get_configs(state: State<'_, AppState>) -> Result<Vec<ConfigRow>> {
     let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
-    let mut stmt =
-        conn.prepare("SELECT config_key, config_value FROM system_config ORDER BY config_key")?;
-    let rows = stmt.query_map([], |r| {
-        Ok(ConfigRow {
-            config_key: r.get(0)?,
-            config_value: r.get(1)?,
-        })
+    let mut stmt = conn.prepare("SELECT config_key, config_value FROM system_config")?;
+    let stored = stmt.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
     })?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
+    let mut values: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for row in stored {
+        let (k, v) = row?;
+        values.insert(k, v);
+    }
+    let mut out = Vec::with_capacity(checkout_core::constants::CONFIG_META.len());
+    for (key, label, description, kind) in checkout_core::constants::CONFIG_META {
+        let value = values.get(key).cloned().unwrap_or_default();
+        out.push(ConfigRow {
+            config_key: key.to_string(),
+            config_value: value,
+            label: label.to_string(),
+            description: description.to_string(),
+            kind: kind.to_string(),
+            editable: checkout_core::constants::CONFIG_EDITABLE.contains(&key),
+        });
     }
     Ok(out)
 }
 
 /// 更新单个系统配置（白名单：仅允许业务可配键，防止改写授权内部状态）。
+/// 白名单与 get_configs 返回的「可编辑」标记同源（constants::CONFIG_EDITABLE）。
 #[tauri::command]
 pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Result<()> {
     let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
-    let allowed = matches!(
-        key.as_str(),
-        CFG_SCAN_GAP_MS
-            | CFG_BUSINESS_DAY_CUTOFF
-            | CFG_MAX_DISCOUNT_RATIO
-            | CFG_POINTS_PER_YUAN
-            | CFG_MICROPAY_POLL_MS
-            | CFG_MICROPAY_TIMEOUT_S
-            | CFG_NATIVE_POLL_MS
-            | CFG_NATIVE_TIMEOUT_S
-            | CFG_PAY_CHANNEL_CASH
-            | CFG_PAY_CHANNEL_WECHAT
-            | CFG_PAY_CHANNEL_ALIPAY
-            | CFG_PAY_CHANNEL_SV
-            | CFG_PRINT_HOST
-            | CFG_PRINT_PORT
-    );
-    if !allowed {
+    if !checkout_core::constants::CONFIG_EDITABLE.contains(&key.as_str()) {
         return Err(CoreError::Validation(format!("配置项不可修改: {key}")));
     }
     // 值域校验
@@ -2117,9 +2219,18 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
         CFG_PAY_CHANNEL_CASH
         | CFG_PAY_CHANNEL_WECHAT
         | CFG_PAY_CHANNEL_ALIPAY
-        | CFG_PAY_CHANNEL_SV => {
+        | CFG_PAY_CHANNEL_SV
+        | CFG_ALLOW_NEGATIVE_STOCK => {
             if value != "0" && value != "1" {
                 return Err(CoreError::Validation("渠道开关只允许 0 或 1".into()));
+            }
+        }
+        CFG_ACTIVATION_ENDPOINT => {
+            let v = value.trim();
+            if !v.is_empty() && !(v.starts_with("http://") || v.starts_with("https://")) {
+                return Err(CoreError::Validation(
+                    "激活服务地址必须以 http:// 或 https:// 开头".into(),
+                ));
             }
         }
         _ => {}
@@ -3102,6 +3213,232 @@ pub fn list_users(state: State<'_, AppState>) -> Result<Vec<UserRow>> {
     Ok(out)
 }
 
+// ===== 门店档案与行业（多行业适配）=====
+
+/// 系统是否已建账号：决定门店配置类操作是否需要管理员权限。
+fn system_has_users(conn: &Connection) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM user_account)",
+        [],
+        |r| r.get(0),
+    )
+    .map_err(CoreError::from)
+}
+
+/// 门店配置读写连接：已建账号则走管理员门禁，首次部署（无账号）放行。
+fn settings_conn(state: &AppState) -> Result<std::sync::MutexGuard<'_, Connection>> {
+    let has_users = {
+        let conn = state
+            .conn
+            .lock()
+            .map_err(|e| CoreError::Other(e.to_string()))?;
+        system_has_users(&conn)?
+    };
+    if has_users {
+        let (_op, conn) = admin_guard(state, PERM_SYSTEM_CONFIG)?;
+        Ok(conn)
+    } else {
+        Ok(state
+            .conn
+            .lock()
+            .map_err(|e| CoreError::Other(e.to_string()))?)
+    }
+}
+
+/// 门店档案：店名 + 行业。启动阶段（尚未登录）也要读取，故不做权限门禁。
+#[tauri::command]
+pub fn get_store_profile(state: State<'_, AppState>) -> Result<StoreProfile> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::industry::store_profile(&conn)
+}
+
+/// 行业选项列表（启动选择页）。
+#[tauri::command]
+pub fn list_industries() -> Result<Vec<IndustryOption>> {
+    Ok(checkout_core::industry::list_industries())
+}
+
+/// 选定行业并落地该行业的分类模板。
+#[tauri::command]
+pub fn select_industry(industry: String, state: State<'_, AppState>) -> Result<StoreProfile> {
+    let conn = settings_conn(&state)?;
+    checkout_core::industry::apply_industry(&conn, &industry)?;
+    checkout_core::industry::store_profile(&conn)
+}
+
+/// 设置店名（顶栏与小票抬头显示）。
+#[tauri::command]
+pub fn set_store_name(name: String, state: State<'_, AppState>) -> Result<StoreProfile> {
+    let conn = settings_conn(&state)?;
+    checkout_core::industry::set_store_name(&conn, &name)?;
+    checkout_core::industry::store_profile(&conn)
+}
+
+// ===== 商品图片（本地上传 / 在线地址）=====
+
+/// 商品图片允许的最大字节数：8MB，超出即拒绝，避免磁盘被撑爆。
+const PRODUCT_IMAGE_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// 按文件头判定图片格式：只认 PNG / JPEG / WebP / GIF，
+/// 不信任扩展名，杜绝把可执行文件当图片存盘。
+fn sniff_image_ext(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        Some("png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if bytes.len() > 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("gif")
+    } else {
+        None
+    }
+}
+
+/// 上传商品图片：接收 base64 图片数据，落盘到应用数据目录并登记到 SKU。
+/// 返回图片绝对路径（前端用 convertFileSrc 转成可展示地址）。
+#[tauri::command]
+pub fn upload_product_image(
+    sku_id: i64,
+    data_base64: String,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    // 允许前端带 data URL 前缀，统一剥掉
+    let raw = data_base64
+        .split_once(',')
+        .map(|(_, rest)| rest)
+        .unwrap_or(data_base64.as_str());
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(raw.trim())
+        .map_err(|e| CoreError::Validation(format!("图片数据无法解析: {e}")))?;
+    if bytes.is_empty() {
+        return Err(CoreError::Validation("图片内容为空".into()));
+    }
+    if bytes.len() > PRODUCT_IMAGE_MAX_BYTES {
+        return Err(CoreError::Validation("图片超过 8MB，请压缩后再上传".into()));
+    }
+    let ext = sniff_image_ext(&bytes).ok_or_else(|| {
+        CoreError::Validation("仅支持 PNG / JPEG / WebP / GIF 格式的商品图片".into())
+    })?;
+
+    let dir = state.data_dir.join("images");
+    std::fs::create_dir_all(&dir)?;
+    let file_name = format!("sku{sku_id}_{}.{ext}", Utc::now().timestamp_millis());
+    let path = dir.join(&file_name);
+    std::fs::write(&path, &bytes)?;
+    // 落库用绝对路径：前端 convertFileSrc 需要绝对路径才能转成可展示地址
+    let abs = path.to_string_lossy().to_string();
+    checkout_core::product::set_product_image_path(&conn, sku_id, Some(&abs))?;
+    Ok(abs)
+}
+
+/// 登记商品在线图片地址（http/https）。空字符串表示清除在线地址。
+#[tauri::command]
+pub fn set_product_image_url(sku_id: i64, url: String, state: State<'_, AppState>) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    let u = url.trim();
+    let u = if u.is_empty() { None } else { Some(u) };
+    checkout_core::product::set_product_image_url(&conn, sku_id, u)
+}
+
+// ===== 订单查询（订单详情 / 退款检索）=====
+
+/// 订单列表：按业务日过滤 + 单号模糊匹配。退款页与订单详情页共用。
+#[tauri::command]
+pub fn list_orders(
+    date: Option<String>,
+    keyword: String,
+    limit: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<OrderSummary>> {
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    drop(session);
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let d = date.filter(|s| !s.trim().is_empty());
+    checkout_core::orderview::list_orders(&conn, d.as_deref(), keyword.trim(), limit)
+}
+
+/// 订单详情：头 + 明细 + 支付流水 + 优惠 + 退货记录。
+#[tauri::command]
+pub fn get_order_detail(order_no: String, state: State<'_, AppState>) -> Result<OrderDetail> {
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    drop(session);
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::orderview::order_detail(&conn, order_no.trim())
+        .ok_or_else(|| CoreError::Validation("订单不存在".into()))
+}
+
+// ===== 在线激活（§4.7 激活方式之二）=====
+
+/// 在线激活：向激活服务换取签名激活码 → 本地验签 → 落库。
+/// 签发权始终在服务端；客户端只做验签与存储，与离线导入共用同一条链路。
+#[tauri::command]
+pub fn activate_online(
+    activation_key: String,
+    customer_name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<LicenseSnapshot> {
+    let key = activation_key.trim();
+    if key.is_empty() {
+        return Err(CoreError::Validation("请输入激活码".into()));
+    }
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let endpoint = cfg_get(&conn, CFG_ACTIVATION_ENDPOINT)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let store_name = cfg_get(&conn, CFG_STORE_NAME)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let fingerprint = checkout_core::license::device_fingerprint().ok().flatten();
+    let name = customer_name.unwrap_or_default().trim().to_string();
+    let req = checkout_core::license::OnlineActivateRequest {
+        store_id: if store_name.trim().is_empty() {
+            "STORE".to_string()
+        } else {
+            store_name.trim().to_string()
+        },
+        customer_name: if name.is_empty() {
+            store_name.trim().to_string()
+        } else {
+            name
+        },
+        device_fingerprint: fingerprint,
+        activation_key: key.to_string(),
+    };
+    let resp = checkout_core::license::request_activation(&endpoint, &req)?;
+    let svc = build_license_service(&state);
+    let snap = svc.activate(&conn, &resp.token)?;
+    *state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))? = snap.clone();
+    Ok(snap)
+}
+
 #[tauri::command]
 pub fn set_user_status(user_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
     let (_operator_id, conn) = admin_guard(&state, PERM_USER_MANAGE)?;
@@ -3172,6 +3509,7 @@ pub fn run() {
                 session: std::sync::Mutex::new(None::<Session>),
                 public_key: checkout_core::EMBEDDED_PUBLIC_KEY,
                 license_path: data_dir.join("license.enc"),
+                data_dir: data_dir.clone(),
                 gateway,
                 current_shift: std::sync::Mutex::new(0i64),
                 pending_sensitive: std::sync::Mutex::new(None),
@@ -3188,6 +3526,7 @@ pub fn run() {
             login,
             logout,
             lookup_product,
+            member_prices,
             parse_weigh_barcode,
             lookup_weigh,
             checkout,
@@ -3252,6 +3591,16 @@ pub fn run() {
             create_user,
             list_users,
             set_user_status,
+            get_store_profile,
+            list_industries,
+            select_industry,
+            set_store_name,
+            upload_product_image,
+            set_product_image_url,
+            list_orders,
+            get_order_detail,
+            preview_refund,
+            activate_online,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");

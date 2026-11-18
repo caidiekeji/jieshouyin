@@ -20,6 +20,7 @@ export interface ProductHit {
   spu_name: string
   barcode: string
   price_cents: number
+  member_price_cents: number | null
   is_weighed: boolean
 }
 
@@ -27,6 +28,8 @@ export interface CartLine {
   sku_id: number
   qty: number
   unit_price_cents: number
+  /** 会员价：识别会员后由前端刷新并展示，后端结算仍按会员价取优 */
+  member_price_cents?: number | null
   name?: string
 }
 
@@ -46,6 +49,108 @@ export interface ProductRow {
   status: number
   qty: number
   alert_qty: number
+  /** 本地图片绝对路径（需 convertFileSrc 转可展示地址） */
+  image_path: string | null
+  /** 在线图片地址（http/https） */
+  image_url: string | null
+}
+
+/** 系统配置项：后端已给出中文名称、说明与控件类型 */
+export interface ConfigRow {
+  config_key: string
+  config_value: string
+  label: string
+  description: string
+  kind: 'text' | 'number' | 'decimal' | 'switch'
+  /** 后端标注是否可在本页直接编辑：false 表示由专属命令管理（如门店名称、所属行业） */
+  editable: boolean
+}
+
+/** 门店档案 */
+export interface StoreProfile {
+  industry: string
+  industry_name: string
+  store_name: string
+  configured: boolean
+}
+
+/** 行业选项 */
+export interface IndustryOption {
+  id: string
+  name: string
+  description: string
+  default_unit: string
+  supports_weighed: boolean
+}
+
+/** 订单摘要 */
+export interface OrderSummary {
+  order_no: string
+  business_date: string
+  created_at: string
+  cashier_id: number
+  member_id: number | null
+  member_name: string | null
+  total_cents: number
+  discount_cents: number
+  pay_cents: number
+  status: string
+  item_count: number
+  refunded_cents: number
+}
+
+/** 订单明细行 */
+export interface OrderItemDetail {
+  item_id: number
+  sku_id: number
+  product_name: string
+  qty: number
+  returned_qty: number
+  unit_price_cents: number
+  line_total_cents: number
+  discount_cents: number
+  is_gift: boolean
+}
+
+/** 支付流水明细 */
+export interface PaymentDetail {
+  pay_id: number
+  pay_channel: string
+  pay_mode: string | null
+  amount_cents: number
+  cash_tendered_cents: number | null
+  change_cents: number | null
+  out_trade_no: string | null
+  trade_no: string | null
+  status: string
+  paid_at: string | null
+  created_at: string
+}
+
+/** 优惠明细 */
+export interface PromoDetail {
+  promotion_id: number
+  discount_cents: number
+  detail: string | null
+}
+
+/** 退货记录 */
+export interface RefundDetail {
+  refund_id: number
+  return_no: string | null
+  refund_no: string
+  amount_cents: number
+  status: string
+  created_at: string
+}
+
+/** 订单详情 */
+export interface OrderDetail {
+  header: OrderSummary
+  items: OrderItemDetail[]
+  payments: PaymentDetail[]
+  promos: PromoDetail[]
+  refunds: RefundDetail[]
 }
 
 export interface Category {
@@ -132,7 +237,6 @@ export interface ChannelReport { channels: ChannelTotal[]; balanced: boolean }
 export interface ProductSales { sku_id: number; qty: number; sales_cents: number; discount_cents: number }
 export interface CategorySales { category_id: number; category_name: string; qty: number; sales_cents: number }
 export interface CashierSales { cashier_id: number; order_count: number; pay_cents: number }
-export interface ConfigRow { config_key: string; config_value: string }
 export interface CouponRow {
   coupon_code: string
   member_id: number | null
@@ -177,6 +281,9 @@ export const api = {
     invoke<{ user_id: number; role_name: string }>('login', { username, password }),
   logout: () => invoke<void>('logout'),
   lookup: (keyword: string) => invoke<ProductHit[]>('lookup_product', { keyword }),
+  /** 批量取 SKU 会员价（识别会员后刷新购物车行） */
+  memberPrices: (skuIds: number[]) =>
+    invoke<{ sku_id: number; member_price_cents: number | null }[]>('member_prices', { skuIds }),
   parseWeigh: (code: string) =>
     invoke<{ instore_code: string; mode: string; value: number }>('parse_weigh_barcode', { code }),
   checkout: (
@@ -375,6 +482,32 @@ export const api = {
     >('list_reconcile_diffs', { reconDate }),
   // 二维码 SVG（Native 支付/离线生成）
   qrSvg: (text: string) => invoke<string>('qr_svg', { text }),
+
+  // ===== 门店档案与行业（多行业适配）=====
+  getStoreProfile: () => invoke<StoreProfile>('get_store_profile'),
+  listIndustries: () => invoke<IndustryOption[]>('list_industries'),
+  selectIndustry: (industry: string) => invoke<StoreProfile>('select_industry', { industry }),
+  setStoreName: (name: string) => invoke<StoreProfile>('set_store_name', { name }),
+
+  // ===== 商品图片 =====
+  /** 上传本地图片（base64），返回图片绝对路径 */
+  uploadProductImage: (skuId: number, dataBase64: string) =>
+    invoke<string>('upload_product_image', { skuId, dataBase64 }),
+  /** 登记在线图片地址 */
+  setProductImageUrl: (skuId: number, url: string) =>
+    invoke<void>('set_product_image_url', { skuId, url }),
+
+  // ===== 订单查询（订单详情 / 退款）=====
+  listOrders: (date: string | null, keyword: string, limit: number) =>
+    invoke<OrderSummary[]>('list_orders', { date, keyword, limit }),
+  getOrderDetail: (orderNo: string) => invoke<OrderDetail>('get_order_detail', { orderNo }),
+  /** 退款金额试算（与实际退款同口径） */
+  previewRefund: (orderNo: string, items: { order_item_id: number; qty: number }[]) =>
+    invoke<number>('preview_refund', { orderNo, items }),
+
+  // ===== 在线激活 =====
+  activateOnline: (activationKey: string, customerName: string | null) =>
+    invoke<LicenseSnapshot>('activate_online', { activationKey, customerName }),
 }
 
 export function formatMoney(cents: number): string {
