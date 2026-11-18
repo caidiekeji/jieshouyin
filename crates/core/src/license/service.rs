@@ -352,7 +352,11 @@ impl LicenseService {
             Some((started_at, ends_at)) => {
                 let start = parse_rfc3339(&started_at)?;
                 // 单调水位：试用期判定不早于开始时间，回拨不延长试用
-                let effective = if system_now > start { system_now } else { start };
+                let effective = if system_now > start {
+                    system_now
+                } else {
+                    start
+                };
                 if system_now < start - chrono::Duration::hours(24) {
                     append_audit(
                         conn,
