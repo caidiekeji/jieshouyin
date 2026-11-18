@@ -39,6 +39,17 @@ pub fn init_admin(username: String, password: String, state: State<'_, AppState>
     rbac::ensure_admin(&conn, &username, &password)
 }
 
+/// user_account 是否为空（空 → 前端强制显示初始化管理员表单，§12.3）。
+#[tauri::command]
+pub fn has_users(state: State<'_, AppState>) -> Result<bool> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM user_account", [], |r| r.get(0))?;
+    Ok(count > 0)
+}
+
 #[tauri::command]
 pub fn get_license(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
     Ok(state
@@ -461,6 +472,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             init_admin,
+            has_users,
             get_license,
             activate,
             renew_license,

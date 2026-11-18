@@ -59,6 +59,8 @@ onMounted(async () => {
       view.value = 'activate'
     } else {
       view.value = 'login'
+      // user_account 为空 → 强制初始化管理员（§12.3），无需先登录失败
+      needAdmin.value = !(await api.hasUsers())
     }
   } catch (e) {
     bootError.value = String(e)
@@ -263,9 +265,13 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         <input v-model="loginPass" type="password" class="input" placeholder="密码" @keyup.enter="submitLogin" />
         <p v-if="loginError" class="error">{{ loginError }}</p>
         <button class="btn primary" @click="submitLogin">登录</button>
-        <button v-if="needAdmin" class="btn" @click="submitAdmin">初始化管理员</button>
-        <input v-if="needAdmin" v-model="adminUser" class="input" placeholder="管理员用户名" />
-        <input v-if="needAdmin" v-model="adminPass" type="password" class="input" placeholder="管理员密码" />
+        <div v-if="needAdmin" class="inline-form">
+          <h3>初始化管理员</h3>
+          <p class="muted small">首次使用需创建管理员账号，用户名默认 admin</p>
+          <input v-model="adminUser" class="input" placeholder="管理员用户名" />
+          <input v-model="adminPass" type="password" class="input" placeholder="管理员密码（≥8位，含字母数字）" />
+          <button class="btn" @click="submitAdmin">创建管理员</button>
+        </div>
       </div>
     </div>
 

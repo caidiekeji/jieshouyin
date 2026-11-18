@@ -33,6 +33,7 @@ export const api = {
   bootstrap: () => invoke<LicenseSnapshot>('bootstrap'),
   initAdmin: (username: string, password: string) =>
     invoke<void>('init_admin', { username, password }),
+  hasUsers: () => invoke<boolean>('has_users'),
   getLicense: () => invoke<LicenseSnapshot>('get_license'),
   activate: (token: string) => invoke<LicenseSnapshot>('activate', { token }),
   renew: (token: string) => invoke<LicenseSnapshot>('renew_license', { token }),
