@@ -66,9 +66,8 @@ pub fn request_activation(
     match resp {
         Ok(r) => {
             let text = r.into_string().unwrap_or_default();
-            serde_json::from_str::<OnlineActivateResponse>(&text).map_err(|e| {
-                CoreError::Other(format!("激活服务返回内容无法解析: {e}"))
-            })
+            serde_json::from_str::<OnlineActivateResponse>(&text)
+                .map_err(|e| CoreError::Other(format!("激活服务返回内容无法解析: {e}")))
         }
         Err(ureq::Error::Status(code, r)) => {
             let t = r.into_string().unwrap_or_default();

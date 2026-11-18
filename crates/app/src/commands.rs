@@ -267,10 +267,7 @@ pub struct SkuMemberPrice {
 }
 
 #[tauri::command]
-pub fn member_prices(
-    sku_ids: Vec<i64>,
-    state: State<'_, AppState>,
-) -> Result<Vec<SkuMemberPrice>> {
+pub fn member_prices(sku_ids: Vec<i64>, state: State<'_, AppState>) -> Result<Vec<SkuMemberPrice>> {
     let session = state
         .session
         .lock()
@@ -1709,7 +1706,12 @@ fn calc_refund_amounts(
                 rusqlite::params![it.order_item_id, order_no],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
-            .map_err(|_| CoreError::Validation(format!("退货明细 {} 不属于订单 {order_no}", it.order_item_id)))?;
+            .map_err(|_| {
+                CoreError::Validation(format!(
+                    "退货明细 {} 不属于订单 {order_no}",
+                    it.order_item_id
+                ))
+            })?;
         let line = checkout_core::promo::CartLine {
             sku_id,
             qty,
@@ -2167,9 +2169,7 @@ pub struct ConfigRow {
 pub fn get_configs(state: State<'_, AppState>) -> Result<Vec<ConfigRow>> {
     let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
     let mut stmt = conn.prepare("SELECT config_key, config_value FROM system_config")?;
-    let stored = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    })?;
+    let stored = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
     let mut values: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for row in stored {
         let (k, v) = row?;
@@ -3217,11 +3217,9 @@ pub fn list_users(state: State<'_, AppState>) -> Result<Vec<UserRow>> {
 
 /// 系统是否已建账号：决定门店配置类操作是否需要管理员权限。
 fn system_has_users(conn: &Connection) -> Result<bool> {
-    conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM user_account)",
-        [],
-        |r| r.get(0),
-    )
+    conn.query_row("SELECT EXISTS(SELECT 1 FROM user_account)", [], |r| {
+        r.get(0)
+    })
     .map_err(CoreError::from)
 }
 

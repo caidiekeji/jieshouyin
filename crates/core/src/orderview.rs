@@ -312,8 +312,14 @@ mod tests {
     #[test]
     fn list_orders_filters_by_date_and_keyword() {
         let c = setup();
-        assert_eq!(list_orders(&c, Some("2026-11-18"), "", 10).unwrap().len(), 1);
-        assert_eq!(list_orders(&c, Some("2026-11-17"), "", 10).unwrap().len(), 0);
+        assert_eq!(
+            list_orders(&c, Some("2026-11-18"), "", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            list_orders(&c, Some("2026-11-17"), "", 10).unwrap().len(),
+            0
+        );
         assert_eq!(list_orders(&c, None, "O1", 10).unwrap().len(), 1);
         assert_eq!(list_orders(&c, None, "ZZ", 10).unwrap().len(), 0);
     }

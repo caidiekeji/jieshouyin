@@ -132,11 +132,7 @@ pub const INDUSTRY_CLOTHING: &str = "CLOTHING";
 /// 行业标识：餐饮门店。
 pub const INDUSTRY_RESTAURANT: &str = "RESTAURANT";
 /// 全部行业标识（顺序即选择页展示顺序）。
-pub const INDUSTRIES: [&str; 3] = [
-    INDUSTRY_SUPERMARKET,
-    INDUSTRY_CLOTHING,
-    INDUSTRY_RESTAURANT,
-];
+pub const INDUSTRIES: [&str; 3] = [INDUSTRY_SUPERMARKET, INDUSTRY_CLOTHING, INDUSTRY_RESTAURANT];
 
 // ── 配置项控件类型（前端据此选择控件，不在前端另立映射）─────────
 /// 文本输入。
@@ -151,26 +147,126 @@ pub const CONFIG_KIND_SWITCH: &str = "switch";
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
 pub const CONFIG_META: [(&str, &str, &str, &str); 20] = [
-    (CFG_STORE_NAME, "门店名称", "显示在界面顶栏与小票抬头", CONFIG_KIND_TEXT),
-    (CFG_INDUSTRY, "所属行业", "超市 / 服装 / 餐饮，决定商品分类树", CONFIG_KIND_TEXT),
-    (CFG_STORE_TIMEZONE, "门店时区", "用于业务日切点与报表日期归属", CONFIG_KIND_TEXT),
-    (CFG_BUSINESS_DAY_CUTOFF, "业务日切点", "格式 HH:MM，跨过该时刻归入次日", CONFIG_KIND_TEXT),
-    (CFG_SCAN_GAP_MS, "扫码判定间隔", "单位毫秒，扫码枪连续按键间隔小于该值判为一次扫码", CONFIG_KIND_NUMBER),
-    (CFG_MICROPAY_POLL_MS, "付款码轮询间隔", "单位毫秒，付款码支付时向渠道查单的间隔", CONFIG_KIND_NUMBER),
-    (CFG_MICROPAY_TIMEOUT_S, "付款码支付超时", "单位秒，超时判定支付未完成", CONFIG_KIND_NUMBER),
-    (CFG_NATIVE_POLL_MS, "主扫轮询间隔", "单位毫秒，顾客扫码后轮询订单状态的间隔", CONFIG_KIND_NUMBER),
-    (CFG_NATIVE_TIMEOUT_S, "主扫支付超时", "单位秒，超时后允许作废订单", CONFIG_KIND_NUMBER),
-    (CFG_POINTS_PER_YUAN, "每元赠送积分", "消费满一元赠送的积分数量", CONFIG_KIND_NUMBER),
-    (CFG_POINTS_REDEEM_RATE, "积分抵扣比例", "一百积分可抵扣的金额（分）", CONFIG_KIND_NUMBER),
-    (CFG_MAX_DISCOUNT_RATIO, "最大折扣率", "0–1 之间，限制单笔优惠幅度", CONFIG_KIND_DECIMAL),
-    (CFG_ALLOW_NEGATIVE_STOCK, "允许负库存", "开启后售出库存不足的商品不阻断收银", CONFIG_KIND_SWITCH),
-    (CFG_PAY_CHANNEL_CASH, "现金支付", "收银台可选支付方式", CONFIG_KIND_SWITCH),
-    (CFG_PAY_CHANNEL_WECHAT, "微信支付", "收银台可选支付方式", CONFIG_KIND_SWITCH),
-    (CFG_PAY_CHANNEL_ALIPAY, "支付宝支付", "收银台可选支付方式", CONFIG_KIND_SWITCH),
-    (CFG_PAY_CHANNEL_SV, "储值支付", "收银台可选支付方式", CONFIG_KIND_SWITCH),
-    (CFG_PRINT_HOST, "打印机地址", "网络打印机 IP，留空表示不打印", CONFIG_KIND_TEXT),
-    (CFG_PRINT_PORT, "打印机端口", "网络打印机端口，默认 9100", CONFIG_KIND_NUMBER),
-    (CFG_ACTIVATION_ENDPOINT, "在线激活服务", "Cloudflare 激活服务地址，留空表示仅离线激活", CONFIG_KIND_TEXT),
+    (
+        CFG_STORE_NAME,
+        "门店名称",
+        "显示在界面顶栏与小票抬头",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_INDUSTRY,
+        "所属行业",
+        "超市 / 服装 / 餐饮，决定商品分类树",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_STORE_TIMEZONE,
+        "门店时区",
+        "用于业务日切点与报表日期归属",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_BUSINESS_DAY_CUTOFF,
+        "业务日切点",
+        "格式 HH:MM，跨过该时刻归入次日",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_SCAN_GAP_MS,
+        "扫码判定间隔",
+        "单位毫秒，扫码枪连续按键间隔小于该值判为一次扫码",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_MICROPAY_POLL_MS,
+        "付款码轮询间隔",
+        "单位毫秒，付款码支付时向渠道查单的间隔",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_MICROPAY_TIMEOUT_S,
+        "付款码支付超时",
+        "单位秒，超时判定支付未完成",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_NATIVE_POLL_MS,
+        "主扫轮询间隔",
+        "单位毫秒，顾客扫码后轮询订单状态的间隔",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_NATIVE_TIMEOUT_S,
+        "主扫支付超时",
+        "单位秒，超时后允许作废订单",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_POINTS_PER_YUAN,
+        "每元赠送积分",
+        "消费满一元赠送的积分数量",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_POINTS_REDEEM_RATE,
+        "积分抵扣比例",
+        "一百积分可抵扣的金额（分）",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_MAX_DISCOUNT_RATIO,
+        "最大折扣率",
+        "0–1 之间，限制单笔优惠幅度",
+        CONFIG_KIND_DECIMAL,
+    ),
+    (
+        CFG_ALLOW_NEGATIVE_STOCK,
+        "允许负库存",
+        "开启后售出库存不足的商品不阻断收银",
+        CONFIG_KIND_SWITCH,
+    ),
+    (
+        CFG_PAY_CHANNEL_CASH,
+        "现金支付",
+        "收银台可选支付方式",
+        CONFIG_KIND_SWITCH,
+    ),
+    (
+        CFG_PAY_CHANNEL_WECHAT,
+        "微信支付",
+        "收银台可选支付方式",
+        CONFIG_KIND_SWITCH,
+    ),
+    (
+        CFG_PAY_CHANNEL_ALIPAY,
+        "支付宝支付",
+        "收银台可选支付方式",
+        CONFIG_KIND_SWITCH,
+    ),
+    (
+        CFG_PAY_CHANNEL_SV,
+        "储值支付",
+        "收银台可选支付方式",
+        CONFIG_KIND_SWITCH,
+    ),
+    (
+        CFG_PRINT_HOST,
+        "打印机地址",
+        "网络打印机 IP，留空表示不打印",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_PRINT_PORT,
+        "打印机端口",
+        "网络打印机端口，默认 9100",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_ACTIVATION_ENDPOINT,
+        "在线激活服务",
+        "Cloudflare 激活服务地址，留空表示仅离线激活",
+        CONFIG_KIND_TEXT,
+    ),
 ];
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
