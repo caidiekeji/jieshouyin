@@ -1,0 +1,36 @@
+name: fmt-fix
+
+# 一次性辅助工作流：在 CI 环境内执行 cargo fmt 并将格式化结果回推 main。
+# 触发方式：workflow_dispatch（手动）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fmt:
+    name: cargo fmt and push back
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt
+        run: cargo fmt --all
+      - name: Commit and push if changed
+        shell: bash
+        run: |
+          git config user.name "fmt-bot"
+          git config user.email "fmt-bot@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "style: cargo fmt --all (CI 自动格式化)"
+            git push
+          else
+            echo "no formatting changes"
+          fi
