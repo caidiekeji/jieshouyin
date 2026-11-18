@@ -1168,7 +1168,8 @@ pub fn void_order_cmd(order_no: String, state: State<'_, AppState>) -> Result<()
     let today = checkout_core::order::business_date(&parse_rfc3339(&now_str())?, 0);
     let tx = conn.unchecked_transaction()?;
     checkout_core::order::void_order(&tx, &order_no, paid_via_scan > 0, biz == today, operator_id)?;
-    tx.commit()
+    tx.commit()?;
+    Ok(())
 }
 
 /// 订单可退行明细（退货录入）。
