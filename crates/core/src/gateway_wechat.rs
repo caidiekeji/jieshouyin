@@ -11,7 +11,7 @@ use crate::paycreds::WechatCred;
 use crate::payment::{CancelResult, PayOutcome, PayRequest, PaymentGateway, PaymentState};
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
-use rsa::signature::{RandomizedSigner, SignatureEncoding};
+use rsa::signature::{SignatureEncoding, Signer};
 use rsa::RsaPrivateKey;
 use sha2::Sha256;
 use wechatpay_v3::model::{NativeParams, RefundsParams};
@@ -171,7 +171,7 @@ impl WechatGateway {
 
     fn sign_message(&self, msg: &[u8]) -> Result<String> {
         let sk = SigningKey::<Sha256>::new(self.private_key.clone());
-        let sig = sk.sign(&mut rand::rngs::OsRng, msg);
+        let sig = sk.sign(msg);
         Ok(sig.to_string())
     }
 }
@@ -232,12 +232,14 @@ impl PaymentGateway for WechatGateway {
     }
 
     fn native_precreate(&self, req: &PayRequest) -> Result<PayOutcome> {
+        let amount = i32::try_from(req.amount_cents)
+            .map_err(|_| CoreError::Other("订单金额超出单笔支付限额".into()))?;
         let resp = self
             .client
             .native_pay(NativeParams::new(
                 "门店收银",
                 &req.out_trade_no,
-                req.amount_cents.into(),
+                amount.into(),
             ))
             .map_err(|e| CoreError::Other(format!("微信 Native 预下单失败: {e}")))?;
         Ok(PayOutcome {
@@ -282,11 +284,13 @@ impl PaymentGateway for WechatGateway {
             .as_ref()
             .and_then(|a| a.total)
             .unwrap_or_default();
+        let amount = i32::try_from(amount_cents)
+            .map_err(|_| CoreError::Other("退款金额超出单笔限额".into()))?;
         let resp = self
             .client
             .refunds(RefundsParams::new(
                 out_trade_no,
-                amount_cents,
+                amount,
                 total,
                 None,
                 Some(refund_no),

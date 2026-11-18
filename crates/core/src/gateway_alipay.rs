@@ -10,7 +10,7 @@ use crate::paycreds::AlipayCred;
 use crate::payment::{CancelResult, PayOutcome, PayRequest, PaymentGateway, PaymentState};
 use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
 use rsa::pkcs8::DecodePrivateKey;
-use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
+use rsa::signature::{SignatureEncoding, Signer, Verifier};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde_json::Value;
 use sha2::Sha256;
@@ -79,7 +79,7 @@ impl AlipayGateway {
             .as_object()
             .and_then(|o| {
                 o.keys()
-                    .find(|k| k.ends_with("_response") && k != "error_response")
+                    .find(|k| k.ends_with("_response") && k.as_str() != "error_response")
             })
             .cloned()
             .ok_or_else(|| CoreError::Other(format!("支付宝应答缺少响应对象: {text}")))?;
@@ -106,7 +106,7 @@ impl AlipayGateway {
         kv.sort();
         let msg = kv.join("&");
         let sk = SigningKey::<Sha256>::new(self.private_key.clone());
-        let sig = sk.sign(&mut rand::rngs::OsRng, msg.as_bytes());
+        let sig = sk.sign(msg.as_bytes());
         Ok(sig.to_string())
     }
 
