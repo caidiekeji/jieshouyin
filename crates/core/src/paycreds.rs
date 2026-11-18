@@ -84,13 +84,19 @@ impl SecretStore for KeyringStore {
 #[cfg(not(windows))]
 impl SecretStore for KeyringStore {
     fn set_secret(&self, _account: &str, _value: &str) -> Result<()> {
-        Err(CoreError::Other("凭据库仅支持 Windows（v1 目标平台）".into()))
+        Err(CoreError::Other(
+            "凭据库仅支持 Windows（v1 目标平台）".into(),
+        ))
     }
     fn get_secret(&self, _account: &str) -> Result<Option<String>> {
-        Err(CoreError::Other("凭据库仅支持 Windows（v1 目标平台）".into()))
+        Err(CoreError::Other(
+            "凭据库仅支持 Windows（v1 目标平台）".into(),
+        ))
     }
     fn delete_secret(&self, _account: &str) -> Result<()> {
-        Err(CoreError::Other("凭据库仅支持 Windows（v1 目标平台）".into()))
+        Err(CoreError::Other(
+            "凭据库仅支持 Windows（v1 目标平台）".into(),
+        ))
     }
 }
 
@@ -125,10 +131,13 @@ pub fn load_wechat(store: &dyn SecretStore) -> Result<Option<WechatCred>> {
     }
     let platform_key_id = store.get_secret(W_PLATFORM_KEY_ID)?;
     let platform_public_key_pem = store.get_secret(W_PLATFORM_PUBLIC_KEY)?;
-    let (platform_key_id, platform_public_key_pem) = match (platform_key_id, platform_public_key_pem) {
-        (Some(a), Some(b)) if !a.trim().is_empty() && !b.trim().is_empty() => (Some(a), Some(b)),
-        _ => (None, None),
-    };
+    let (platform_key_id, platform_public_key_pem) =
+        match (platform_key_id, platform_public_key_pem) {
+            (Some(a), Some(b)) if !a.trim().is_empty() && !b.trim().is_empty() => {
+                (Some(a), Some(b))
+            }
+            _ => (None, None),
+        };
     Ok(Some(WechatCred {
         mchid: vals[0].clone().unwrap(),
         appid: vals[1].clone().unwrap(),
@@ -222,8 +231,12 @@ mod tests {
         assert!(load_wechat(&store).unwrap().is_none());
         store.set_secret(W_APPID, "wx888").unwrap();
         store.set_secret(W_SERIAL_NO, "SER001").unwrap();
-        store.set_secret(W_APIV3_KEY, "0123456789abcdef0123456789abcdef").unwrap();
-        store.set_secret(W_PRIVATE_KEY, "-----BEGIN PRIVATE KEY-----").unwrap();
+        store
+            .set_secret(W_APIV3_KEY, "0123456789abcdef0123456789abcdef")
+            .unwrap();
+        store
+            .set_secret(W_PRIVATE_KEY, "-----BEGIN PRIVATE KEY-----")
+            .unwrap();
         let cred = load_wechat(&store).unwrap().unwrap();
         assert_eq!(cred.mchid, "1900000001");
         assert!(cred.platform_public_key_pem.is_none());
@@ -234,8 +247,12 @@ mod tests {
         let store = MemStore::default();
         assert!(load_alipay(&store).unwrap().is_none());
         store.set_secret(A_APP_ID, "2021000000000000").unwrap();
-        store.set_secret(A_PRIVATE_KEY, "-----BEGIN RSA PRIVATE KEY-----").unwrap();
-        store.set_secret(A_PUBLIC_KEY, "-----BEGIN PUBLIC KEY-----").unwrap();
+        store
+            .set_secret(A_PRIVATE_KEY, "-----BEGIN RSA PRIVATE KEY-----")
+            .unwrap();
+        store
+            .set_secret(A_PUBLIC_KEY, "-----BEGIN PUBLIC KEY-----")
+            .unwrap();
         let cred = load_alipay(&store).unwrap().unwrap();
         assert_eq!(cred.app_id, "2021000000000000");
     }
@@ -253,7 +270,18 @@ mod tests {
 
     #[test]
     fn whitelist_covers_all_fields() {
-        for f in [W_MCHID, W_APPID, W_SERIAL_NO, W_APIV3_KEY, W_PRIVATE_KEY, W_PLATFORM_KEY_ID, W_PLATFORM_PUBLIC_KEY, A_APP_ID, A_PRIVATE_KEY, A_PUBLIC_KEY] {
+        for f in [
+            W_MCHID,
+            W_APPID,
+            W_SERIAL_NO,
+            W_APIV3_KEY,
+            W_PRIVATE_KEY,
+            W_PLATFORM_KEY_ID,
+            W_PLATFORM_PUBLIC_KEY,
+            A_APP_ID,
+            A_PRIVATE_KEY,
+            A_PUBLIC_KEY,
+        ] {
             assert!(ALLOWED_FIELDS.contains(&f), "字段 {f} 未进白名单");
         }
     }

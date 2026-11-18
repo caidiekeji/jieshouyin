@@ -37,7 +37,10 @@ pub fn yuan_str_to_cents(s: &str) -> Result<i64> {
     };
     let negative = mantissa.starts_with('-');
     let digits: String = mantissa.chars().filter(|c| c.is_ascii_digit()).collect();
-    let point = mantissa.find('.').map(|i| i as i32).unwrap_or(mantissa.len() as i32);
+    let point = mantissa
+        .find('.')
+        .map(|i| i as i32)
+        .unwrap_or(mantissa.len() as i32);
     // 总小数位 = 原小数位 - 指数
     let frac_len = (mantissa.len() as i32 - point) - exp;
     let mut value: i64 = digits
@@ -65,7 +68,11 @@ pub fn parse_wechat_bill(csv: &str) -> Result<Vec<BillRow>> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let fields: Vec<String> = line.split(',').map(crate::payment::strip_backticks).map(|s| s.to_string()).collect();
+        let fields: Vec<String> = line
+            .split(',')
+            .map(crate::payment::strip_backticks)
+            .map(|s| s.to_string())
+            .collect();
         if cols.is_empty() {
             // 表头行
             for (i, f) in fields.iter().enumerate() {
@@ -120,7 +127,10 @@ pub fn parse_alipay_bill(csv: &str) -> Result<Vec<BillRow>> {
             for (i, f) in fields.iter().enumerate() {
                 cols.insert(f.trim().to_string(), i);
             }
-            if !cols.keys().any(|k| k.contains("商家订单号") || k.contains("商户订单号")) {
+            if !cols
+                .keys()
+                .any(|k| k.contains("商家订单号") || k.contains("商户订单号"))
+            {
                 cols.clear();
             }
             continue;
@@ -171,7 +181,11 @@ fn split_csv_line(line: &str) -> Vec<String> {
     out
 }
 
-fn col(fields: &[String], cols: &std::collections::HashMap<String, usize>, name: &str) -> Option<String> {
+fn col(
+    fields: &[String],
+    cols: &std::collections::HashMap<String, usize>,
+    name: &str,
+) -> Option<String> {
     cols.get(name)
         .and_then(|i| fields.get(*i))
         .map(|s| s.trim().to_string())
@@ -238,9 +252,9 @@ pub fn reconcile_channel(
     for row in rows {
         if row.is_refund {
             // 退款行：本地应有对应 refund_record，缺失则状态差异
-            let has = locals
-                .iter()
-                .any(|l| l.order_no == row.out_trade_no || by_out.get(row.out_trade_no.as_str()).is_some());
+            let has = locals.iter().any(|l| {
+                l.order_no == row.out_trade_no || by_out.get(row.out_trade_no.as_str()).is_some()
+            });
             if !has {
                 summary.status_mismatch += 1;
                 diffs.push((
@@ -287,10 +301,8 @@ pub fn reconcile_channel(
     }
 
     // 渠道缺失的本地流水（本地收款但账单无）
-    let billed: std::collections::HashSet<&str> = rows
-        .iter()
-        .map(|r| r.out_trade_no.as_str())
-        .collect();
+    let billed: std::collections::HashSet<&str> =
+        rows.iter().map(|r| r.out_trade_no.as_str()).collect();
     for l in &locals {
         let hit = billed.contains(l.out_trade_no.as_str())
             || l.trade_no

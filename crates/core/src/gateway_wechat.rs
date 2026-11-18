@@ -14,8 +14,8 @@ use rsa::pkcs8::DecodePrivateKey;
 use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use rsa::RsaPrivateKey;
 use sha2::Sha256;
-use wechatpay_v3::pay::{ResponseVerify, WechatPay, WechatPayConfig};
 use wechatpay_v3::model::{NativeParams, RefundsParams};
+use wechatpay_v3::pay::{ResponseVerify, WechatPay, WechatPayConfig};
 
 const API_BASE: &str = "https://api.mch.weixin.qq.com";
 const CODEPAY_PATH: &str = "/v3/pay/transactions/codepay";
@@ -131,8 +131,7 @@ impl WechatGateway {
         }
 
         // 非 200：读错误信封，明确失败映射；结果未知 → Err 走查单兜底
-        let v: serde_json::Value = serde_json::from_str(&text)
-            .unwrap_or(serde_json::Value::Null);
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
         let code = v.get("code").and_then(|x| x.as_str()).unwrap_or("");
         let msg = v
             .get("message")

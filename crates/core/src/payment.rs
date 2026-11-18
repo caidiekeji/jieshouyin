@@ -124,7 +124,14 @@ pub fn run_micropay<G: PaymentGateway>(
     };
     match outcome.state {
         PaymentState::USERPAYING => {
-            let state = reconcile_timeout(gw, &req.out_trade_no, poll_ms, timeout_s, sleep, "USERPAYING")?;
+            let state = reconcile_timeout(
+                gw,
+                &req.out_trade_no,
+                poll_ms,
+                timeout_s,
+                sleep,
+                "USERPAYING",
+            )?;
             Ok(PayOutcome {
                 trade_no: if state == PaymentState::SUCCESS {
                     outcome.trade_no
@@ -274,7 +281,10 @@ impl LocalConfirmGateway {
 impl PaymentGateway for LocalConfirmGateway {
     fn micropay(&self, req: &PayRequest) -> Result<PayOutcome> {
         // 付款码在本地确认即成功；记录本地 trade_no，绝不声称真实扣款。
-        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        let mut m = self
+            .states
+            .lock()
+            .map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
         m.insert(req.out_trade_no.clone(), PaymentState::SUCCESS);
         Ok(PayOutcome {
             state: PaymentState::SUCCESS,
@@ -284,7 +294,10 @@ impl PaymentGateway for LocalConfirmGateway {
     }
 
     fn native_precreate(&self, req: &PayRequest) -> Result<PayOutcome> {
-        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        let mut m = self
+            .states
+            .lock()
+            .map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
         m.entry(req.out_trade_no.clone())
             .or_insert(PaymentState::USERPAYING);
         Ok(PayOutcome {
@@ -295,14 +308,18 @@ impl PaymentGateway for LocalConfirmGateway {
     }
 
     fn query(&self, out_trade_no: &str) -> Result<PaymentState> {
-        let m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
-        Ok(m.get(out_trade_no)
-            .cloned()
-            .unwrap_or(PaymentState::CLOSED))
+        let m = self
+            .states
+            .lock()
+            .map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        Ok(m.get(out_trade_no).cloned().unwrap_or(PaymentState::CLOSED))
     }
 
     fn cancel(&self, out_trade_no: &str) -> Result<CancelResult> {
-        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        let mut m = self
+            .states
+            .lock()
+            .map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
         m.insert(out_trade_no.into(), PaymentState::CLOSED);
         Ok(CancelResult::Canceled)
     }
@@ -313,7 +330,10 @@ impl PaymentGateway for LocalConfirmGateway {
         _refund_no: &str,
         _amount_cents: i64,
     ) -> Result<PaymentState> {
-        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        let mut m = self
+            .states
+            .lock()
+            .map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
         m.insert(out_trade_no.into(), PaymentState::FAILED("已退款".into()));
         Ok(PaymentState::SUCCESS)
     }

@@ -3,17 +3,16 @@
 
 use crate::state::{build_license_service, init_db, AppState, PendingSensitive};
 use checkout_core::constants::{
-    CFG_BUSINESS_DAY_CUTOFF, CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS,
-    CFG_MICROPAY_TIMEOUT_S, CFG_NATIVE_POLL_MS, CFG_NATIVE_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
-    CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN,
-    CFG_PRINT_HOST, CFG_PRINT_PORT, CFG_SCAN_GAP_MS, COUPON_UNUSED,
-    DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S,
-    DEFAULT_NATIVE_POLL_MS, DEFAULT_NATIVE_TIMEOUT_S, DEFAULT_POINTS_PER_YUAN,
-    ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY,
-    PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT,
-    PERM_INVENTORY_ADJUST, PERM_POS_REFUND, PERM_POS_VOID, PERM_PRODUCT_EDIT,
-    PERM_REPORT_EXPORT, PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE, PERM_SYSTEM_CONFIG,
-    PERM_USER_MANAGE, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER,
+    CFG_BUSINESS_DAY_CUTOFF, CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S,
+    CFG_NATIVE_POLL_MS, CFG_NATIVE_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY, CFG_PAY_CHANNEL_CASH,
+    CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN, CFG_PRINT_HOST,
+    CFG_PRINT_PORT, CFG_SCAN_GAP_MS, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
+    DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_NATIVE_POLL_MS,
+    DEFAULT_NATIVE_TIMEOUT_S, DEFAULT_POINTS_PER_YUAN, ENT_MEMBER_BASIC, ENT_POS_CORE,
+    ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY,
+    PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_POS_REFUND,
+    PERM_POS_VOID, PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT, PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE,
+    PERM_SYSTEM_CONFIG, PERM_USER_MANAGE, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER,
 };
 use checkout_core::error::{CoreError, Result};
 use checkout_core::license::LicenseSnapshot;
@@ -36,11 +35,7 @@ fn now_str() -> String {
 static NONCE_SEQ: AtomicU64 = AtomicU64::new(0);
 fn new_nonce() -> String {
     let seq = NONCE_SEQ.fetch_add(1, Ordering::SeqCst);
-    format!(
-        "{}-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or(0),
-        seq
-    )
+    format!("{}-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0), seq)
 }
 
 /// 读取 system_config 字符串值，缺失返回 None。
@@ -269,7 +264,11 @@ fn business_cutoff_hour(conn: &Connection) -> u32 {
     cfg_get(conn, CFG_BUSINESS_DAY_CUTOFF)
         .ok()
         .flatten()
-        .and_then(|s| s.split(':').next().and_then(|h| h.trim().parse::<u32>().ok()))
+        .and_then(|s| {
+            s.split(':')
+                .next()
+                .and_then(|h| h.trim().parse::<u32>().ok())
+        })
         .unwrap_or(0)
 }
 
@@ -460,7 +459,10 @@ pub fn checkout(
     }
 
     // 2. 促销计算（§8）
-    let level = member_id.map(|mid| member_level(&conn, mid)).transpose()?.flatten();
+    let level = member_id
+        .map(|mid| member_level(&conn, mid))
+        .transpose()?
+        .flatten();
     let promos = load_active_promotions(&conn, &now_str())?;
     let max_ratio = cfg_f64(&conn, CFG_MAX_DISCOUNT_RATIO, DEFAULT_MAX_DISCOUNT_RATIO);
     let promo_result =
@@ -546,14 +548,13 @@ pub fn checkout(
             } else {
                 p.amount_cents
             };
-            let mode = p
-                .mode
-                .as_deref()
-                .unwrap_or(if channel_str == PAY_CASH || channel_str == PAY_STORED_VALUE {
+            let mode = p.mode.as_deref().unwrap_or(
+                if channel_str == PAY_CASH || channel_str == PAY_STORED_VALUE {
                     ""
                 } else {
                     PAY_MODE_MICROPAY
-                });
+                },
+            );
             tx.execute(
                 "INSERT INTO payment_record(order_no,pay_channel,pay_mode,attempt_no,amount_cents,cash_tendered_cents,change_cents,out_trade_no,status,created_at)
                  VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'PENDING',?9)",
@@ -579,7 +580,6 @@ pub fn checkout(
         }
         tx.commit()?;
     }
-
 
     // Native 存在与否决定储值扣款时点（§PAY-08：外部先行、储值后扣）
     let has_native = payments.iter().any(|p| {
@@ -622,7 +622,11 @@ pub fn checkout(
             }
             PayChannel::WECHAT | PayChannel::ALIPAY => {
                 let is_native = p.mode.as_deref() == Some(PAY_MODE_NATIVE);
-                let mode = if is_native { PayMode::NATIVE } else { PayMode::MICROPAY };
+                let mode = if is_native {
+                    PayMode::NATIVE
+                } else {
+                    PayMode::MICROPAY
+                };
                 let req = PayRequest {
                     out_trade_no: out_trade_no.clone(),
                     amount_cents: net,
@@ -636,11 +640,8 @@ pub fn checkout(
                     native_code_url = outcome.code_url;
                     continue;
                 }
-                let poll = cfg_i64(
-                    &conn,
-                    CFG_MICROPAY_POLL_MS,
-                    DEFAULT_MICROPAY_POLL_MS as i64,
-                ) as u64;
+                let poll =
+                    cfg_i64(&conn, CFG_MICROPAY_POLL_MS, DEFAULT_MICROPAY_POLL_MS as i64) as u64;
                 let timeout = cfg_i64(
                     &conn,
                     CFG_MICROPAY_TIMEOUT_S,
@@ -704,15 +705,7 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<()> {
         "SELECT member_id, total_cents, discount_cents, status, coupon_code
          FROM sales_order WHERE order_no=?1",
         [order_no],
-        |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-            ))
-        },
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
     )?;
     if status != "PENDING_PAYMENT" {
         // 幂等：已完成的订单直接返回
@@ -726,15 +719,12 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<()> {
             "SELECT pay_id, amount_cents, out_trade_no FROM payment_record
              WHERE order_no=?1 AND pay_channel='STORED_VALUE' AND status='PENDING'",
         )?;
-        let rows = stmt.query_map([order_no], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })?;
+        let rows = stmt.query_map([order_no], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
     let mut bonus_used: i64 = 0;
     for (_pay_id, amount, out_trade_no) in pending_sv {
-        let mid = member_id
-            .ok_or_else(|| CoreError::Validation("储值支付需先识别会员".into()))?;
+        let mid = member_id.ok_or_else(|| CoreError::Validation("储值支付需先识别会员".into()))?;
         let d = checkout_core::member::deduct(conn, mid, order_no, amount)?;
         bonus_used += d.bonus_cents;
         conn.execute(
@@ -748,13 +738,7 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<()> {
     if let Some(mid) = member_id {
         let per_yuan = cfg_i64(conn, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN);
         let payable = total - discount;
-        checkout_core::member::accrue_points(
-            conn,
-            mid,
-            order_no,
-            payable - bonus_used,
-            per_yuan,
-        )?;
+        checkout_core::member::accrue_points(conn, mid, order_no, payable - bonus_used, per_yuan)?;
     }
 
     // 券 UNUSED→REDEEMED + 订单提交
@@ -878,8 +862,8 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
     };
 
     // 订单真实数据
-    let (total, discount, pay, created, member_id): (i64, i64, i64, String, Option<i64>) =
-        conn.query_row(
+    let (total, discount, pay, created, member_id): (i64, i64, i64, String, Option<i64>) = conn
+        .query_row(
             "SELECT total_cents,discount_cents,pay_cents,created_at,member_id
              FROM sales_order WHERE order_no=?1",
             [&order_no],
@@ -1707,7 +1691,13 @@ pub fn void_order_cmd(
     let today = checkout_core::order::business_date(&now_dt, cutoff);
     {
         let tx = conn.unchecked_transaction()?;
-        checkout_core::order::void_order(&tx, &order_no, paid_via_scan > 0, biz == today, operator_id)?;
+        checkout_core::order::void_order(
+            &tx,
+            &order_no,
+            paid_via_scan > 0,
+            biz == today,
+            operator_id,
+        )?;
         checkout_core::rbac::audit_operation(
             &tx,
             "void_order",
@@ -1806,8 +1796,8 @@ pub fn refund_order(
     let mut refunds: Vec<i64> = Vec::new();
     let mut rows: Vec<(i64, i64, i64)> = Vec::new();
     for it in &items {
-        let (sku_id, qty, returned, line_total, discount): (i64, i64, i64, i64, i64) =
-            conn.query_row(
+        let (sku_id, qty, returned, line_total, discount): (i64, i64, i64, i64, i64) = conn
+            .query_row(
                 "SELECT sku_id,qty,returned_qty,line_total_cents,discount_cents
                  FROM sales_order_item WHERE item_id=?1",
                 [it.order_item_id],
@@ -2048,10 +2038,8 @@ pub fn request_sensitive_auth(
     *state
         .pending_sensitive
         .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))? = Some(PendingSensitive {
-        auth,
-        permission,
-    });
+        .map_err(|e| CoreError::Other(e.to_string()))? =
+        Some(PendingSensitive { auth, permission });
     Ok(nonce)
 }
 
@@ -2067,9 +2055,8 @@ pub struct ConfigRow {
 #[tauri::command]
 pub fn get_configs(state: State<'_, AppState>) -> Result<Vec<ConfigRow>> {
     let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
-    let mut stmt = conn.prepare(
-        "SELECT config_key, config_value FROM system_config ORDER BY config_key",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT config_key, config_value FROM system_config ORDER BY config_key")?;
     let rows = stmt.query_map([], |r| {
         Ok(ConfigRow {
             config_key: r.get(0)?,
@@ -2085,11 +2072,7 @@ pub fn get_configs(state: State<'_, AppState>) -> Result<Vec<ConfigRow>> {
 
 /// 更新单个系统配置（白名单：仅允许业务可配键，防止改写授权内部状态）。
 #[tauri::command]
-pub fn set_config(
-    key: String,
-    value: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
+pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Result<()> {
     let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
     let allowed = matches!(
         key.as_str(),
@@ -2129,7 +2112,9 @@ pub fn set_config(
                 return Err(CoreError::Validation("折扣上限须在 0–1".into()));
             }
         }
-        CFG_PAY_CHANNEL_CASH | CFG_PAY_CHANNEL_WECHAT | CFG_PAY_CHANNEL_ALIPAY
+        CFG_PAY_CHANNEL_CASH
+        | CFG_PAY_CHANNEL_WECHAT
+        | CFG_PAY_CHANNEL_ALIPAY
         | CFG_PAY_CHANNEL_SV => {
             if value != "0" && value != "1" {
                 return Err(CoreError::Validation("渠道开关只允许 0 或 1".into()));
@@ -2299,10 +2284,7 @@ pub fn cashier_report(
 
 /// 开班：创建班次并设为当前班次，收银结算引用其 shift_id。
 #[tauri::command]
-pub fn open_shift(
-    opening_float_cents: i64,
-    state: State<'_, AppState>,
-) -> Result<i64> {
+pub fn open_shift(opening_float_cents: i64, state: State<'_, AppState>) -> Result<i64> {
     let session = state
         .session
         .lock()
@@ -2823,9 +2805,8 @@ pub fn get_pay_channels(state: State<'_, AppState>) -> Result<PayChannels> {
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    let on = |key: &str| -> Result<bool> {
-        Ok(cfg_get(&conn, key)?.map(|v| v != "0").unwrap_or(true))
-    };
+    let on =
+        |key: &str| -> Result<bool> { Ok(cfg_get(&conn, key)?.map(|v| v != "0").unwrap_or(true)) };
     Ok(PayChannels {
         cash: on(CFG_PAY_CHANNEL_CASH)?,
         wechat: on(CFG_PAY_CHANNEL_WECHAT)?,
@@ -2967,7 +2948,9 @@ pub fn recover_pending_orders(
         }
         let native = records
             .iter()
-            .find(|(_, mode, otn, st)| mode == PAY_MODE_NATIVE && st == "PENDING" && !otn.is_empty())
+            .find(|(_, mode, otn, st)| {
+                mode == PAY_MODE_NATIVE && st == "PENDING" && !otn.is_empty()
+            })
             .map(|(ch, _, otn, _)| (ch.clone(), otn.clone()));
         match native {
             Some((ch, otn)) => {
@@ -3149,27 +3132,30 @@ pub fn run() {
                 let w = checkout_core::paycreds::load_wechat(&store)
                     .ok()
                     .flatten()
-                    .and_then(|c| match checkout_core::gateway_wechat::WechatGateway::from_cred(&c) {
-                        Ok(g) => Some(g),
-                        Err(e) => {
-                            tracing::warn!("微信网关构造失败，回落本地确认: {e}");
-                            None
+                    .and_then(|c| {
+                        match checkout_core::gateway_wechat::WechatGateway::from_cred(&c) {
+                            Ok(g) => Some(g),
+                            Err(e) => {
+                                tracing::warn!("微信网关构造失败，回落本地确认: {e}");
+                                None
+                            }
                         }
                     });
                 let a = checkout_core::paycreds::load_alipay(&store)
                     .ok()
                     .flatten()
-                    .and_then(|c| match checkout_core::gateway_alipay::AlipayGateway::from_cred(&c) {
-                        Ok(g) => Some(g),
-                        Err(e) => {
-                            tracing::warn!("支付宝网关构造失败，回落本地确认: {e}");
-                            None
+                    .and_then(|c| {
+                        match checkout_core::gateway_alipay::AlipayGateway::from_cred(&c) {
+                            Ok(g) => Some(g),
+                            Err(e) => {
+                                tracing::warn!("支付宝网关构造失败，回落本地确认: {e}");
+                                None
+                            }
                         }
                     });
                 (w, a)
             };
-            let gateway =
-                checkout_core::payment::RoutingGateway::new(wechat_gw, alipay_gw);
+            let gateway = checkout_core::payment::RoutingGateway::new(wechat_gw, alipay_gw);
 
             // 崩溃恢复扫描（§23）：PENDING_PAYMENT 订单向渠道查单收敛
             match recover_pending_orders(&conn, &gateway) {

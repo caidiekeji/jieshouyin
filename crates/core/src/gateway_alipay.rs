@@ -25,11 +25,12 @@ pub struct AlipayGateway {
 
 impl AlipayGateway {
     pub fn from_cred(cred: &AlipayCred) -> Result<Self> {
-        let private_key = RsaPrivateKey::from_pkcs8_pem(&cred.private_key_pem).or_else(|_| {
-            rsa::pkcs1::DecodeRsaPrivateKey::from_pkcs1_pem(&cred.private_key_pem)
-        }).map_err(|e| CoreError::Other(format!("支付宝商户私钥解析失败: {e}")))?;
-        let alipay_public_key = rsa::pkcs8::DecodePublicKey::from_public_key_pem(&cred.public_key_pem)
-            .map_err(|e| CoreError::Other(format!("支付宝公钥解析失败: {e}")))?;
+        let private_key = RsaPrivateKey::from_pkcs8_pem(&cred.private_key_pem)
+            .or_else(|_| rsa::pkcs1::DecodeRsaPrivateKey::from_pkcs1_pem(&cred.private_key_pem))
+            .map_err(|e| CoreError::Other(format!("支付宝商户私钥解析失败: {e}")))?;
+        let alipay_public_key =
+            rsa::pkcs8::DecodePublicKey::from_public_key_pem(&cred.public_key_pem)
+                .map_err(|e| CoreError::Other(format!("支付宝公钥解析失败: {e}")))?;
         Ok(Self {
             app_id: cred.app_id.clone(),
             private_key,
@@ -81,9 +82,7 @@ impl AlipayGateway {
                     .find(|k| k.ends_with("_response") && k != "error_response")
             })
             .cloned()
-            .ok_or_else(|| {
-                CoreError::Other(format!("支付宝应答缺少响应对象: {text}"))
-            })?;
+            .ok_or_else(|| CoreError::Other(format!("支付宝应答缺少响应对象: {text}")))?;
         let resp_obj = root.get(&resp_key).cloned().unwrap_or(Value::Null);
 
         // 应答验签：对响应对象的原始序列化串验签（§6 验签自持有纪律）
@@ -135,7 +134,10 @@ fn state_of(resp: &Value) -> Result<PayOutcome> {
         .map(|s| s.to_string());
 
     if code == "10000" {
-        let status = resp.get("trade_status").and_then(|s| s.as_str()).unwrap_or("");
+        let status = resp
+            .get("trade_status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
         let state = match status {
             "TRADE_SUCCESS" | "TRADE_FINISHED" => PaymentState::SUCCESS,
             "WAIT_BUYER_PAY" => PaymentState::USERPAYING,
@@ -221,7 +223,10 @@ impl PaymentGateway for AlipayGateway {
         let biz = serde_json::json!({ "out_trade_no": out_trade_no });
         let resp = self.call("alipay.trade.cancel", &biz)?;
         // retry_flag=Y 表示交易已支付、需异步退款处理 → 撤销遇已支付
-        let retry = resp.get("retry_flag").and_then(|r| r.as_str()).unwrap_or("N");
+        let retry = resp
+            .get("retry_flag")
+            .and_then(|r| r.as_str())
+            .unwrap_or("N");
         if retry == "Y" {
             Ok(CancelResult::AlreadyPaid)
         } else {
@@ -242,7 +247,10 @@ impl PaymentGateway for AlipayGateway {
         });
         let resp = self.call("alipay.trade.refund", &biz)?;
         // fund_change=Y 表示资金发生变动（退款成功）
-        let fund_change = resp.get("fund_change").and_then(|f| f.as_str()).unwrap_or("N");
+        let fund_change = resp
+            .get("fund_change")
+            .and_then(|f| f.as_str())
+            .unwrap_or("N");
         if fund_change == "Y" {
             Ok(PaymentState::SUCCESS)
         } else {
