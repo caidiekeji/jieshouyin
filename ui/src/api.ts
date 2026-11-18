@@ -92,6 +92,35 @@ export interface StocktakeItemRow {
   diff_qty: number | null
 }
 
+export interface MemberRow {
+  member_id: number
+  phone: string | null
+  member_code: string
+  name: string | null
+  status: number
+  principal_cents: number
+  bonus_cents: number
+  points: number
+  growth: number
+}
+
+export interface PromotionRow {
+  promotion_id: number
+  name: string
+  scope: string
+  priority: number
+  exclusive: boolean
+  stackable: boolean
+  min_qty: number
+  min_amount_cents: number
+  discount_rate: number | null
+  discount_cents: number | null
+  target_skus: number[]
+  valid_from: string | null
+  valid_until: string | null
+  status: number
+}
+
 export const api = {
   bootstrap: () => invoke<LicenseSnapshot>('bootstrap'),
   initAdmin: (username: string, password: string) =>
@@ -154,6 +183,29 @@ export const api = {
   recordCount: (taskNo: string, counts: { item_id: number; received_qty: number }[]) =>
     invoke<void>('record_count', { taskNo, counts }),
   approveStocktake: (taskNo: string) => invoke<void>('approve_stocktake', { taskNo }),
+  createMember: (phone: string | null, name: string | null) =>
+    invoke<number>('create_member', { phone, name }),
+  listMembers: (keyword: string, limit: number) =>
+    invoke<MemberRow[]>('list_members', { keyword, limit }),
+  rechargeMember: (memberId: number, principalCents: number, bonusCents: number) =>
+    invoke<void>('recharge_member', { memberId, principalCents, bonusCents }),
+  listPromotions: () => invoke<PromotionRow[]>('list_promotions'),
+  createPromotion: (p: {
+    name: string
+    scope: string
+    priority: number
+    exclusive: boolean
+    stackable: boolean
+    minQty: number
+    minAmountCents: number
+    discountRate: number | null
+    discountCents: number | null
+    targetSkus: number[]
+    validFrom: string | null
+    validUntil: string | null
+  }) => invoke<number>('create_promotion', p),
+  setPromotionStatus: (promotionId: number, status: number) =>
+    invoke<void>('set_promotion_status', { promotionId, status }),
   shiftReport: (shiftId: number) => invoke<unknown[]>('shift_report', { shiftId }),
 }
 

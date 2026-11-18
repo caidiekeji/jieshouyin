@@ -4,8 +4,9 @@ import { api, formatMoney, today, type LicenseSnapshot, type ProductHit, type Ca
 import Icon from './components/Icon.vue'
 import ProductAdmin from './components/ProductAdmin.vue'
 import SupplyAdmin from './components/SupplyAdmin.vue'
+import MemberAdmin from './components/MemberAdmin.vue'
 
-type View = 'boot' | 'activate' | 'login' | 'pos' | 'products' | 'supply' | 'parked' | 'report' | 'settings'
+type View = 'boot' | 'activate' | 'login' | 'pos' | 'products' | 'supply' | 'member' | 'parked' | 'report' | 'settings'
 const view = ref<View>('boot')
 const bootError = ref('')
 const license = ref<LicenseSnapshot | null>(null)
@@ -286,6 +287,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="18" />收银</button>
           <button :class="['nav-btn', { active: view === 'products' }]" @click="goProducts"><Icon name="box" :size="18" />商品</button>
           <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="park" :size="18" />采购盘点</button>
+          <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="users" :size="18" />会员营销</button>
           <button :class="['nav-btn', { active: view === 'parked' }]" @click="goParked"><Icon name="park" :size="18" />挂单</button>
           <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="18" />报表</button>
           <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="18" />设置</button>
@@ -350,6 +352,9 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
 
       <!-- 采购与盘点 -->
       <SupplyAdmin v-else-if="view === 'supply'" />
+
+      <!-- 会员营销 -->
+      <MemberAdmin v-else-if="view === 'member'" />
 
       <!-- 挂单 -->
       <main v-else-if="view === 'parked'" class="main-simple">

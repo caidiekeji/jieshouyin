@@ -853,6 +853,251 @@ pub fn approve_stocktake(task_no: String, state: State<'_, AppState>) -> Result<
     checkout_core::purchase::approve_stocktake(&conn, &task_no, approver_id)
 }
 
+// ===== 会员管理（§13 四账）=====
+
+#[derive(Debug, Serialize)]
+pub struct MemberRow {
+    pub member_id: i64,
+    pub phone: Option<String>,
+    pub member_code: String,
+    pub name: Option<String>,
+    pub status: i64,
+    pub principal_cents: i64,
+    pub bonus_cents: i64,
+    pub points: i64,
+    pub growth: i64,
+}
+
+const MEMBER_ASSET_SQL: &str = "COALESCE((SELECT balance FROM member_asset a WHERE a.member_id=m.member_id AND a.asset_type='PRINCIPAL'),0)";
+
+#[tauri::command]
+pub fn create_member(
+    phone: Option<String>,
+    name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_operator_id, conn) = admin_guard(&state, "report.view")?;
+    if let Some(p) = &phone {
+        if p.trim().is_empty() {
+            return Err(CoreError::Validation("手机号不能为空".into()));
+        }
+    }
+    let code = format!("M{}", chrono::Utc::now().timestamp_millis());
+    conn.execute(
+        "INSERT INTO member(phone,member_code,name) VALUES (?1,?2,?3)",
+        rusqlite::params![phone, code, name],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+pub fn list_members(
+    keyword: String,
+    limit: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<MemberRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "report.view")?;
+    let pattern = format!("%{keyword}%");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT m.member_id, m.phone, m.member_code, m.name, m.status,
+                {MEMBER_ASSET_SQL},
+                COALESCE((SELECT balance FROM member_asset a WHERE a.member_id=m.member_id AND a.asset_type='BONUS'),0),
+                COALESCE((SELECT balance FROM member_asset a WHERE a.member_id=m.member_id AND a.asset_type='POINTS'),0),
+                COALESCE((SELECT balance FROM member_asset a WHERE a.member_id=m.member_id AND a.asset_type='GROWTH'),0)
+         FROM member m
+         WHERE (?1 = '' OR m.phone LIKE ?2 OR m.name LIKE ?2 OR m.member_code LIKE ?2)
+         ORDER BY m.member_id DESC LIMIT ?3"
+    ))?;
+    let rows = stmt.query_map(rusqlite::params![keyword, pattern, limit], |r| {
+        Ok(MemberRow {
+            member_id: r.get(0)?,
+            phone: r.get(1)?,
+            member_code: r.get(2)?,
+            name: r.get(3)?,
+            status: r.get(4)?,
+            principal_cents: r.get(5)?,
+            bonus_cents: r.get(6)?,
+            points: r.get(7)?,
+            growth: r.get(8)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 会员充值（§13.3）：本金 += 实充，赠送 += 赠送额；幂等流水，操作人入账。
+/// 以 report.view 为门禁代理（收银员 ❌ / 店长 ✅ / 管理员 ✅，§12 权限矩阵）。
+#[tauri::command]
+pub fn recharge_member(
+    member_id: i64,
+    principal_cents: i64,
+    bonus_cents: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (operator_id, conn) = admin_guard(&state, "report.view")?;
+    if principal_cents <= 0 || bonus_cents < 0 {
+        return Err(CoreError::Validation("充值金额非法".into()));
+    }
+    let recharge_no = gen_no("RC");
+    checkout_core::member::recharge(&conn, member_id, &recharge_no, principal_cents, bonus_cents)?;
+    checkout_core::rbac::audit_operation(
+        &conn,
+        "recharge_member",
+        Some(operator_id),
+        None,
+        serde_json::json!({
+            "member_id": member_id,
+            "recharge_no": recharge_no,
+            "principal_cents": principal_cents,
+            "bonus_cents": bonus_cents
+        }),
+        &now_str(),
+    )?;
+    Ok(())
+}
+
+// ===== 促销规则管理（§8）=====
+
+#[derive(Debug, Serialize)]
+pub struct PromotionRow {
+    pub promotion_id: i64,
+    pub name: String,
+    pub scope: String,
+    pub priority: i32,
+    pub exclusive: bool,
+    pub stackable: bool,
+    pub min_qty: i64,
+    pub min_amount_cents: i64,
+    pub discount_rate: Option<f64>,
+    pub discount_cents: Option<i64>,
+    pub target_skus: Vec<i64>,
+    pub valid_from: Option<String>,
+    pub valid_until: Option<String>,
+    pub status: i64,
+}
+
+fn row_to_promotion_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<PromotionRow> {
+    let condition: String = r.get(8)?;
+    let action: String = r.get(9)?;
+    let cond: serde_json::Value = serde_json::from_str(&condition).unwrap_or(serde_json::json!({}));
+    let act: serde_json::Value = serde_json::from_str(&action).unwrap_or(serde_json::json!({}));
+    Ok(PromotionRow {
+        promotion_id: r.get(0)?,
+        name: r.get(1)?,
+        scope: r.get(2)?,
+        priority: r.get(3)?,
+        exclusive: r.get::<_, i64>(4)? != 0,
+        stackable: r.get::<_, i64>(5)? != 0,
+        min_qty: cond.get("min_qty").and_then(|v| v.as_i64()).unwrap_or(0),
+        min_amount_cents: cond
+            .get("min_amount_cents")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+        target_skus: cond
+            .get("target_skus")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_i64()).collect())
+            .unwrap_or_default(),
+        discount_rate: act.get("discount_rate").and_then(|v| v.as_f64()),
+        discount_cents: act.get("discount_cents").and_then(|v| v.as_i64()),
+        valid_from: r.get(10)?,
+        valid_until: r.get(11)?,
+        status: r.get(12)?,
+    })
+}
+
+#[tauri::command]
+pub fn list_promotions(state: State<'_, AppState>) -> Result<Vec<PromotionRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "report.view")?;
+    let mut stmt = conn.prepare(
+        "SELECT promotion_id, name, scope, priority, exclusive, stackable,
+                NULL, NULL, condition_json, action_json, valid_from, valid_until, status
+         FROM promotion ORDER BY priority, promotion_id",
+    )?;
+    let rows = stmt.query_map([], |r| row_to_promotion_row(r))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 新建促销规则（§8）：折扣率与满减二选一；目标 SKU 空数组 = 全部商品。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn create_promotion(
+    name: String,
+    scope: String,
+    priority: i32,
+    exclusive: bool,
+    stackable: bool,
+    min_qty: i64,
+    min_amount_cents: i64,
+    discount_rate: Option<f64>,
+    discount_cents: Option<i64>,
+    target_skus: Vec<i64>,
+    valid_from: Option<String>,
+    valid_until: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
+    if name.trim().is_empty() {
+        return Err(CoreError::Validation("促销名称不能为空".into()));
+    }
+    if scope != "SINGLE_ITEM" && scope != "ORDER_LEVEL" {
+        return Err(CoreError::Validation("scope 仅允许 SINGLE_ITEM / ORDER_LEVEL".into()));
+    }
+    if discount_rate.is_none() == discount_cents.is_none() {
+        return Err(CoreError::Validation("折扣率与满减额必须二选一".into()));
+    }
+    let promo_type = if discount_rate.is_some() { "DISCOUNT" } else { "FULL_CUT" };
+    let condition = serde_json::json!({
+        "min_qty": min_qty,
+        "min_amount_cents": min_amount_cents,
+        "target_skus": target_skus,
+    });
+    let action = serde_json::json!({
+        "discount_rate": discount_rate,
+        "discount_cents": discount_cents,
+    });
+    conn.execute(
+        "INSERT INTO promotion(name,promo_type,scope,priority,exclusive,stackable,condition_json,action_json,valid_from,valid_until)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        rusqlite::params![
+            name.trim(),
+            promo_type,
+            scope,
+            priority,
+            exclusive as i64,
+            stackable as i64,
+            condition.to_string(),
+            action.to_string(),
+            valid_from,
+            valid_until
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+pub fn set_promotion_status(promotion_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, "product.edit")?;
+    if status != 0 && status != 1 {
+        return Err(CoreError::Validation("status 仅允许 0/1".into()));
+    }
+    let n = conn.execute(
+        "UPDATE promotion SET status=?1 WHERE promotion_id=?2",
+        rusqlite::params![status, promotion_id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::Validation(format!("促销 {promotion_id} 不存在")));
+    }
+    Ok(())
+}
+
 /// 启动应用（Tauri 2）。
 pub fn run() {
     tauri::Builder::default()
@@ -906,6 +1151,12 @@ pub fn run() {
             create_stocktake,
             record_count,
             approve_stocktake,
+            create_member,
+            list_members,
+            recharge_member,
+            list_promotions,
+            create_promotion,
+            set_promotion_status,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");
