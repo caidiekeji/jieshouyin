@@ -11,6 +11,7 @@ use super::payload::LicensePayload;
 #[allow(non_camel_case_types)] // 状态/类型字符串与文档一致
 pub enum LicenseStatus {
     UNACTIVATED,
+    TRIAL_ACTIVE,
     ACTIVE,
     GRACE_PERIOD,
     OFFLINE_DEGRADED,
@@ -20,6 +21,7 @@ impl LicenseStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             LicenseStatus::UNACTIVATED => "UNACTIVATED",
+            LicenseStatus::TRIAL_ACTIVE => "TRIAL_ACTIVE",
             LicenseStatus::ACTIVE => "ACTIVE",
             LicenseStatus::GRACE_PERIOD => "GRACE_PERIOD",
             LicenseStatus::OFFLINE_DEGRADED => "OFFLINE_DEGRADED",
@@ -32,9 +34,12 @@ impl LicenseStatus {
         !matches!(self, LicenseStatus::UNACTIVATED)
     }
 
-    /// 后台管理：降级态仅查看。
+    /// 后台管理：试用期与降级前的授权态均放行，降级态仅查看。
     pub fn allows_admin(&self) -> bool {
-        matches!(self, LicenseStatus::ACTIVE | LicenseStatus::GRACE_PERIOD)
+        matches!(
+            self,
+            LicenseStatus::TRIAL_ACTIVE | LicenseStatus::ACTIVE | LicenseStatus::GRACE_PERIOD
+        )
     }
 }
 
@@ -139,9 +144,16 @@ mod tests {
     #[test]
     fn pos_core_allowed_in_all_but_unactivated() {
         assert!(!LicenseStatus::UNACTIVATED.allows_pos_core());
+        assert!(LicenseStatus::TRIAL_ACTIVE.allows_pos_core());
         assert!(LicenseStatus::ACTIVE.allows_pos_core());
         assert!(LicenseStatus::GRACE_PERIOD.allows_pos_core());
         assert!(LicenseStatus::OFFLINE_DEGRADED.allows_pos_core());
+    }
+
+    #[test]
+    fn trial_allows_full_features() {
+        assert!(LicenseStatus::TRIAL_ACTIVE.allows_admin());
+        assert!(LicenseStatus::TRIAL_ACTIVE.allows_pos_core());
     }
 
     #[test]

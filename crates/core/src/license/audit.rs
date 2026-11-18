@@ -14,6 +14,8 @@ pub enum AuditEvent {
     GracePeriodEntered,
     DegradedEntered,
     RebindSuccess,
+    TrialStarted,
+    TrialExpired,
 }
 
 impl AuditEvent {
@@ -28,6 +30,8 @@ impl AuditEvent {
             AuditEvent::GracePeriodEntered => "GRACE_PERIOD_ENTERED",
             AuditEvent::DegradedEntered => "DEGRADED_ENTERED",
             AuditEvent::RebindSuccess => "REBIND_SUCCESS",
+            AuditEvent::TrialStarted => "TRIAL_STARTED",
+            AuditEvent::TrialExpired => "TRIAL_EXPIRED",
         }
     }
 }

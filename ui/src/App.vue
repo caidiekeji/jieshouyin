@@ -31,6 +31,15 @@ const parked = ref<unknown[]>([])
 
 const banner = computed(() => {
   if (!license.value) return ''
+  if (license.value.status === 'TRIAL_ACTIVE') {
+    const ends = license.value.trial_ends_at
+    if (!ends) return '试用期进行中'
+    const days = Math.max(
+      1,
+      Math.ceil((new Date(ends).getTime() - Date.now()) / 86400000)
+    )
+    return `试用期剩余 ${days} 天，到期后需激活`
+  }
   if (license.value.status === 'GRACE_PERIOD') return '授权宽限期内，请尽快续期'
   if (license.value.status === 'OFFLINE_DEGRADED') return '授权已到期，前台收银仍可用，后台管理受限'
   return ''
@@ -366,6 +375,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <div class="license-info">
             <p>授权状态：<strong>{{ license?.status }}</strong></p>
             <p class="muted small">{{ license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可' }}</p>
+            <p v-if="license?.trial_ends_at" class="muted small">试用期至 {{ license.trial_ends_at }}</p>
           </div>
         </div>
       </main>

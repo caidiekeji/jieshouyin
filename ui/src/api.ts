@@ -2,10 +2,16 @@
 import { invoke } from '@tauri-apps/api/core'
 
 export interface LicenseSnapshot {
-  status: 'UNACTIVATED' | 'ACTIVE' | 'GRACE_PERIOD' | 'OFFLINE_DEGRADED'
+  status:
+    | 'UNACTIVATED'
+    | 'TRIAL_ACTIVE'
+    | 'ACTIVE'
+    | 'GRACE_PERIOD'
+    | 'OFFLINE_DEGRADED'
   entitlements: string[]
   valid_until: string | null
   maintenance_until: string | null
+  trial_ends_at: string | null
 }
 
 export interface ProductHit {

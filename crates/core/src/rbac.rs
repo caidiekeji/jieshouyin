@@ -308,6 +308,7 @@ mod tests {
             entitlements: vec!["pos.core".into(), "report.standard".into()],
             valid_until: None,
             maintenance_until: None,
+            trial_ends_at: None,
         }
     }
 
