@@ -1108,6 +1108,270 @@ pub fn set_promotion_status(
     Ok(())
 }
 
+// ===== 订单作废 / 退货（§5.5 / §5.6）=====
+
+#[derive(Debug, Deserialize)]
+pub struct ReturnItemInput {
+    pub order_item_id: i64,
+    pub qty: i64,
+}
+
+/// 订单作废（pos.void）：仅待支付单或当日现金单；扫码已支付单只能退款。
+#[tauri::command]
+pub fn void_order_cmd(order_no: String, state: State<'_, AppState>) -> Result<()> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: "pos.core",
+            permission: "pos.void",
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: parse_rfc3339(&now_str())?,
+            amount_cents: 0,
+            limit_key: None,
+        },
+    )?;
+    let operator_id = session.user_id;
+    drop(session);
+    drop(license);
+    let paid_via_scan: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM payment_record WHERE order_no=?1 AND pay_channel IN ('WECHAT','ALIPAY') AND status='SUCCESS'",
+        [&order_no],
+        |r| r.get(0),
+    )?;
+    let biz: String = conn.query_row(
+        "SELECT business_date FROM sales_order WHERE order_no=?1",
+        [&order_no],
+        |r| r.get(0),
+    )?;
+    let today = checkout_core::order::business_date(&parse_rfc3339(&now_str())?, 0);
+    let tx = conn.unchecked_transaction()?;
+    checkout_core::order::void_order(&tx, &order_no, paid_via_scan > 0, biz == today, operator_id)?;
+    tx.commit()
+}
+
+/// 订单可退行明细（退货录入）。
+#[derive(Debug, Serialize)]
+pub struct OrderItemRow {
+    pub item_id: i64,
+    pub sku_id: i64,
+    pub product_name: String,
+    pub qty: i64,
+    pub returned_qty: i64,
+    pub unit_price_cents: i64,
+}
+
+#[tauri::command]
+pub fn get_order_items(order_no: String, state: State<'_, AppState>) -> Result<Vec<OrderItemRow>> {
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    drop(session);
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let mut stmt = conn.prepare(
+        "SELECT i.item_id, i.sku_id, COALESCE(p.spu_name,''), i.qty, i.returned_qty, i.unit_price_cents
+         FROM sales_order_item i
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE i.order_no=?1 ORDER BY i.item_id",
+    )?;
+    let rows = stmt.query_map([&order_no], |r| {
+        Ok(OrderItemRow {
+            item_id: r.get(0)?,
+            sku_id: r.get(1)?,
+            product_name: r.get(2)?,
+            qty: r.get(3)?,
+            returned_qty: r.get(4)?,
+            unit_price_cents: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 退货（pos.refund + refund.max_cents 限额）：按行单价 × 退货数量退款，
+/// 回补库存，累计 returned_qty；全部行退完订单转 REFUNDED。
+#[tauri::command]
+pub fn refund_order(
+    order_no: String,
+    items: Vec<ReturnItemInput>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    // 先按单价 × 数量估算退款总额做限额校验
+    let mut total = 0i64;
+    for it in &items {
+        let price: i64 = conn.query_row(
+            "SELECT unit_price_cents FROM sales_order_item WHERE item_id=?1",
+            [it.order_item_id],
+            |r| r.get(0),
+        )?;
+        total += price * it.qty;
+    }
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: "pos.core",
+            permission: "pos.refund",
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: parse_rfc3339(&now_str())?,
+            amount_cents: total,
+            limit_key: Some("refund.max_cents"),
+        },
+    )?;
+    let operator_id = session.user_id;
+    drop(session);
+    drop(license);
+    if items.is_empty() {
+        return Err(CoreError::Validation("退货明细不能为空".into()));
+    }
+    let return_no = gen_no("RT");
+    let tx = conn.unchecked_transaction()?;
+    let rows: Vec<(i64, i64, i64)> = {
+        let mut v = Vec::new();
+        for it in &items {
+            let sku_id: i64 = tx.query_row(
+                "SELECT sku_id FROM sales_order_item WHERE item_id=?1",
+                [it.order_item_id],
+                |r| r.get(0),
+            )?;
+            v.push((it.order_item_id, sku_id, it.qty));
+        }
+        v
+    };
+    let refunds: Vec<i64> = items
+        .iter()
+        .map(|it| {
+            let price: i64 = tx
+                .query_row(
+                    "SELECT unit_price_cents FROM sales_order_item WHERE item_id=?1",
+                    [it.order_item_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            price * it.qty
+        })
+        .collect();
+    let total =
+        checkout_core::order::create_return(&tx, &return_no, &order_no, None, operator_id, None, &rows, &refunds, operator_id)?;
+    tx.commit()?;
+    Ok(total)
+}
+
+// ===== 员工管理（user.manage，仅 ADMIN）=====
+
+#[derive(Debug, Serialize)]
+pub struct UserRow {
+    pub user_id: i64,
+    pub username: String,
+    pub role_name: String,
+    pub status: i64,
+}
+
+#[tauri::command]
+pub fn create_user(
+    username: String,
+    password: String,
+    role_name: String,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_operator_id, conn) = admin_guard(&state, "user.manage")?;
+    if username.trim().is_empty() {
+        return Err(CoreError::Validation("用户名不能为空".into()));
+    }
+    if !matches!(role_name.as_str(), "CASHIER" | "MANAGER" | "ADMIN") {
+        return Err(CoreError::Validation("角色仅允许 CASHIER / MANAGER / ADMIN".into()));
+    }
+    checkout_core::rbac::validate_password_policy(&password)?;
+    let hash = checkout_core::rbac::hash_password(&password)?;
+    let role_id: i64 = conn.query_row(
+        "SELECT role_id FROM role WHERE role_name=?1",
+        [&role_name],
+        |r| r.get(0),
+    )?;
+    conn.execute(
+        "INSERT INTO user_account(username,password_hash,role_id) VALUES (?1,?2,?3)",
+        rusqlite::params![username.trim(), hash, role_id],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+pub fn list_users(state: State<'_, AppState>) -> Result<Vec<UserRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "user.manage")?;
+    let mut stmt = conn.prepare(
+        "SELECT u.user_id, u.username, r.role_name, u.status
+         FROM user_account u JOIN role r ON r.role_id=u.role_id ORDER BY u.user_id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(UserRow {
+            user_id: r.get(0)?,
+            username: r.get(1)?,
+            role_name: r.get(2)?,
+            status: r.get(3)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn set_user_status(user_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, "user.manage")?;
+    if status != 0 && status != 1 {
+        return Err(CoreError::Validation("status 仅允许 0/1".into()));
+    }
+    let n = conn.execute(
+        "UPDATE user_account SET status=?1 WHERE user_id=?2",
+        rusqlite::params![status, user_id],
+    )?;
+    if n == 0 {
+        return Err(CoreError::Validation(format!("用户 {user_id} 不存在")));
+    }
+    Ok(())
+}
+
 /// 启动应用（Tauri 2）。
 pub fn run() {
     tauri::Builder::default()
@@ -1167,6 +1431,12 @@ pub fn run() {
             list_promotions,
             create_promotion,
             set_promotion_status,
+            void_order_cmd,
+            get_order_items,
+            refund_order,
+            create_user,
+            list_users,
+            set_user_status,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");

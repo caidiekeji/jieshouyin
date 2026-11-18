@@ -206,6 +206,97 @@ async function loadReport() {
   }
 }
 
+// ===== 交班汇总 =====
+interface ShiftRow { cashier_id: number; order_count: number; total_cents: number; pay_cents: number; cash_net_cents: number }
+const shiftId = ref(1)
+const shiftRows = ref<ShiftRow[]>([])
+async function loadShift() {
+  try {
+    shiftRows.value = (await api.shiftReport(shiftId.value)) as ShiftRow[]
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
+// ===== 订单作废 / 退货 =====
+const opOrderNo = ref('')
+const opItems = ref<{ item_id: number; product_name: string; qty: number; returned_qty: number; unit_price_cents: number }[]>([])
+const opQty = ref<Record<number, string>>({})
+const opMode = ref<'void' | 'refund'>('refund')
+
+async function loadOrderItems() {
+  const no = opOrderNo.value.trim()
+  if (!no) return
+  try {
+    opItems.value = await api.getOrderItems(no)
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
+async function doVoid() {
+  try {
+    await api.voidOrder(opOrderNo.value.trim())
+    showToast('订单已作废')
+    opItems.value = []
+    opOrderNo.value = ''
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
+async function doRefund() {
+  const items = opItems.value
+    .filter((r) => opQty.value[r.item_id] && parseInt(opQty.value[r.item_id], 10) > 0)
+    .map((r) => ({ order_item_id: r.item_id, qty: parseInt(opQty.value[r.item_id], 10) }))
+  if (!items.length) {
+    showToast('请填写退货数量')
+    return
+  }
+  try {
+    const total = await api.refundOrder(opOrderNo.value.trim(), items)
+    showToast(`退货成功，退款 ${formatMoney(total)}`)
+    opItems.value = []
+    opOrderNo.value = ''
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
+// ===== 员工管理 =====
+interface UserRowUI { user_id: number; username: string; role_name: string; status: number }
+const users = ref<UserRowUI[]>([])
+const showUserMgmt = ref(false)
+const uForm = ref({ username: '', password: '', roleName: 'CASHIER' })
+
+async function loadUsers() {
+  try {
+    users.value = await api.listUsers()
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
+async function addUser() {
+  try {
+    await api.createUser(uForm.value.username.trim(), uForm.value.password, uForm.value.roleName)
+    uForm.value = { username: '', password: '', roleName: 'CASHIER' }
+    showToast('员工账号已创建')
+    await loadUsers()
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
+async function toggleUser(u: UserRowUI) {
+  try {
+    await api.setUserStatus(u.user_id, u.status === 1 ? 0 : 1)
+    await loadUsers()
+  } catch (e) {
+    showToast(String(e))
+  }
+}
+
 function applyTheme(t: 'light' | 'dark') {
   theme.value = t
   document.documentElement.dataset.theme = t
@@ -218,7 +309,7 @@ onMounted(() => {
 function goPOS() { view.value = 'pos' }
 function goProducts() { view.value = 'products' }
 function goParked() { loadParked() }
-function goReport() { view.value = 'report'; loadReport() }
+function goReport() { view.value = 'report'; loadReport(); loadShift() }
 function goSettings() { view.value = 'settings' }
 function doLogout() { api.logout(); view.value = 'login'; currentUser.value = '' }
 </script>
@@ -383,6 +474,51 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             <div class="stat"><span>优惠额</span><strong>¥{{ formatMoney(report.discount_cents) }}</strong></div>
           </div>
         </div>
+
+        <div class="card wide">
+          <h3>交班汇总</h3>
+          <div class="search-row">
+            <input v-model.number="shiftId" class="input" type="number" placeholder="班次 ID" />
+            <button class="btn" @click="loadShift">查询</button>
+          </div>
+          <table v-if="shiftRows.length" class="tbl">
+            <thead><tr><th>收银员</th><th>订单数</th><th>应收</th><th>实收</th><th>现金净额</th></tr></thead>
+            <tbody>
+              <tr v-for="r in shiftRows" :key="r.cashier_id">
+                <td>{{ r.cashier_id }}</td>
+                <td>{{ r.order_count }}</td>
+                <td>{{ formatMoney(r.total_cents) }}</td>
+                <td>{{ formatMoney(r.pay_cents) }}</td>
+                <td>{{ formatMoney(r.cash_net_cents) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card wide">
+          <h3>订单操作（作废 / 退货）</h3>
+          <div class="search-row">
+            <input v-model="opOrderNo" class="input" placeholder="输入订单号" />
+            <button class="btn" @click="loadOrderItems">查询明细</button>
+          </div>
+          <table v-if="opItems.length" class="tbl">
+            <thead><tr><th>商品</th><th>数量</th><th>已退</th><th>单价</th><th>本次退货数</th></tr></thead>
+            <tbody>
+              <tr v-for="r in opItems" :key="r.item_id">
+                <td>{{ r.product_name }}</td>
+                <td>{{ r.qty }}</td>
+                <td>{{ r.returned_qty }}</td>
+                <td>{{ formatMoney(r.unit_price_cents) }}</td>
+                <td><input v-model="opQty[r.item_id]" class="input input-sm" type="number" min="0" :max="r.qty - r.returned_qty" /></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="opItems.length" class="op-form">
+            <button class="btn" @click="doVoid">作废订单</button>
+            <button class="btn primary" @click="doRefund">退货退款</button>
+          </div>
+          <p class="muted small">作废：仅待支付单或当日现金单；扫码已支付订单只能退货退款。退货受角色限额约束。</p>
+        </div>
       </main>
 
       <!-- 设置 -->
@@ -398,6 +534,33 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             <p>授权状态：<strong>{{ license?.status }}</strong></p>
             <p class="muted small">{{ license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可' }}</p>
             <p v-if="license?.trial_ends_at" class="muted small">试用期至 {{ license.trial_ends_at }}</p>
+          </div>
+          <div class="user-mgmt">
+            <p class="muted small">员工管理（仅管理员可见可用，user.manage 权限）</p>
+            <button class="btn" @click="showUserMgmt = !showUserMgmt; showUserMgmt && loadUsers()"><Icon name="users" :size="16" />展开员工管理</button>
+            <div v-if="showUserMgmt">
+              <table class="tbl">
+                <thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr v-for="u in users" :key="u.user_id">
+                    <td>{{ u.username }}</td>
+                    <td>{{ u.role_name }}</td>
+                    <td>{{ u.status === 1 ? '启用' : '停用' }}</td>
+                    <td><button class="btn btn-sm ghost" @click="toggleUser(u)">{{ u.status === 1 ? '停用' : '启用' }}</button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="op-form">
+                <input v-model="uForm.username" class="input" placeholder="用户名" />
+                <input v-model="uForm.password" class="input" type="password" placeholder="密码（≥8位含字母数字）" />
+                <select v-model="uForm.roleName" class="input">
+                  <option value="CASHIER">收银员</option>
+                  <option value="MANAGER">店长</option>
+                  <option value="ADMIN">管理员</option>
+                </select>
+                <button class="btn" @click="addUser">创建账号</button>
+              </div>
+            </div>
           </div>
         </div>
       </main>

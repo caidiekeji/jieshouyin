@@ -206,6 +206,19 @@ export const api = {
   }) => invoke<number>('create_promotion', p),
   setPromotionStatus: (promotionId: number, status: number) =>
     invoke<void>('set_promotion_status', { promotionId, status }),
+  voidOrder: (orderNo: string) => invoke<void>('void_order_cmd', { orderNo }),
+  getOrderItems: (orderNo: string) =>
+    invoke<
+      { item_id: number; sku_id: number; product_name: string; qty: number; returned_qty: number; unit_price_cents: number }[]
+    >('get_order_items', { orderNo }),
+  refundOrder: (orderNo: string, items: { order_item_id: number; qty: number }[]) =>
+    invoke<number>('refund_order', { orderNo, items }),
+  createUser: (username: string, password: string, roleName: string) =>
+    invoke<number>('create_user', { username, password, roleName }),
+  listUsers: () =>
+    invoke<{ user_id: number; username: string; role_name: string; status: number }[]>('list_users'),
+  setUserStatus: (userId: number, status: number) =>
+    invoke<void>('set_user_status', { userId, status }),
   shiftReport: (shiftId: number) => invoke<unknown[]>('shift_report', { shiftId }),
 }
 

@@ -179,3 +179,11 @@ h2 { font-size: 18px; }
   background: #1b2430; color: #fff; padding: 10px 18px; border-radius: 6px;
   box-shadow: var(--shadow); max-width: 80%;
 }
+
+/* 后台管理通用表格与操作区（报表/设置页） */
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+.tbl th, .tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+.tbl th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.input-sm { width: 80px; padding: 2px 6px; font-size: 12px; }
+.op-form { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.user-mgmt { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
