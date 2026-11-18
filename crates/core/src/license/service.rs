@@ -1,9 +1,8 @@
 //! 启动验证序列与激活/续期/换绑服务（§4.6、§4.7）。
 
 use crate::constants::{
-    CLOCK_SKEW_TOLERANCE_HOURS, ENT_POS_CORE, ENT_REPORT_STANDARD, LICENSE_ANNUAL, LICENSE_NONE,
-    LICENSE_TRIAL, STATE_KEY_TRIAL, STATUS_TRIAL_ACTIVE, STATUS_UNACTIVATED, TRIAL_DAYS,
-    TRIAL_ENTITLEMENTS,
+    CLOCK_SKEW_TOLERANCE_HOURS, LICENSE_NONE, LICENSE_TRIAL, STATE_KEY_TRIAL, STATUS_TRIAL_ACTIVE,
+    STATUS_UNACTIVATED, TRIAL_DAYS, TRIAL_ENTITLEMENTS,
 };
 use crate::error::{CoreError, LicenseError, Result};
 use crate::time::{format_utc, parse_rfc3339, Clock, MonotonicClock};
@@ -485,6 +484,7 @@ impl LicenseService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::{ENT_POS_CORE, ENT_REPORT_STANDARD, LICENSE_ANNUAL};
     use crate::db::open_in_memory;
     use crate::license::payload::LicensePayload;
     use crate::license::storage::PlainStore;
