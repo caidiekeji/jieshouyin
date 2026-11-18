@@ -253,8 +253,7 @@ pub fn reconcile_channel(
         if row.is_refund {
             // 退款行：本地应有对应 refund_record，缺失则状态差异
             let has = locals.iter().any(|l| {
-                l.order_no == row.out_trade_no
-                    || by_out.contains_key(row.out_trade_no.as_str())
+                l.order_no == row.out_trade_no || by_out.contains_key(row.out_trade_no.as_str())
             });
             if !has {
                 summary.status_mismatch += 1;
