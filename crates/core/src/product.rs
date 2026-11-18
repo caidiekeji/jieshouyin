@@ -116,7 +116,14 @@ pub fn create_product(
     conn.execute(
         "INSERT INTO sku(spu_id,barcode,sale_price_cents,cost_price_cents,is_weighed,alert_qty)
          VALUES (?1,?2,?3,?4,?5,?6)",
-        params![spu_id, barcode, sale_price_cents, cost_price_cents, is_weighed as i64, alert_qty],
+        params![
+            spu_id,
+            barcode,
+            sale_price_cents,
+            cost_price_cents,
+            is_weighed as i64,
+            alert_qty
+        ],
     )?;
     let sku_id = conn.last_insert_rowid();
     if initial_qty > 0 {
@@ -254,7 +261,9 @@ mod tests {
     fn default_category_exists() {
         let c = setup();
         let name: String = c
-            .query_row("SELECT name FROM category WHERE category_id=1", [], |r| r.get(0))
+            .query_row("SELECT name FROM category WHERE category_id=1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(name, "未分类");
     }
@@ -263,7 +272,20 @@ mod tests {
     fn create_and_list_product() {
         let c = setup();
         let cat = create_category(&c, None, "饮料").unwrap();
-        let sku = create_product(&c, cat, "可乐", Some("6900000000001"), "瓶", 300, 150, false, 100, 10, None).unwrap();
+        let sku = create_product(
+            &c,
+            cat,
+            "可乐",
+            Some("6900000000001"),
+            "瓶",
+            300,
+            150,
+            false,
+            100,
+            10,
+            None,
+        )
+        .unwrap();
         let rows = list_products(&c, "", 50).unwrap();
         assert_eq!(rows.len(), 1);
         let p = &rows[0];
@@ -273,7 +295,11 @@ mod tests {
         assert!(!p.is_weighed);
         // 台账可解释初始库存
         let n: i64 = c
-            .query_row("SELECT COUNT(*) FROM inv_trans WHERE trans_type='PURCHASE_IN'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM inv_trans WHERE trans_type='PURCHASE_IN'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(n, 1);
     }
@@ -292,7 +318,11 @@ mod tests {
     fn update_price_and_status() {
         let c = setup();
         let sku = create_product(&c, 1, "A", Some("B1"), "件", 100, 50, false, 5, 1, None).unwrap();
-        let spu_id: i64 = c.query_row("SELECT spu_id FROM sku WHERE sku_id=?1", [sku], |r| r.get(0)).unwrap();
+        let spu_id: i64 = c
+            .query_row("SELECT spu_id FROM sku WHERE sku_id=?1", [sku], |r| {
+                r.get(0)
+            })
+            .unwrap();
         update_product(&c, sku, 200, 2).unwrap();
         set_product_status(&c, spu_id, 0).unwrap();
         let row = &list_products(&c, "", 10).unwrap()[0];
@@ -312,7 +342,11 @@ mod tests {
         assert!(adjust_stock(&c, sku, 0, "x", None).is_err());
         assert!(adjust_stock(&c, sku, 5, "", None).is_err());
         let t: String = c
-            .query_row("SELECT trans_type FROM inv_trans WHERE sku_id=?1 AND change_qty=-3", [sku], |r| r.get(0))
+            .query_row(
+                "SELECT trans_type FROM inv_trans WHERE sku_id=?1 AND change_qty=-3",
+                [sku],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(t, "ADJUST");
     }
