@@ -97,8 +97,6 @@ export const api = {
   adjustStock: (skuId: number, changeQty: number, reason: string) =>
     invoke<number>('adjust_stock', { skuId, changeQty, reason }),
   shiftReport: (shiftId: number) => invoke<unknown[]>('shift_report', { shiftId }),
-  createProduct: (name: string, barcode: string, priceCents: number) =>
-    invoke<number>('create_product', { name, barcode, priceCents }),
 }
 
 export function formatMoney(cents: number): string {
