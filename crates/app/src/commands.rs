@@ -53,10 +53,10 @@ pub fn has_users(state: State<'_, AppState>) -> Result<bool> {
 /// 后台管理命令统一门禁（§12.2 顺序）：授权状态（entitlement=report.standard，
 /// 降级态后台受限）→ 会话 → RBAC 权限。返回 (operator_id, conn)；
 /// license/session 锁在返回前释放，调用方继续持有 conn 做业务写入。
-fn admin_guard(
-    state: &AppState,
+fn admin_guard<'a>(
+    state: &'a AppState,
     permission: &str,
-) -> Result<(i64, std::sync::MutexGuard<'_, rusqlite::Connection>)> {
+) -> Result<(i64, std::sync::MutexGuard<'a, rusqlite::Connection>)> {
     let license = state
         .license
         .lock()
