@@ -94,3 +94,58 @@ pub const CENTS_PER_YUAN: i64 = 100;
 pub const PAPER_WIDTH_DEFAULT: u8 = 58;
 /// 密码策略下限（§12.3）：8 位且字母数字混合。
 pub const PASSWORD_MIN_LEN: usize = 8;
+
+// ── 系统配置键（§16 / M0001 system_config 种子）────────────────
+pub const CFG_STORE_TIMEZONE: &str = "store_timezone";
+pub const CFG_BUSINESS_DAY_CUTOFF: &str = "business_day_cutoff";
+pub const CFG_SCAN_GAP_MS: &str = "scan_gap_ms";
+pub const CFG_MICROPAY_POLL_MS: &str = "micropay_poll_ms";
+pub const CFG_MICROPAY_TIMEOUT_S: &str = "micropay_timeout_s";
+pub const CFG_NATIVE_POLL_MS: &str = "native_poll_ms";
+pub const CFG_NATIVE_TIMEOUT_S: &str = "native_timeout_s";
+pub const CFG_ALLOW_NEGATIVE_STOCK: &str = "allow_negative_stock_default";
+pub const CFG_POINTS_PER_YUAN: &str = "points_per_yuan";
+pub const CFG_POINTS_REDEEM_RATE: &str = "points_redeem_rate";
+pub const CFG_MAX_DISCOUNT_RATIO: &str = "max_discount_ratio";
+/// 打印服务端地址键（§7.5 网络打印机，v1 可选配置）。
+pub const CFG_PRINT_HOST: &str = "print_host";
+pub const CFG_PRINT_PORT: &str = "print_port";
+
+// ── 支付渠道开关（§6.1 设置页；'1' 启用 / '0' 停用）────────────
+pub const CFG_PAY_CHANNEL_CASH: &str = "pay_channel_cash_enabled";
+pub const CFG_PAY_CHANNEL_WECHAT: &str = "pay_channel_wechat_enabled";
+pub const CFG_PAY_CHANNEL_ALIPAY: &str = "pay_channel_alipay_enabled";
+pub const CFG_PAY_CHANNEL_SV: &str = "pay_channel_sv_enabled";
+
+// ── 配置默认值（与 M0001 种子一致，读取失败时兜底）──────────────
+pub const DEFAULT_SCAN_GAP_MS: u64 = 50;
+pub const DEFAULT_MICROPAY_POLL_MS: u64 = 2000;
+pub const DEFAULT_MICROPAY_TIMEOUT_S: u64 = 60;
+pub const DEFAULT_NATIVE_POLL_MS: u64 = 3000;
+pub const DEFAULT_NATIVE_TIMEOUT_S: u64 = 300;
+pub const DEFAULT_POINTS_PER_YUAN: i64 = 1;
+pub const DEFAULT_POINTS_REDEEM_RATE: i64 = 100;
+pub const DEFAULT_MAX_DISCOUNT_RATIO: f64 = 0.8;
+/// 网络打印机默认端口（§7.5 IP:9100）。
+pub const DEFAULT_PRINT_PORT: u16 = 9100;
+
+// ── 券状态（§13.7，与 member.rs 状态机一致）───────────────────
+pub const COUPON_UNUSED: &str = "UNUSED";
+pub const COUPON_LOCKED: &str = "LOCKED";
+pub const COUPON_REDEEMED: &str = "REDEEMED";
+pub const COUPON_REFUNDED: &str = "REFUNDED";
+pub const COUPON_EXPIRED: &str = "EXPIRED";
+
+// ── 班次状态（§5.4 / §16 shift）───────────────────────────────
+pub const SHIFT_OPEN: &str = "OPEN";
+pub const SHIFT_CLOSED: &str = "CLOSED";
+
+// ── 审计命令标识（§12.4 operation_audit.command）──────────────
+pub const AUDIT_VOID: &str = "void_order";
+pub const AUDIT_REFUND: &str = "refund_order";
+pub const AUDIT_PRICE_OVERRIDE: &str = "price_override";
+pub const AUDIT_STOCKTAKE_APPROVE: &str = "approve_stocktake";
+pub const AUDIT_SHIFT_CLOSE: &str = "close_shift";
+
+// ── 二次授权一次性 nonce TTL 秒数（§12.4，与 rbac 60s 一致）────
+pub const SENSITIVE_AUTH_TTL_SECONDS: i64 = 60;

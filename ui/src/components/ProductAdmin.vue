@@ -23,10 +23,12 @@ const showCreate = ref(false)
 const form = ref({
   name: '',
   barcode: '',
+  instoreCode: '',
   categoryId: 1,
   unit: '件',
   salePrice: '',
   costPrice: '',
+  memberPrice: '',
   isWeighed: false,
   initialQty: 0,
   alertQty: 0,
@@ -36,6 +38,8 @@ const form = ref({
 const editSku = ref<number | null>(null)
 const editPrice = ref('')
 const editAlert = ref('')
+const editMemberPrice = ref('')
+const editInstore = ref('')
 // 库存调整
 const adjustSku = ref<number | null>(null)
 const adjustQty = ref('')
@@ -43,6 +47,7 @@ const adjustReason = ref('')
 // 分类
 const showCategory = ref(false)
 const newCategoryName = ref('')
+const newCategoryParent = ref<number | null>(null)
 
 const lowStockCount = computed(
   () => products.value.filter((p) => p.status === 1 && p.qty <= p.alert_qty).length
@@ -78,16 +83,20 @@ async function createProduct() {
     await api.createProduct({
       name: form.value.name,
       barcode: form.value.barcode.trim() || null,
+      instoreCode: form.value.instoreCode.trim() || null,
       categoryId: form.value.categoryId,
       unit: form.value.unit.trim() || '件',
       salePriceCents: sale,
       costPriceCents: cost,
+      memberPriceCents: form.value.memberPrice.trim()
+        ? Math.round(parseFloat(form.value.memberPrice) * CENTS_PER_YUAN)
+        : null,
       isWeighed: form.value.isWeighed,
       initialQty: form.value.initialQty,
       alertQty: form.value.alertQty,
     })
     showCreate.value = false
-    form.value = { name: '', barcode: '', categoryId: 1, unit: '件', salePrice: '', costPrice: '', isWeighed: false, initialQty: 0, alertQty: 0 }
+    form.value = { name: '', barcode: '', instoreCode: '', categoryId: 1, unit: '件', salePrice: '', costPrice: '', memberPrice: '', isWeighed: false, initialQty: 0, alertQty: 0 }
     done('商品已创建')
     await reload()
   } catch (e) {
@@ -99,12 +108,22 @@ function startEdit(p: ProductRow) {
   editSku.value = p.sku_id
   editPrice.value = (p.sale_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS)
   editAlert.value = String(p.alert_qty)
+  editMemberPrice.value = p.member_price_cents != null
+    ? (p.member_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS)
+    : ''
+  editInstore.value = p.instore_code ?? ''
 }
 
 async function saveEdit() {
   if (editSku.value == null) return
   try {
-    await api.updateProduct(editSku.value, Math.round(parseFloat(editPrice.value || '0') * CENTS_PER_YUAN), parseInt(editAlert.value || '0', 10))
+    await api.updateProduct(
+      editSku.value,
+      Math.round(parseFloat(editPrice.value || '0') * CENTS_PER_YUAN),
+      parseInt(editAlert.value || '0', 10),
+      editMemberPrice.value.trim() ? Math.round(parseFloat(editMemberPrice.value) * CENTS_PER_YUAN) : null,
+      editInstore.value.trim() || null
+    )
     editSku.value = null
     done('已保存')
     await reload()
@@ -146,8 +165,9 @@ async function addCategory() {
   const name = newCategoryName.value.trim()
   if (!name) return
   try {
-    await api.createCategory(null, name)
+    await api.createCategory(newCategoryParent.value, name)
     newCategoryName.value = ''
+    newCategoryParent.value = null
     done('分类已创建')
     await reload()
   } catch (e) {
@@ -182,8 +202,12 @@ onMounted(reload)
       <div class="chip-row">
         <span v-for="c in categories" :key="c.category_id" class="chip">{{ c.name }}</span>
       </div>
-      <div class="inline-form">
+      <div class="form-row">
         <input v-model="newCategoryName" class="input" placeholder="新分类名称" @keyup.enter="addCategory" />
+        <select v-model.number="newCategoryParent" class="input">
+          <option :value="null">顶级分类</option>
+          <option v-for="c in categories" :key="c.category_id" :value="c.category_id">{{ c.name }}</option>
+        </select>
         <button class="btn" @click="addCategory"><Icon name="plus" :size="ICON_SIZE.md" />添加分类</button>
       </div>
     </div>
@@ -193,6 +217,7 @@ onMounted(reload)
       <div class="form-grid">
         <label>名称<input v-model="form.name" class="input" placeholder="商品名称" /></label>
         <label>条码<input v-model="form.barcode" class="input" placeholder="条码（称重商品可留空）" /></label>
+        <label>店内码（称重必填）<input v-model="form.instoreCode" class="input" placeholder="5 位店内商品代码" /></label>
         <label>分类
           <select v-model="form.categoryId" class="input">
             <option v-for="c in categories" :key="c.category_id" :value="c.category_id">{{ c.name }}</option>
@@ -200,6 +225,7 @@ onMounted(reload)
         </label>
         <label>单位<input v-model="form.unit" class="input" /></label>
         <label>售价（元）<input v-model="form.salePrice" class="input" placeholder="如 3.50" /></label>
+        <label>会员价（元）<input v-model="form.memberPrice" class="input" placeholder="可选" /></label>
         <label>成本（元）<input v-model="form.costPrice" class="input" placeholder="如 2.10" /></label>
         <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" /></label>
         <label>库存预警值<input v-model.number="form.alertQty" class="input" type="number" min="0" /></label>
@@ -232,6 +258,8 @@ onMounted(reload)
               <span v-if="editSku !== p.sku_id">{{ formatMoney(p.sale_price_cents) }}</span>
               <span v-else class="edit-row">
                 <input v-model="editPrice" class="input input-sm" />
+                <input v-model="editMemberPrice" class="input input-sm" placeholder="会员价" />
+                <input v-model="editInstore" class="input input-sm" placeholder="店内码" />
                 <input v-model="editAlert" class="input input-sm" placeholder="预警" />
                 <button class="btn btn-sm" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" /></button>
               </span>
@@ -256,7 +284,7 @@ onMounted(reload)
     <div v-if="adjustSku != null" class="card">
       <h3>库存调整（SKU {{ adjustSku }}）</h3>
       <p class="muted small">正数为盘盈/入账，负数为盘亏/报损；原因将记入库存台账</p>
-      <div class="inline-form">
+      <div class="form-row">
         <input v-model="adjustQty" class="input" type="number" placeholder="变化数量，如 5 或 -3" />
         <input v-model="adjustReason" class="input" placeholder="原因（必填），如 破损报废" />
         <button class="btn primary" @click="saveAdjust">确认调整</button>
@@ -267,43 +295,8 @@ onMounted(reload)
 </template>
 
 <style scoped>
-/* 组件层：只引用语义层 token，不出现裸值 */
-.page-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-3); }
-.toolbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
-.toolbar .input { flex: 1; }
-.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
-.tbl th, .tbl td {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  border-bottom: var(--border-width) solid var(--border);
-}
-.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); }
-.row-disabled { opacity: var(--opacity-disabled); }
-.warning-text { color: var(--danger); }
+/* 组件特有样式；通用类（page-head/toolbar/tbl/form-grid/chip 等）已上移全局 styles.css */
+/* 表格操作列：区别于全局 .actions（POS 支付双列网格），此处为行内按钮组 */
 .actions { display: flex; gap: var(--space-2); }
 .edit-row { display: inline-flex; gap: var(--space-1); align-items: center; }
-.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
-.input-sm {
-  width: var(--control-input-sm-width);
-  padding: var(--space-0_5) var(--space-2);
-  font-size: var(--font-xs);
-}
-.form-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-2); margin-bottom: var(--space-2);
-}
-.form-grid label {
-  display: flex; flex-direction: column; gap: var(--space-1);
-  font-size: var(--font-xs); color: var(--muted);
-}
-.checkbox-label { flex-direction: row !important; align-items: center; gap: var(--space-2) !important; }
-.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
-.chip {
-  background: var(--border); border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3); font-size: var(--font-xs);
-}
-.ok-msg { color: var(--success-text); font-size: var(--font-sm); margin-bottom: var(--space-2); }
-.inline-form { display: flex; gap: var(--space-2); align-items: center; }
-.card { margin-bottom: var(--space-3); }
-.mono { font-family: var(--font-family-mono); }
 </style>

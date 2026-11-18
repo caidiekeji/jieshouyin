@@ -294,7 +294,7 @@ onMounted(() => {
             {{ s.name }}<span v-if="s.contact" class="muted small">（{{ s.contact }}）</span>
           </span>
         </div>
-        <div class="inline-form">
+        <div class="form-row">
           <input v-model="supForm.name" class="input" placeholder="供应商名称" />
           <input v-model="supForm.contact" class="input" placeholder="联系人" />
           <input v-model="supForm.phone" class="input" placeholder="电话" />
@@ -304,13 +304,13 @@ onMounted(() => {
 
       <div v-if="showCreatePo" class="card">
         <h3>新建采购单</h3>
-        <div class="inline-form mb-2">
+        <div class="form-row mb-2">
           <select v-model="poSupplierId" class="input">
             <option :value="null" disabled>选择供应商</option>
             <option v-for="s in suppliers" :key="s.supplier_id" :value="s.supplier_id">{{ s.name }}</option>
           </select>
         </div>
-        <div class="inline-form mb-2">
+        <div class="form-row mb-2">
           <input v-model="poSearch" class="input" placeholder="搜索商品加入采购单" @keyup.enter="searchForPo" />
           <button class="btn" @click="searchForPo"><Icon name="scan" :size="ICON_SIZE.md" />搜索</button>
         </div>
@@ -369,7 +369,7 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-        <div class="inline-form">
+        <div class="form-row">
           <button class="btn primary" @click="submitReceive">确认验收</button>
           <button class="btn ghost" @click="receivePo = null">取消</button>
         </div>
@@ -384,7 +384,7 @@ onMounted(() => {
 
       <div v-if="showCreateSt" class="card">
         <h3>新建盘点任务</h3>
-        <div class="inline-form mb-2">
+        <div class="form-row mb-2">
           <input v-model="stSearch" class="input" placeholder="搜索商品加入盘点" @keyup.enter="searchForSt" />
           <button class="btn" @click="searchForSt"><Icon name="scan" :size="ICON_SIZE.md" />搜索</button>
         </div>
@@ -433,7 +433,7 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-        <div class="inline-form">
+        <div class="form-row">
           <button class="btn primary" @click="submitCount">提交实盘</button>
           <button class="btn ghost" @click="countTask = null">取消</button>
         </div>
@@ -452,7 +452,7 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-        <div class="inline-form">
+        <div class="form-row">
           <button class="btn primary" @click="submitApprove">确认审批</button>
           <button class="btn ghost" @click="approveTask = null">取消</button>
         </div>
@@ -460,41 +460,3 @@ onMounted(() => {
     </template>
   </main>
 </template>
-
-<style scoped>
-/* 组件层：只引用语义层 token，不出现裸值 */
-.page-head { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3); }
-.tab-row { display: flex; gap: var(--space-2); }
-.toolbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
-.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
-.tbl th, .tbl td {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  border-bottom: var(--border-width) solid var(--border);
-}
-.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); }
-.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
-.input-sm {
-  width: var(--control-input-sm-width);
-  padding: var(--space-0_5) var(--space-2);
-  font-size: var(--font-xs);
-}
-.form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
-.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
-.chip {
-  background: var(--border); border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3); font-size: var(--font-xs);
-}
-.candidate {
-  padding: var(--space-1) var(--space-3);
-  cursor: pointer; border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
-}
-.candidate:hover { background: var(--border); }
-.ok-msg { color: var(--success-text); font-size: var(--font-sm); margin-bottom: var(--space-2); }
-.inline-form { display: flex; gap: var(--space-2); align-items: center; }
-.mb-2 { margin-bottom: var(--space-2); }
-.card { margin-bottom: var(--space-3); }
-.mono { font-family: var(--font-family-mono); }
-.warning-text { color: var(--danger); }
-</style>

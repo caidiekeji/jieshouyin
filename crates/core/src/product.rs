@@ -24,6 +24,8 @@ pub struct ProductRow {
     pub unit: String,
     pub sale_price_cents: i64,
     pub cost_price_cents: i64,
+    pub member_price_cents: Option<i64>,
+    pub instore_code: Option<String>,
     pub is_weighed: bool,
     pub status: i64,
     pub qty: i64,
@@ -153,7 +155,7 @@ pub fn list_products(conn: &Connection, keyword: &str, limit: i64) -> Result<Vec
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_id, p.spu_name, s.barcode, p.category_id, COALESCE(c.name,'未分类'),
                 p.unit, s.sale_price_cents, s.cost_price_cents, s.is_weighed, p.status,
-                COALESCE(i.qty,0), s.alert_qty
+                COALESCE(i.qty,0), s.alert_qty, s.member_price_cents, s.instore_code
          FROM sku s
          JOIN spu p ON p.spu_id = s.spu_id
          LEFT JOIN category c ON c.category_id = p.category_id
@@ -176,6 +178,8 @@ pub fn list_products(conn: &Connection, keyword: &str, limit: i64) -> Result<Vec
             status: r.get(10)?,
             qty: r.get(11)?,
             alert_qty: r.get(12)?,
+            member_price_cents: r.get(13)?,
+            instore_code: r.get(14)?,
         })
     })?;
     let mut out = Vec::new();
@@ -183,6 +187,63 @@ pub fn list_products(conn: &Connection, keyword: &str, limit: i64) -> Result<Vec
         out.push(row?);
     }
     Ok(out)
+}
+
+/// 新建商品（完整版）：在基础字段外补称重店内码（§15.2）与会员价（§5.3）。
+#[allow(clippy::too_many_arguments)]
+pub fn create_product_full(
+    conn: &Connection,
+    category_id: i64,
+    name: &str,
+    barcode: Option<&str>,
+    instore_code: Option<&str>,
+    unit: &str,
+    sale_price_cents: i64,
+    cost_price_cents: i64,
+    member_price_cents: Option<i64>,
+    is_weighed: bool,
+    initial_qty: i64,
+    alert_qty: i64,
+    operator_id: Option<i64>,
+) -> Result<i64> {
+    if is_weighed && instore_code.is_none() {
+        return Err(CoreError::Validation("称重商品必须填写店内码".into()));
+    }
+    let sku_id = create_product(
+        conn,
+        category_id,
+        name,
+        barcode,
+        unit,
+        sale_price_cents,
+        cost_price_cents,
+        is_weighed,
+        initial_qty,
+        alert_qty,
+        operator_id,
+    )?;
+    conn.execute(
+        "UPDATE sku SET instore_code=?1, member_price_cents=?2 WHERE sku_id=?3",
+        params![instore_code, member_price_cents, sku_id],
+    )?;
+    Ok(sku_id)
+}
+
+/// 改价/改预警阈值/会员价（product.edit）。
+pub fn update_product_full(
+    conn: &Connection,
+    sku_id: i64,
+    sale_price_cents: i64,
+    alert_qty: i64,
+    member_price_cents: Option<i64>,
+    instore_code: Option<&str>,
+) -> Result<()> {
+    update_product(conn, sku_id, sale_price_cents, alert_qty)?;
+    conn.execute(
+        "UPDATE sku SET member_price_cents=?1, instore_code=?2 WHERE sku_id=?3",
+        params![member_price_cents, instore_code, sku_id],
+    )?;
+    Ok(())
 }
 
 /// 改价/改预警阈值（product.edit）。

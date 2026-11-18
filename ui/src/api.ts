@@ -40,6 +40,8 @@ export interface ProductRow {
   unit: string
   sale_price_cents: number
   cost_price_cents: number
+  member_price_cents: number | null
+  instore_code: string | null
   is_weighed: boolean
   status: number
   qty: number
@@ -105,6 +107,47 @@ export interface MemberRow {
   growth: number
 }
 
+export interface OrderItemRow {
+  item_id: number
+  sku_id: number
+  product_name: string
+  qty: number
+  returned_qty: number
+  unit_price_cents: number
+  line_total_cents: number
+  discount_cents: number
+}
+
+export interface WeighHit {
+  sku_id: number
+  product_name: string
+  qty: number
+  unit_price_cents: number
+  line_total_cents: number
+  mode: string
+}
+
+export interface ChannelTotal { channel: string; amount_cents: number; count: number }
+export interface ChannelReport { channels: ChannelTotal[]; balanced: boolean }
+export interface ProductSales { sku_id: number; qty: number; sales_cents: number; discount_cents: number }
+export interface CategorySales { category_id: number; category_name: string; qty: number; sales_cents: number }
+export interface CashierSales { cashier_id: number; order_count: number; pay_cents: number }
+export interface ConfigRow { config_key: string; config_value: string }
+export interface CouponRow {
+  coupon_code: string
+  member_id: number | null
+  discount_cents: number
+  min_order_cents: number
+  status: string
+  valid_until: string | null
+}
+export interface ShiftCloseResult {
+  shift_id: number
+  expected_cash_cents: number
+  actual_cash_cents: number
+  difference_cents: number
+}
+
 export interface PromotionRow {
   promotion_id: number
   name: string
@@ -136,8 +179,18 @@ export const api = {
   lookup: (keyword: string) => invoke<ProductHit[]>('lookup_product', { keyword }),
   parseWeigh: (code: string) =>
     invoke<{ instore_code: string; mode: string; value: number }>('parse_weigh_barcode', { code }),
-  checkout: (lines: CartLine[], payments: unknown[]) =>
-    invoke<{ order_no: string; status: string }>('checkout', { lines, payments }),
+  checkout: (
+    lines: CartLine[],
+    payments: unknown[],
+    memberId: number | null,
+    couponCode: string | null
+  ) =>
+    invoke<{ order_no: string; status: string; code_url: string | null }>('checkout', {
+      lines,
+      payments,
+      memberId,
+      couponCode,
+    }),
   parkCart: (cartJson: string, remark: string | null) =>
     invoke<number>('park_cart', { cartJson, remark }),
   listParked: () => invoke<unknown[]>('list_parked'),
@@ -148,18 +201,26 @@ export const api = {
   createProduct: (p: {
     name: string
     barcode: string | null
+    instoreCode: string | null
     categoryId: number
     unit: string
     salePriceCents: number
     costPriceCents: number
+    memberPriceCents: number | null
     isWeighed: boolean
     initialQty: number
     alertQty: number
   }) => invoke<number>('create_product', p),
   listProducts: (keyword: string, limit: number) =>
     invoke<ProductRow[]>('list_products', { keyword, limit }),
-  updateProduct: (skuId: number, salePriceCents: number, alertQty: number) =>
-    invoke<void>('update_product', { skuId, salePriceCents, alertQty }),
+  updateProduct: (
+    skuId: number,
+    salePriceCents: number,
+    alertQty: number,
+    memberPriceCents: number | null,
+    instoreCode: string | null
+  ) =>
+    invoke<void>('update_product', { skuId, salePriceCents, alertQty, memberPriceCents, instoreCode }),
   setProductStatus: (spuId: number, status: number) =>
     invoke<void>('set_product_status', { spuId, status }),
   listCategories: () => invoke<Category[]>('list_categories'),
@@ -207,13 +268,16 @@ export const api = {
   }) => invoke<number>('create_promotion', p),
   setPromotionStatus: (promotionId: number, status: number) =>
     invoke<void>('set_promotion_status', { promotionId, status }),
-  voidOrder: (orderNo: string) => invoke<void>('void_order_cmd', { orderNo }),
-  getOrderItems: (orderNo: string) =>
-    invoke<
-      { item_id: number; sku_id: number; product_name: string; qty: number; returned_qty: number; unit_price_cents: number }[]
-    >('get_order_items', { orderNo }),
-  refundOrder: (orderNo: string, items: { order_item_id: number; qty: number }[]) =>
-    invoke<number>('refund_order', { orderNo, items }),
+  voidOrder: (orderNo: string, sensitiveNonce: string) =>
+    invoke<void>('void_order_cmd', { orderNo, sensitiveNonce }),
+  getOrderItems: (orderNo: string) => invoke<OrderItemRow[]>('get_order_items', { orderNo }),
+  refundOrder: (
+    orderNo: string,
+    items: { order_item_id: number; qty: number }[],
+    sensitiveNonce: string
+  ) => invoke<number>('refund_order', { orderNo, items, sensitiveNonce }),
+  requestSensitiveAuth: (permission: string, approverUsername: string, approverPassword: string) =>
+    invoke<string>('request_sensitive_auth', { permission, approverUsername, approverPassword }),
   createUser: (username: string, password: string, roleName: string) =>
     invoke<number>('create_user', { username, password, roleName }),
   listUsers: () =>
@@ -221,6 +285,96 @@ export const api = {
   setUserStatus: (userId: number, status: number) =>
     invoke<void>('set_user_status', { userId, status }),
   shiftReport: (shiftId: number) => invoke<unknown[]>('shift_report', { shiftId }),
+
+  // 称重码识别（SCN-02）
+  lookupWeigh: (code: string) => invoke<WeighHit>('lookup_weigh', { code }),
+  // 报表维度（§14）
+  channelReport: (date: string) => invoke<ChannelReport>('channel_report', { date }),
+  productReport: (from: string, to: string) =>
+    invoke<ProductSales[]>('product_report', { from, to }),
+  categoryReport: (from: string, to: string) =>
+    invoke<CategorySales[]>('category_report', { from, to }),
+  cashierReport: (from: string, to: string) =>
+    invoke<CashierSales[]>('cashier_report', { from, to }),
+  reconcileCsv: (date: string) => invoke<string>('reconcile_csv', { date }),
+  // 交班闭环（§5.4）
+  openShift: (openingFloatCents: number) =>
+    invoke<number>('open_shift', { openingFloatCents }),
+  closeShift: (
+    shiftId: number,
+    actualCashCents: number,
+    differenceReason: string | null,
+    sensitiveNonce: string
+  ) =>
+    invoke<ShiftCloseResult>('close_shift', {
+      shiftId,
+      actualCashCents,
+      differenceReason,
+      sensitiveNonce,
+    }),
+  // 打印队列（§7.6）
+  printRetries: () => invoke<string[]>('print_retries'),
+  retryPrint: (orderNo: string) => invoke<string>('retry_print', { orderNo }),
+  // 系统配置（§15/§14）
+  getConfigs: () => invoke<ConfigRow[]>('get_configs'),
+  setConfig: (key: string, value: string) => invoke<void>('set_config', { key, value }),
+  // 券管理（§13.7）
+  listCoupons: () => invoke<CouponRow[]>('list_coupons'),
+  issueCoupon: (
+    memberId: number | null,
+    discountCents: number,
+    minOrderCents: number,
+    validUntil: string | null
+  ) =>
+    invoke<string>('issue_coupon', { memberId, discountCents, minOrderCents, validUntil }),
+
+  // Native 支付收口（§6.3）
+  pollNativePay: (orderNo: string) =>
+    invoke<{ order_no: string; status: string; code_url: string | null }>('poll_native_pay', { orderNo }),
+  cancelNativePay: (orderNo: string) => invoke<void>('cancel_native_pay', { orderNo }),
+  confirmNativePay: (orderNo: string) => invoke<void>('confirm_native_pay', { orderNo }),
+  // 支付凭据与网关状态（§6.8，只报状态不回显明文）
+  setPaymentCredential: (channel: string, field: string, value: string) =>
+    invoke<void>('set_payment_credential', { channel, field, value }),
+  deletePaymentCredential: (channel: string, field: string) =>
+    invoke<void>('delete_payment_credential', { channel, field }),
+  paymentGatewayStatus: () =>
+    invoke<{
+      wechat_mode: string
+      alipay_mode: string
+      wechat_error: string | null
+      alipay_error: string | null
+    }>('payment_gateway_status'),
+  getPayChannels: () =>
+    invoke<{ cash: boolean; wechat: boolean; alipay: boolean; stored_value: boolean }>(
+      'get_pay_channels'
+    ),
+  // 渠道账单对账（PAY-05/06）
+  importWechatBill: (reconDate: string, csvText: string) =>
+    invoke<{ matched: number; missing_remote: number; missing_local: number; amount_mismatch: number; status_mismatch: number }>(
+      'import_wechat_bill',
+      { reconDate, csvText }
+    ),
+  importAlipayBill: (reconDate: string, csvText: string) =>
+    invoke<{ matched: number; missing_remote: number; missing_local: number; amount_mismatch: number; status_mismatch: number }>(
+      'import_alipay_bill',
+      { reconDate, csvText }
+    ),
+  listReconcileDiffs: (reconDate: string) =>
+    invoke<
+      {
+        recon_id: number
+        channel: string
+        diff_type: string
+        order_no: string | null
+        local_amount_cents: number
+        channel_amount_cents: number
+        detail: string | null
+        created_at: string
+      }[]
+    >('list_reconcile_diffs', { reconDate }),
+  // 二维码 SVG（Native 支付/离线生成）
+  qrSvg: (text: string) => invoke<string>('qr_svg', { text }),
 }
 
 export function formatMoney(cents: number): string {

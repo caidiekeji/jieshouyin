@@ -1,11 +1,34 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { api, formatMoney, today, type LicenseSnapshot, type ProductHit, type CartLine } from './api'
+import {
+  api,
+  formatMoney,
+  today,
+  type LicenseSnapshot,
+  type ProductHit,
+  type CartLine,
+  type OrderItemRow,
+  type ChannelReport,
+  type ProductSales,
+  type CategorySales,
+  type CashierSales,
+  type ConfigRow,
+} from './api'
 import Icon from './components/Icon.vue'
 import ProductAdmin from './components/ProductAdmin.vue'
 import SupplyAdmin from './components/SupplyAdmin.vue'
 import MemberAdmin from './components/MemberAdmin.vue'
-import { ICON_SIZE, MS_PER_DAY, TOAST_DURATION_MS } from './constants'
+import {
+  ICON_SIZE,
+  MS_PER_DAY,
+  TOAST_DURATION_MS,
+  ERROR_DURATION_MS,
+  SCAN_GAP_MS_DEFAULT,
+  SCAN_MIN_LENGTH,
+  CENTS_PER_YUAN,
+  NATIVE_POLL_INTERVAL_MS,
+  PAY_CRED_FIELDS,
+} from './constants'
 
 type View = 'boot' | 'activate' | 'login' | 'pos' | 'products' | 'supply' | 'member' | 'parked' | 'report' | 'settings'
 const view = ref<View>('boot')
@@ -28,10 +51,41 @@ const keyword = ref('')
 const products = ref<ProductHit[]>([])
 const cart = ref<(CartLine & { name: string })[]>([])
 const cashTendered = ref('')
-const payChannel = ref('CASH')
 const lastOrder = ref('')
 const toast = ref('')
 const parked = ref<unknown[]>([])
+
+// 会员识别 / 优惠券 / 混合支付（§6.5 / §13）
+const memberPhone = ref('')
+const memberId = ref<number | null>(null)
+const memberBalances = ref<{ principal_cents: number; bonus_cents: number; points: number } | null>(null)
+const couponCode = ref('')
+// 混合支付拆分：每项 { channel, amountYuan, authCode }
+interface PaySplit { channel: string; amountYuan: string; authCode: string }
+const paySplits = ref<PaySplit[]>([{ channel: 'CASH', amountYuan: '', authCode: '' }])
+// Native 支付（§6.3）：顾客扫屏幕码；弹窗 + 轮询 + 本地确认兜底
+const nativeDialog = ref<{ orderNo: string; codeUrl: string; qrSvg: string } | null>(null)
+let nativeTimer: ReturnType<typeof setInterval> | null = null
+// 渠道开关与网关模式（设置页配置；POS 启动时读取）
+const channelEnabled = ref<Record<string, boolean>>({})
+const gatewayModes = ref<{ wechat: string; alipay: string }>({ wechat: 'LOCAL', alipay: 'LOCAL' })
+const nativeMode = ref(false) // 本单扫码拆分走 Native（顾客扫屏码）
+// 二次授权弹窗（§12.4）：待批准的权限与业务回调
+const authDialog = ref<{
+  permission: string
+  title: string
+  resolve: ((nonce: string) => void) | null
+  reject: ((reason: string) => void) | null
+} | null>(null)
+const authUser = ref('')
+const authPass = ref('')
+const authError = ref('')
+
+// 扫码枪楔入捕获（§15.1）：记录按键时间戳，快速连续 + Enter 判为扫码
+const scanBuffer = ref('')
+const scanTimes = ref<number[]>([])
+const scanGapMs = ref(SCAN_GAP_MS_DEFAULT)
+const scanCapture = ref<HTMLInputElement | null>(null)
 
 const banner = computed(() => {
   if (!license.value) return ''
@@ -51,9 +105,131 @@ const banner = computed(() => {
 
 const subtotal = computed(() => cart.value.reduce((s, l) => s + l.qty * l.unit_price_cents, 0))
 
-function showToast(msg: string) {
+function showToast(msg: string, isError = false) {
   toast.value = msg
-  setTimeout(() => (toast.value = ''), TOAST_DURATION_MS)
+  setTimeout(() => (toast.value = ''), isError ? ERROR_DURATION_MS : TOAST_DURATION_MS)
+}
+
+// ===== 二次授权（§12.4）=====
+function requireSensitiveAuth(permission: string, title: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    authDialog.value = { permission, title, resolve, reject }
+    authUser.value = ''
+    authPass.value = ''
+    authError.value = ''
+  })
+}
+
+async function confirmSensitiveAuth() {
+  const d = authDialog.value
+  if (!d) return
+  try {
+    const nonce = await api.requestSensitiveAuth(
+      d.permission,
+      authUser.value.trim(),
+      authPass.value
+    )
+    d.resolve?.(nonce)
+    authDialog.value = null
+  } catch (e) {
+    authError.value = String(e)
+  }
+}
+
+function cancelSensitiveAuth() {
+  const d = authDialog.value
+  d?.reject?.('已取消二次授权')
+  authDialog.value = null
+}
+
+// ===== 会员识别（§13）=====
+async function findMember() {
+  const phone = memberPhone.value.trim()
+  if (!phone) {
+    memberId.value = null
+    memberBalances.value = null
+    return
+  }
+  try {
+    const list = await api.listMembers(phone, 10)
+    const m = list.find((x) => x.phone === phone || x.member_code === phone)
+    if (!m) {
+      memberId.value = null
+      memberBalances.value = null
+      showToast('未找到会员', true)
+      return
+    }
+    memberId.value = m.member_id
+    memberBalances.value = {
+      principal_cents: m.principal_cents,
+      bonus_cents: m.bonus_cents,
+      points: m.points,
+    }
+    showToast(`会员已识别：${m.name ?? m.member_code}`)
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+// ===== 扫码枪楔入（§15.1 / SCN-01）=====
+function onScanKeydown(e: KeyboardEvent) {
+  const now = Date.now()
+  if (e.key === 'Enter') {
+    const times = scanTimes.value
+    const code = scanBuffer.value.trim()
+    const fast =
+      code.length >= SCAN_MIN_LENGTH &&
+      times.length >= 2 &&
+      now - times[0] < (times.length * scanGapMs.value)
+    scanBuffer.value = ''
+    scanTimes.value = []
+    if (fast) {
+      e.preventDefault()
+      void handleScannedCode(code)
+    }
+    return
+  }
+  if (e.key.length === 1) {
+    scanBuffer.value += e.key
+    scanTimes.value.push(now)
+  } else if (e.key === 'Backspace') {
+    scanBuffer.value = scanBuffer.value.slice(0, -1)
+  }
+}
+
+async function handleScannedCode(code: string) {
+  // 称重码（22/24 前缀 EAN-13）优先按 §15.2 解析
+  if (/^2[24]\d{11}$/.test(code)) {
+    try {
+      const hit = await api.lookupWeigh(code)
+      pushWeighToCart(hit)
+      return
+    } catch {
+      // 解析失败则退回普通条码识别
+    }
+  }
+  keyword.value = code
+  await search()
+}
+
+function pushWeighToCart(hit: {
+  sku_id: number
+  product_name: string
+  qty: number
+  unit_price_cents: number
+  line_total_cents: number
+}) {
+  cart.value.push({
+    sku_id: hit.sku_id,
+    qty: hit.qty,
+    unit_price_cents: hit.unit_price_cents,
+    name: hit.product_name,
+  })
+  showToast(`已加入称重商品：${hit.product_name}`)
+}
+
+function focusScan() {
+  scanCapture.value?.focus()
 }
 
 onMounted(async () => {
@@ -142,20 +318,162 @@ function changeQty(index: number, delta: number) {
 }
 
 async function submitCheckout() {
+  if (!cart.value.length) {
+    showToast('购物车为空', true)
+    return
+  }
   try {
-    const tendered = Number(cashTendered.value || '0')
-    const payments = [
-      { channel: payChannel.value, amount_cents: subtotal.value, tendered_cents: tendered, change_cents: tendered - subtotal.value },
-    ]
-    const r = await api.checkout(cart.value, payments)
+    const payments = paySplits.value
+      .filter((s) => Number(s.amountYuan) > 0)
+      .map((s) => {
+        const amount = Math.round(Number(s.amountYuan) * CENTS_PER_YUAN)
+        const tendered = s.channel === 'CASH' ? Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN) : amount
+        const isScan = s.channel === 'WECHAT' || s.channel === 'ALIPAY'
+        return {
+          channel: s.channel,
+          amount_cents: amount,
+          tendered_cents: s.channel === 'CASH' ? tendered : null,
+          change_cents: s.channel === 'CASH' ? tendered - amount : null,
+          auth_code: isScan && !nativeMode.value ? s.authCode || null : null,
+          mode: isScan && nativeMode.value ? 'NATIVE' : null,
+        }
+      })
+    if (!payments.length) {
+      showToast('请填写支付金额', true)
+      return
+    }
+    const r = await api.checkout(
+      cart.value,
+      payments,
+      memberId.value,
+      couponCode.value.trim() || null
+    )
     lastOrder.value = r.order_no
+    if (r.status === 'PENDING_PAYMENT' && r.code_url) {
+      // Native：展示二维码并轮询（§6.3）
+      const svg = await api.qrSvg(r.code_url)
+      nativeDialog.value = { orderNo: r.order_no, codeUrl: r.code_url, qrSvg: svg }
+      startNativePolling(r.order_no)
+      return
+    }
     cart.value = []
     cashTendered.value = ''
+    couponCode.value = ''
+    paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
     showToast(`收银成功：${r.order_no}`)
   } catch (e) {
-    showToast(String(e))
+    showToast(String(e), true)
   }
 }
+
+// ===== Native 支付轮询（§6.3）=====
+function startNativePolling(orderNo: string) {
+  stopNativePolling()
+  nativeTimer = setInterval(async () => {
+    try {
+      const r = await api.pollNativePay(orderNo)
+      if (r.status === 'COMPLETED') {
+        stopNativePolling()
+        closeNativeDialog()
+        cart.value = []
+        cashTendered.value = ''
+        couponCode.value = ''
+        paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
+        showToast(`收银成功：${orderNo}`)
+      } else if (r.status === 'CLOSED' || r.status.startsWith('FAILED')) {
+        stopNativePolling()
+        closeNativeDialog()
+        showToast(`Native 支付未完成：${r.status}`, true)
+      }
+    } catch (e) {
+      // 查单异常保持轮询，网络恢复后收敛
+      showToast(String(e), true)
+    }
+  }, NATIVE_POLL_INTERVAL_MS)
+}
+
+function stopNativePolling() {
+  if (nativeTimer) {
+    clearInterval(nativeTimer)
+    nativeTimer = null
+  }
+}
+
+function closeNativeDialog() {
+  nativeDialog.value = null
+  nativeMode.value = false
+}
+
+async function cancelNative() {
+  const d = nativeDialog.value
+  if (!d) return
+  stopNativePolling()
+  try {
+    await api.cancelNativePay(d.orderNo)
+    showToast('已取消 Native 支付，订单可在订单操作中作废', true)
+  } catch (e) {
+    showToast(String(e), true)
+  }
+  closeNativeDialog()
+}
+
+/** 本地确认模式（无真实渠道凭据）：操作员确认顾客已扫码完成 */
+async function confirmNativeLocal() {
+  const d = nativeDialog.value
+  if (!d) return
+  stopNativePolling()
+  try {
+    await api.confirmNativePay(d.orderNo)
+    closeNativeDialog()
+    cart.value = []
+    cashTendered.value = ''
+    couponCode.value = ''
+    paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
+    showToast(`收银成功：${d.orderNo}`)
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+const isLocalGateway = computed(
+  () => gatewayModes.value.wechat === 'LOCAL' && gatewayModes.value.alipay === 'LOCAL'
+)
+
+// 渠道开关 + 网关模式读取（POS 收银台过滤可选渠道）
+async function loadPayChannels() {
+  try {
+    const c = await api.getPayChannels()
+    channelEnabled.value = {
+      CASH: c.cash,
+      WECHAT: c.wechat,
+      ALIPAY: c.alipay,
+      STORED_VALUE: c.stored_value,
+    }
+  } catch {
+    // 读取失败不阻断收银（§1.2），渠道可用性由后端结算时校验兜底
+    channelEnabled.value = { CASH: true, WECHAT: true, ALIPAY: true, STORED_VALUE: true }
+  }
+  try {
+    const g = await api.paymentGatewayStatus()
+    gatewayModes.value = { wechat: g.wechat_mode, alipay: g.alipay_mode }
+  } catch {
+    gatewayModes.value = { wechat: 'LOCAL', alipay: 'LOCAL' }
+  }
+}
+
+function addPaySplit() {
+  paySplits.value.push({ channel: 'STORED_VALUE', amountYuan: '', authCode: '' })
+}
+
+function removePaySplit(index: number) {
+  if (paySplits.value.length > 1) paySplits.value.splice(index, 1)
+}
+
+/** 支付拆分录入差额：应付 − 已录入 */
+const paidPreview = computed(() =>
+  paySplits.value.reduce((s, p) => s + (Number(p.amountYuan) || 0) * CENTS_PER_YUAN, 0)
+)
+const payShortfall = computed(() => subtotal.value - paidPreview.value)
 
 async function park() {
   try {
@@ -207,21 +525,231 @@ async function loadReport() {
   }
 }
 
-// ===== 交班汇总 =====
+// ===== 交班汇总（§5.4）=====
 interface ShiftRow { cashier_id: number; order_count: number; total_cents: number; pay_cents: number; cash_net_cents: number }
 const shiftId = ref(1)
 const shiftRows = ref<ShiftRow[]>([])
+const openingFloat = ref('0')
+const actualCash = ref('0')
+const currentShiftId = ref(0)
 async function loadShift() {
   try {
     shiftRows.value = (await api.shiftReport(shiftId.value)) as ShiftRow[]
   } catch (e) {
-    showToast(String(e))
+    showToast(String(e), true)
+  }
+}
+async function doOpenShift() {
+  try {
+    currentShiftId.value = await api.openShift(Math.round(Number(openingFloat.value || '0') * CENTS_PER_YUAN))
+    shiftId.value = currentShiftId.value
+    showToast(`已开班，班次 ${currentShiftId.value}`)
+    await loadShift()
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+async function doCloseShift() {
+  try {
+    const nonce = await requireSensitiveAuth('pos.shift.close', '关班授权')
+    const r = await api.closeShift(
+      currentShiftId.value,
+      Math.round(Number(actualCash.value || '0') * CENTS_PER_YUAN),
+      null,
+      nonce
+    )
+    showToast(`已关班，现金差额 ${formatMoney(r.difference_cents)}`)
+    currentShiftId.value = 0
+  } catch (e) {
+    if (String(e) !== '已取消二次授权') showToast(String(e), true)
+  }
+}
+
+// ===== 报表维度（§14）=====
+const channelReport = ref<ChannelReport | null>(null)
+const productRows = ref<ProductSales[]>([])
+const categoryRows = ref<CategorySales[]>([])
+const cashierRows = ref<CashierSales[]>([])
+const reportFrom = ref(today())
+const reportTo = ref(today())
+async function loadReports() {
+  try {
+    ;[channelReport.value, productRows.value, categoryRows.value, cashierRows.value] = await Promise.all([
+      api.channelReport(reportDate.value),
+      api.productReport(reportFrom.value, reportTo.value),
+      api.categoryReport(reportFrom.value, reportTo.value),
+      api.cashierReport(reportFrom.value, reportTo.value),
+    ])
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+async function exportReconcile() {
+  try {
+    const csv = await api.reconcileCsv(reportDate.value)
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `reconcile-${reportDate.value}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    showToast('对账差异已导出')
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+// ===== 系统配置（§15/§14）=====
+const configs = ref<ConfigRow[]>([])
+const configDraft = ref<Record<string, string>>({})
+async function loadConfigs() {
+  try {
+    configs.value = await api.getConfigs()
+    const draft: Record<string, string> = {}
+    for (const c of configs.value) draft[c.config_key] = c.config_value
+    configDraft.value = draft
+    const gap = Number(draft['scan_gap_ms'])
+    if (Number.isFinite(gap) && gap > 0) scanGapMs.value = gap
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+async function saveConfig(key: string) {
+  try {
+    await api.setConfig(key, configDraft.value[key] ?? '')
+    showToast('配置已保存')
+    await loadConfigs()
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+// ===== 打印重试队列（§7.6）=====
+const printQueue = ref<string[]>([])
+async function loadPrintQueue() {
+  try {
+    printQueue.value = await api.printRetries()
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+// ===== 支付设置（§6.1/§6.8）：渠道开关 + 凭据管理 =====
+const credChannel = ref<'WECHAT' | 'ALIPAY'>('WECHAT')
+const credDraft = ref<Record<string, string>>({})
+const credSaved = ref<Record<string, boolean>>({})
+const channelDraft = ref<Record<string, string>>({})
+
+async function loadPaymentSettings() {
+  try {
+    const g = await api.paymentGatewayStatus()
+    gatewayModes.value = { wechat: g.wechat_mode, alipay: g.alipay_mode }
+    if (g.wechat_error) showToast(`微信网关状态异常：${g.wechat_error}`, true)
+    if (g.alipay_error) showToast(`支付宝网关状态异常：${g.alipay_error}`, true)
+  } catch (e) {
+    showToast(String(e), true)
+  }
+  try {
+    const c = await api.getPayChannels()
+    channelDraft.value = {
+      pay_channel_cash_enabled: c.cash ? '1' : '0',
+      pay_channel_wechat_enabled: c.wechat ? '1' : '0',
+      pay_channel_alipay_enabled: c.alipay ? '1' : '0',
+      pay_channel_sv_enabled: c.stored_value ? '1' : '0',
+    }
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+async function toggleChannel(key: string, current: string) {
+  const next = current === '1' ? '0' : '1'
+  try {
+    await api.setConfig(key, next)
+    channelDraft.value[key] = next
+    showToast('渠道开关已保存')
+    await loadPayChannels()
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+async function saveCredential(field: string) {
+  const value = credDraft.value[field]
+  if (!value || !value.trim()) {
+    showToast('凭据内容为空', true)
+    return
+  }
+  try {
+    await api.setPaymentCredential(credChannel.value, field, value)
+    credDraft.value[field] = ''
+    credSaved.value[field] = true
+    showToast('凭据已写入系统凭据库')
+    await loadPaymentSettings()
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+async function removeCredential(field: string) {
+  try {
+    await api.deletePaymentCredential(credChannel.value, field)
+    credSaved.value[field] = false
+    showToast('凭据已删除')
+    await loadPaymentSettings()
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+const currentCredFields = computed(() => PAY_CRED_FIELDS[credChannel.value])
+
+// ===== 渠道账单对账（PAY-05/06）=====
+const reconDate = ref(today())
+const reconText = ref('')
+const reconSummary = ref<{ matched: number; missing_remote: number; missing_local: number; amount_mismatch: number; status_mismatch: number } | null>(null)
+const reconDiffs = ref<
+  { recon_id: number; channel: string; diff_type: string; order_no: string | null; local_amount_cents: number; channel_amount_cents: number; detail: string | null; created_at: string }[]
+>([])
+
+async function importBill(channel: 'WECHAT' | 'ALIPAY') {
+  if (!reconText.value.trim()) {
+    showToast('请先粘贴账单文本', true)
+    return
+  }
+  try {
+    reconSummary.value =
+      channel === 'WECHAT'
+        ? await api.importWechatBill(reconDate.value, reconText.value)
+        : await api.importAlipayBill(reconDate.value, reconText.value)
+    reconText.value = ''
+    await loadReconDiffs()
+    showToast('账单已导入并完成对账')
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+async function loadReconDiffs() {
+  try {
+    reconDiffs.value = await api.listReconcileDiffs(reconDate.value)
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+async function doRetryPrint(orderNo: string) {
+  try {
+    showToast(await api.retryPrint(orderNo))
+    await loadPrintQueue()
+  } catch (e) {
+    showToast(String(e), true)
   }
 }
 
 // ===== 订单作废 / 退货 =====
 const opOrderNo = ref('')
-const opItems = ref<{ item_id: number; product_name: string; qty: number; returned_qty: number; unit_price_cents: number }[]>([])
+const opItems = ref<OrderItemRow[]>([])
 const opQty = ref<Record<number, string>>({})
 const opMode = ref<'void' | 'refund'>('refund')
 
@@ -237,30 +765,61 @@ async function loadOrderItems() {
 
 async function doVoid() {
   try {
-    await api.voidOrder(opOrderNo.value.trim())
+    const nonce = await requireSensitiveAuth('pos.void', '作废授权')
+    await api.voidOrder(opOrderNo.value.trim(), nonce)
     showToast('订单已作废')
     opItems.value = []
     opOrderNo.value = ''
   } catch (e) {
-    showToast(String(e))
+    if (String(e) !== '已取消二次授权') showToast(String(e), true)
   }
 }
 
 async function doRefund() {
   const items = opItems.value
-    .filter((r) => opQty.value[r.item_id] && parseInt(opQty.value[r.item_id], 10) > 0)
+    .filter((r) => {
+      const q = parseInt(opQty.value[r.item_id] || '0', 10)
+      return q > 0 && q <= r.qty - r.returned_qty
+    })
     .map((r) => ({ order_item_id: r.item_id, qty: parseInt(opQty.value[r.item_id], 10) }))
   if (!items.length) {
-    showToast('请填写退货数量')
+    showToast('请填写有效的退货数量', true)
     return
   }
   try {
-    const total = await api.refundOrder(opOrderNo.value.trim(), items)
+    const nonce = await requireSensitiveAuth('pos.refund', '退货授权')
+    const total = await api.refundOrder(opOrderNo.value.trim(), items, nonce)
     showToast(`退货成功，退款 ${formatMoney(total)}`)
     opItems.value = []
     opOrderNo.value = ''
   } catch (e) {
-    showToast(String(e))
+    if (String(e) !== '已取消二次授权') showToast(String(e), true)
+  }
+}
+
+// ===== 优惠券管理（§13.7）=====
+const coupons = ref<import('./api').CouponRow[]>([])
+const couponForm = ref({ discountYuan: '', minOrderYuan: '', validUntil: '' })
+async function loadCoupons() {
+  try {
+    coupons.value = await api.listCoupons()
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+async function addCoupon() {
+  try {
+    await api.issueCoupon(
+      memberId.value,
+      Math.round(Number(couponForm.value.discountYuan || '0') * CENTS_PER_YUAN),
+      Math.round(Number(couponForm.value.minOrderYuan || '0') * CENTS_PER_YUAN),
+      couponForm.value.validUntil.trim() || null
+    )
+    couponForm.value = { discountYuan: '', minOrderYuan: '', validUntil: '' }
+    showToast('优惠券已发放')
+    await loadCoupons()
+  } catch (e) {
+    showToast(String(e), true)
   }
 }
 
@@ -307,11 +866,11 @@ onMounted(() => {
   const saved = localStorage.getItem('checkoutr-theme') as 'light' | 'dark' | null
   if (saved) applyTheme(saved)
 })
-function goPOS() { view.value = 'pos' }
+function goPOS() { view.value = 'pos'; focusScan(); loadPayChannels() }
 function goProducts() { view.value = 'products' }
 function goParked() { loadParked() }
-function goReport() { view.value = 'report'; loadReport(); loadShift() }
-function goSettings() { view.value = 'settings' }
+function goReport() { view.value = 'report'; loadReport(); loadReports(); loadShift() }
+function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadCoupons(); loadPaymentSettings() }
 function doLogout() { api.logout(); view.value = 'login'; currentUser.value = '' }
 </script>
 
@@ -393,7 +952,14 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
       <main v-if="view === 'pos'" class="pos-layout">
         <section class="panel product-panel">
           <div class="search-row">
-            <input v-model="keyword" class="input" placeholder="扫码 / 条码 / 商品名" @keyup.enter="search" />
+            <input
+              ref="scanCapture"
+              v-model="keyword"
+              class="input"
+              placeholder="扫码 / 条码 / 商品名"
+              @keydown="onScanKeydown"
+              @focus="focusScan"
+            />
             <button class="btn" @click="search"><Icon name="scan" :size="ICON_SIZE.md" />识别</button>
           </div>
           <div class="product-list">
@@ -401,14 +967,22 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
               <div><strong>{{ p.spu_name }}</strong><span class="muted small"> {{ p.barcode }}</span></div>
               <span class="price">¥{{ formatMoney(p.price_cents) }}</span>
             </div>
-            <div v-if="!products.length" class="empty">输入条码或商品名，回车识别</div>
+            <div v-if="!products.length" class="empty">扫码枪自动识别，或输入条码/商品名回车</div>
+          </div>
+
+          <div class="member-strip">
+            <input v-model="memberPhone" class="input" placeholder="会员手机号/会员码" @keyup.enter="findMember" />
+            <button class="btn" @click="findMember"><Icon name="user" :size="ICON_SIZE.sm" />识别会员</button>
+          </div>
+          <div v-if="memberBalances" class="member-balance">
+            本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
           </div>
         </section>
 
         <section class="panel cart-panel">
           <h3>购物车 <span class="badge">{{ cart.length }}</span></h3>
           <div class="cart-list">
-            <div v-for="(l, i) in cart" :key="l.sku_id" class="cart-line">
+            <div v-for="(l, i) in cart" :key="`${l.sku_id}-${i}`" class="cart-line">
               <div class="line-name">{{ l.name || `SKU ${l.sku_id}` }}</div>
               <div class="qty-ctrl">
                 <button @click="changeQty(i, -1)"><Icon name="minus" :size="ICON_SIZE.sm" /></button>
@@ -420,15 +994,42 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             <div v-if="!cart.length" class="empty">购物车为空</div>
           </div>
           <div class="cart-foot">
+            <div class="coupon-row">
+              <input v-model="couponCode" class="input" placeholder="优惠券码（可选）" />
+            </div>
             <div class="total"><span>合计</span><strong>¥{{ formatMoney(subtotal) }}</strong></div>
-            <div class="pay-row">
-              <select v-model="payChannel" class="input">
-                <option value="CASH">现金</option>
-                <option value="STORED_VALUE">储值</option>
-                <option value="WECHAT">微信</option>
-                <option value="ALIPAY">支付宝</option>
-              </select>
-              <input v-model="cashTendered" class="input" placeholder="收钞金额" type="number" />
+            <div class="pay-splits">
+              <div v-for="(s, i) in paySplits" :key="i" class="pay-split">
+                <select v-model="s.channel" class="input">
+                  <option v-if="channelEnabled.CASH !== false" value="CASH">现金</option>
+                  <option v-if="channelEnabled.STORED_VALUE !== false" value="STORED_VALUE">储值</option>
+                  <option v-if="channelEnabled.WECHAT !== false" value="WECHAT">微信</option>
+                  <option v-if="channelEnabled.ALIPAY !== false" value="ALIPAY">支付宝</option>
+                </select>
+                <input v-model="s.amountYuan" class="input" placeholder="金额(元)" type="number" step="0.01" />
+                <input
+                  v-if="(s.channel === 'WECHAT' || s.channel === 'ALIPAY') && !nativeMode"
+                  v-model="s.authCode"
+                  class="input"
+                  placeholder="顾客付款码"
+                />
+                <button v-if="paySplits.length > 1" class="btn ghost" @click="removePaySplit(i)">移除</button>
+              </div>
+              <label class="checkbox-label">
+                <input v-model="nativeMode" type="checkbox" />
+                Native 支付（顾客扫屏幕二维码，微信/支付宝）
+              </label>
+              <button class="btn ghost full" @click="addPaySplit">+ 添加支付方式</button>
+              <input
+                v-if="paySplits.some((s) => s.channel === 'CASH')"
+                v-model="cashTendered"
+                class="input"
+                placeholder="现金收钞(元)"
+                type="number"
+              />
+              <div class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
+                待收 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}
+              </div>
             </div>
             <div class="actions">
               <button class="btn" @click="park">挂单</button>
@@ -477,10 +1078,19 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         </div>
 
         <div class="card wide">
-          <h3>交班汇总</h3>
+          <h3>班次管理</h3>
+          <div class="search-row">
+            <input v-model="openingFloat" class="input" type="number" placeholder="开班备用金(元)" />
+            <button class="btn" @click="doOpenShift">开班</button>
+            <span v-if="currentShiftId" class="badge">当前班次 {{ currentShiftId }}</span>
+          </div>
+          <div class="search-row">
+            <input v-model="actualCash" class="input" type="number" placeholder="关班实收现金(元)" />
+            <button class="btn" @click="doCloseShift">关班（需授权）</button>
+          </div>
           <div class="search-row">
             <input v-model.number="shiftId" class="input" type="number" placeholder="班次 ID" />
-            <button class="btn" @click="loadShift">查询</button>
+            <button class="btn" @click="loadShift">查询汇总</button>
           </div>
           <table v-if="shiftRows.length" class="tbl">
             <thead><tr><th>收银员</th><th>订单数</th><th>应收</th><th>实收</th><th>现金净额</th></tr></thead>
@@ -491,6 +1101,55 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
                 <td>{{ formatMoney(r.total_cents) }}</td>
                 <td>{{ formatMoney(r.pay_cents) }}</td>
                 <td>{{ formatMoney(r.cash_net_cents) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card wide">
+          <h3>多维销售报表</h3>
+          <div class="search-row">
+            <input v-model="reportFrom" class="input" type="date" />
+            <input v-model="reportTo" class="input" type="date" />
+            <button class="btn" @click="loadReports">加载报表</button>
+            <button class="btn" @click="exportReconcile">导出对账CSV</button>
+          </div>
+          <div v-if="channelReport" class="stats">
+            <div class="stat"><span>渠道净额合计</span><strong>¥{{ formatMoney(channelReport.channels.reduce((s, c) => s + c.amount_cents, 0)) }}</strong></div>
+            <div class="stat"><span>账实相符</span><strong>{{ channelReport.balanced ? '是' : '否' }}</strong></div>
+          </div>
+          <table v-if="channelReport?.channels.length" class="tbl">
+            <thead><tr><th>支付渠道</th><th>净额</th><th>笔数</th></tr></thead>
+            <tbody>
+              <tr v-for="c in channelReport.channels" :key="c.channel">
+                <td>{{ c.channel }}</td><td>¥{{ formatMoney(c.amount_cents) }}</td><td>{{ c.count }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <h4>按商品</h4>
+          <table v-if="productRows.length" class="tbl">
+            <thead><tr><th>SKU</th><th>数量</th><th>销售额</th><th>优惠</th></tr></thead>
+            <tbody>
+              <tr v-for="p in productRows" :key="p.sku_id">
+                <td>{{ p.sku_id }}</td><td>{{ p.qty }}</td><td>¥{{ formatMoney(p.sales_cents) }}</td><td>¥{{ formatMoney(p.discount_cents) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <h4>按类目</h4>
+          <table v-if="categoryRows.length" class="tbl">
+            <thead><tr><th>类目</th><th>数量</th><th>销售额</th></tr></thead>
+            <tbody>
+              <tr v-for="c in categoryRows" :key="c.category_id">
+                <td>{{ c.category_name }}</td><td>{{ c.qty }}</td><td>¥{{ formatMoney(c.sales_cents) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <h4>按收银员</h4>
+          <table v-if="cashierRows.length" class="tbl">
+            <thead><tr><th>收银员ID</th><th>订单数</th><th>实收</th></tr></thead>
+            <tbody>
+              <tr v-for="c in cashierRows" :key="c.cashier_id">
+                <td>{{ c.cashier_id }}</td><td>{{ c.order_count }}</td><td>¥{{ formatMoney(c.pay_cents) }}</td>
               </tr>
             </tbody>
           </table>
@@ -564,9 +1223,155 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             </div>
           </div>
         </div>
+
+        <div class="card wide">
+          <h3>系统配置</h3>
+          <div v-for="c in configs" :key="c.config_key" class="config-row">
+            <span class="config-key">{{ c.config_key }}</span>
+            <input v-model="configDraft[c.config_key]" class="input" />
+            <button class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
+          </div>
+          <p class="muted small">扫码阈值 20–200ms；业务日切点 HH:MM；折扣上限 0–1。</p>
+        </div>
+
+        <div class="card wide">
+          <h3>支付设置</h3>
+          <div class="search-row">
+            <span class="config-key">网关模式</span>
+            <span class="muted small">微信：{{ gatewayModes.wechat === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}；支付宝：{{ gatewayModes.alipay === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}。保存凭据后需重启应用生效。</span>
+          </div>
+          <h4>支付渠道开关</h4>
+          <div class="config-row" v-for="(v, k) in channelDraft" :key="k">
+            <span class="config-key">{{ k }}</span>
+            <button class="btn btn-sm" :class="{ primary: v === '1' }" @click="toggleChannel(k, v)">
+              {{ v === '1' ? '已启用' : '已停用' }}
+            </button>
+          </div>
+          <h4>商户凭据（存 Windows 凭据库，不落库不回显）</h4>
+          <div class="search-row">
+            <button :class="['btn', { primary: credChannel === 'WECHAT' }]" @click="credChannel = 'WECHAT'">微信支付</button>
+            <button :class="['btn', { primary: credChannel === 'ALIPAY' }]" @click="credChannel = 'ALIPAY'">支付宝</button>
+          </div>
+          <div class="form-grid">
+            <label v-for="f in currentCredFields" :key="f.key">
+              {{ f.label }}
+              <textarea
+                v-if="f.multiline"
+                v-model="credDraft[f.key]"
+                class="input"
+                rows="3"
+                :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"
+              ></textarea>
+              <input
+                v-else
+                v-model="credDraft[f.key]"
+                class="input"
+                type="password"
+                :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后保存'"
+              />
+              <span class="cred-actions">
+                <button class="btn btn-sm primary" @click="saveCredential(f.key)">保存</button>
+                <button class="btn btn-sm ghost" @click="removeCredential(f.key)">删除</button>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card wide">
+          <h3>渠道账单对账（PAY-05/06）</h3>
+          <div class="search-row">
+            <input v-model="reconDate" class="input" type="date" />
+            <button class="btn" @click="loadReconDiffs">查询差异</button>
+          </div>
+          <p class="muted small">微信粘贴交易账单 CSV；支付宝粘贴对账单 CSV。差异只告警冻结，绝不自动抹平。</p>
+          <textarea v-model="reconText" class="input mono" rows="5" placeholder="粘贴渠道账单文本"></textarea>
+          <div class="op-form">
+            <button class="btn" @click="importBill('WECHAT')">导入微信账单</button>
+            <button class="btn" @click="importBill('ALIPAY')">导入支付宝账单</button>
+          </div>
+          <div v-if="reconSummary" class="stats">
+            <div class="stat"><span>匹配</span><strong>{{ reconSummary.matched }}</strong></div>
+            <div class="stat"><span>渠道缺失</span><strong>{{ reconSummary.missing_remote }}</strong></div>
+            <div class="stat"><span>本地缺失</span><strong>{{ reconSummary.missing_local }}</strong></div>
+            <div class="stat"><span>金额不符</span><strong>{{ reconSummary.amount_mismatch }}</strong></div>
+            <div class="stat"><span>状态不符</span><strong>{{ reconSummary.status_mismatch }}</strong></div>
+          </div>
+          <table v-if="reconDiffs.length" class="tbl">
+            <thead><tr><th>渠道</th><th>差异类型</th><th>订单号</th><th>本地</th><th>渠道</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr v-for="d in reconDiffs" :key="d.recon_id">
+                <td>{{ d.channel }}</td>
+                <td>{{ d.diff_type }}</td>
+                <td class="mono">{{ d.order_no || '—' }}</td>
+                <td>{{ formatMoney(d.local_amount_cents) }}</td>
+                <td>{{ formatMoney(d.channel_amount_cents) }}</td>
+                <td class="muted small">{{ d.detail }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card wide">
+          <h3>优惠券管理</h3>
+          <div class="op-form">
+            <input v-model="couponForm.discountYuan" class="input" type="number" placeholder="优惠额(元)" />
+            <input v-model="couponForm.minOrderYuan" class="input" type="number" placeholder="门槛(元)" />
+            <input v-model="couponForm.validUntil" class="input" type="datetime-local" placeholder="有效期" />
+            <button class="btn" @click="addCoupon">发券</button>
+          </div>
+          <table v-if="coupons.length" class="tbl">
+            <thead><tr><th>券码</th><th>优惠额</th><th>门槛</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr v-for="c in coupons" :key="c.coupon_code">
+                <td>{{ c.coupon_code }}</td><td>¥{{ formatMoney(c.discount_cents) }}</td>
+                <td>¥{{ formatMoney(c.min_order_cents) }}</td><td>{{ c.status }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card wide">
+          <h3>打印重试队列</h3>
+          <div v-if="printQueue.length" class="print-queue">
+            <div v-for="no in printQueue" :key="no" class="print-queue-row">
+              <span>{{ no }}</span>
+              <button class="btn btn-sm" @click="doRetryPrint(no)">重打</button>
+            </div>
+          </div>
+          <p v-else class="muted small">无待重打订单</p>
+        </div>
       </main>
 
-      <div v-if="toast" class="toast">{{ toast }}</div>
+      <!-- 二次授权弹窗（§12.4） -->
+      <div v-if="authDialog" class="modal-mask">
+        <div class="modal">
+          <h3>{{ authDialog?.title }}</h3>
+          <p class="muted small">此项操作需店长或管理员二次授权</p>
+          <input v-model="authUser" class="input" placeholder="授权人用户名" />
+          <input v-model="authPass" class="input" type="password" placeholder="授权人密码" @keyup.enter="confirmSensitiveAuth" />
+          <p v-if="authError" class="err-text">{{ authError }}</p>
+          <div class="actions">
+            <button class="btn" @click="cancelSensitiveAuth">取消</button>
+            <button class="btn primary" @click="confirmSensitiveAuth">确认授权</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Native 支付弹窗（§6.3）：二维码 + 轮询 + 本地确认兜底 -->
+      <div v-if="nativeDialog" class="modal-mask">
+        <div class="modal native-modal">
+          <h3>顾客扫码支付</h3>
+          <p class="muted small">请顾客使用微信或支付宝扫一扫完成付款，收款后自动关闭</p>
+          <div class="qr-box" v-html="nativeDialog.qrSvg"></div>
+          <p class="mono small muted">单号 {{ nativeDialog.orderNo }}</p>
+          <div class="actions">
+            <button class="btn" @click="cancelNative">取消支付</button>
+            <button v-if="isLocalGateway" class="btn primary" @click="confirmNativeLocal">本地确认收款</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="toast" class="toast" :class="{ err: toast.startsWith('错误') }">{{ toast }}</div>
     </div>
   </div>
 </template>

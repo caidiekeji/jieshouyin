@@ -465,6 +465,11 @@ INSERT INTO category(category_id, parent_id, name) VALUES (1, NULL, '未分类')
 ALTER TABLE sku ADD COLUMN alert_qty INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// M0008：订单记录券码（Native 支付/崩溃恢复的 finalize 收口需要）。
+const M0008: &str = r#"
+ALTER TABLE sales_order ADD COLUMN coupon_code TEXT;
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -501,6 +506,11 @@ pub fn all() -> Vec<Migration> {
             version: 7,
             name: "category_alert_qty",
             up: M0007,
+        },
+        Migration {
+            version: 8,
+            name: "order_coupon_code",
+            up: M0008,
         },
     ]
 }

@@ -96,13 +96,13 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 7);
+        assert_eq!(count, 8);
         let max: i32 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(max, 7);
+        assert_eq!(max, 8);
     }
 
     #[test]
@@ -113,7 +113,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 7);
+        assert_eq!(count, 8);
     }
 
     #[test]

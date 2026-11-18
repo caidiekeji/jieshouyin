@@ -37,6 +37,38 @@ export const PROMO_DEFAULT_PRIORITY = 100
 /** 折扣率转中文「折」的倍率：0.85 → 8.5 折 */
 export const DISCOUNT_ZHE_FACTOR = 10
 
+/** 扫码枪楔入判定：连续按键间隔小于此值即判为扫码（§15.1，与后端 scan_gap_ms 默认一致） */
+export const SCAN_GAP_MS_DEFAULT = 50
+/** 扫码输入最小长度：短于此值视为人工输入，避免单字符误判为扫码 */
+export const SCAN_MIN_LENGTH = 4
+/** 收银员手动输入与扫码的区分等待窗口（ms）：输入停止后再联想 */
+export const SEARCH_DEBOUNCE_MS = 120
+/** 组织商品名用于小票/列表的截断长度 */
+export const PRODUCT_NAME_MAX = 40
+
+/** Native 支付前端轮询间隔（ms）：§6.3 每 3s 查单 */
+export const NATIVE_POLL_INTERVAL_MS = 3000
+/** 凭据字段标签（§6.8 设置页，与后端字段一一对应，值绝不回显） */
+export const PAY_CRED_FIELDS: Record<
+  'WECHAT' | 'ALIPAY',
+  { key: string; label: string; multiline?: boolean }[]
+> = {
+  WECHAT: [
+    { key: 'wechat.mchid', label: '商户号' },
+    { key: 'wechat.appid', label: 'AppID' },
+    { key: 'wechat.serial_no', label: '证书序列号' },
+    { key: 'wechat.apiv3_key', label: 'APIv3 密钥' },
+    { key: 'wechat.private_key_pem', label: '商户私钥(PEM)', multiline: true },
+    { key: 'wechat.platform_key_id', label: '平台公钥ID(可选)' },
+    { key: 'wechat.platform_public_key_pem', label: '平台公钥(PEM,可选)', multiline: true },
+  ],
+  ALIPAY: [
+    { key: 'alipay.app_id', label: '应用 AppID' },
+    { key: 'alipay.private_key_pem', label: '应用私钥(PEM)', multiline: true },
+    { key: 'alipay.public_key_pem', label: '支付宝公钥(PEM)', multiline: true },
+  ],
+}
+
 /** 图标尺寸刻度：导航 18、常规按钮 16、紧凑按钮 14、小标记 12、LOGO 20/24 */
 export const ICON_SIZE = {
   xs: 12,

@@ -169,7 +169,7 @@ onMounted(() => {
 
       <div v-if="showCreate" class="card">
         <h3>新增会员</h3>
-        <div class="inline-form">
+        <div class="form-row">
           <input v-model="mForm.phone" class="input" placeholder="手机号" />
           <input v-model="mForm.name" class="input" placeholder="姓名" />
           <button class="btn primary" @click="addMember">创建</button>
@@ -200,7 +200,7 @@ onMounted(() => {
       <div v-if="rechargeMemberId != null" class="card">
         <h3>会员充值：{{ rechargeName }}</h3>
         <p class="muted small">实充进入本金，赠送额进入赠送金账户（§13.3，不可提现）</p>
-        <div class="inline-form">
+        <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
           <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
           <button class="btn primary" @click="submitRecharge">确认充值</button>
@@ -272,39 +272,3 @@ onMounted(() => {
     </template>
   </main>
 </template>
-
-<style scoped>
-/* 组件层：只引用语义层 token，不出现裸值 */
-.page-head { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-3); }
-.tab-row { display: flex; gap: var(--space-2); }
-.toolbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
-.toolbar .input { flex: 1; }
-.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
-.tbl th, .tbl td {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  border-bottom: var(--border-width) solid var(--border);
-}
-.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); }
-.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
-.input-sm {
-  width: var(--control-input-sm-width);
-  padding: var(--space-0_5) var(--space-2);
-  font-size: var(--font-xs);
-}
-.form-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-2); margin-bottom: var(--space-2);
-}
-.form-grid label {
-  display: flex; flex-direction: column; gap: var(--space-1);
-  font-size: var(--font-xs); color: var(--muted);
-}
-.checkbox-label { flex-direction: row !important; align-items: center; gap: var(--space-2) !important; }
-.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
-.ok-msg { color: var(--success-text); font-size: var(--font-sm); margin-bottom: var(--space-2); }
-.inline-form { display: flex; gap: var(--space-2); align-items: center; }
-.card { margin-bottom: var(--space-3); }
-.mono { font-family: var(--font-family-mono); }
-.warning-text { color: var(--danger); }
-</style>

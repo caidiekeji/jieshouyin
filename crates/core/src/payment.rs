@@ -57,6 +57,8 @@ pub struct PayRequest {
     pub amount_cents: i64,
     pub auth_code: Option<String>,
     pub mode: PayMode,
+    /// 渠道路由依据：真实网关按渠道分流（微信/支付宝），现金/储值不经过网关。
+    pub channel: Channel,
 }
 
 #[derive(Debug, Clone)]
@@ -92,40 +94,52 @@ pub fn make_out_trade_no(order_no: &str, attempt: u32) -> String {
 }
 
 /// 付款码主通道状态机（§6.2）。同步 SUCCESS → 落库；USERPAYING 轮询；
-/// 超时撤销；撤销遇已支付 → 自动退款。
+/// 超时撤销；撤销遇已支付 → 自动退款。返回完整结果（含渠道交易号）。
 pub fn run_micropay<G: PaymentGateway>(
     gw: &G,
     req: &PayRequest,
     poll_ms: u64,
     timeout_s: u64,
     sleep: &mut dyn FnMut(u64),
-) -> Result<PaymentState> {
+) -> Result<PayOutcome> {
+    let trade_of = |state: PaymentState| PayOutcome {
+        state,
+        trade_no: None,
+        code_url: None,
+    };
     let outcome = match gw.micropay(req) {
         Ok(o) => o,
         Err(e) => {
             // 网络异常 → 查单兜底
-            return reconcile_timeout(
+            let state = reconcile_timeout(
                 gw,
                 &req.out_trade_no,
                 poll_ms,
                 timeout_s,
                 sleep,
                 &e.to_string(),
-            );
+            )?;
+            return Ok(trade_of(state));
         }
     };
     match outcome.state {
-        PaymentState::SUCCESS => Ok(PaymentState::SUCCESS),
-        PaymentState::FAILED(_) => Ok(outcome.state),
-        PaymentState::CLOSED => Ok(PaymentState::CLOSED),
-        PaymentState::USERPAYING => reconcile_timeout(
-            gw,
-            &req.out_trade_no,
-            poll_ms,
-            timeout_s,
-            sleep,
-            "USERPAYING",
-        ),
+        PaymentState::USERPAYING => {
+            let state = reconcile_timeout(gw, &req.out_trade_no, poll_ms, timeout_s, sleep, "USERPAYING")?;
+            Ok(PayOutcome {
+                trade_no: if state == PaymentState::SUCCESS {
+                    outcome.trade_no
+                } else {
+                    None
+                },
+                code_url: None,
+                state,
+            })
+        }
+        other => Ok(PayOutcome {
+            trade_no: outcome.trade_no,
+            code_url: None,
+            state: other,
+        }),
     }
 }
 
@@ -242,6 +256,168 @@ pub fn strip_backticks(field: &str) -> &str {
 
 pub mod mock;
 
+/// v1 离线本地确认网关（§6.1）。桌面单机无商户密钥与网络，扫码/Native
+/// 由操作员在本地确认驱动状态机，全部落库为可审计的本地流水；
+/// 生产环境由真实渠道适配器（wechatpay-v3 / 支付宝）替换本实现。
+/// 不伪装成真实网络支付：trade_no 前缀 `LOCAL-`，code_url 为本地伪 URL。
+#[derive(Clone, Default)]
+pub struct LocalConfirmGateway {
+    states: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, PaymentState>>>,
+}
+
+impl LocalConfirmGateway {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl PaymentGateway for LocalConfirmGateway {
+    fn micropay(&self, req: &PayRequest) -> Result<PayOutcome> {
+        // 付款码在本地确认即成功；记录本地 trade_no，绝不声称真实扣款。
+        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        m.insert(req.out_trade_no.clone(), PaymentState::SUCCESS);
+        Ok(PayOutcome {
+            state: PaymentState::SUCCESS,
+            trade_no: Some(format!("LOCAL-{}", req.out_trade_no)),
+            code_url: None,
+        })
+    }
+
+    fn native_precreate(&self, req: &PayRequest) -> Result<PayOutcome> {
+        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        m.entry(req.out_trade_no.clone())
+            .or_insert(PaymentState::USERPAYING);
+        Ok(PayOutcome {
+            state: PaymentState::USERPAYING,
+            trade_no: None,
+            code_url: Some(format!("checkout-r://native/{}", req.out_trade_no)),
+        })
+    }
+
+    fn query(&self, out_trade_no: &str) -> Result<PaymentState> {
+        let m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        Ok(m.get(out_trade_no)
+            .cloned()
+            .unwrap_or(PaymentState::CLOSED))
+    }
+
+    fn cancel(&self, out_trade_no: &str) -> Result<CancelResult> {
+        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        m.insert(out_trade_no.into(), PaymentState::CLOSED);
+        Ok(CancelResult::Canceled)
+    }
+
+    fn refund(
+        &self,
+        out_trade_no: &str,
+        _refund_no: &str,
+        _amount_cents: i64,
+    ) -> Result<PaymentState> {
+        let mut m = self.states.lock().map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+        m.insert(out_trade_no.into(), PaymentState::FAILED("已退款".into()));
+        Ok(PaymentState::SUCCESS)
+    }
+}
+
+/// v1 本地确认一笔 Native 支付（操作员确认顾客已扫码后调用）。
+pub fn confirm_native(gw: &LocalConfirmGateway, out_trade_no: &str) -> Result<()> {
+    let mut m = gw
+        .states
+        .lock()
+        .map_err(|e| crate::error::CoreError::Other(e.to_string()))?;
+    m.insert(out_trade_no.into(), PaymentState::SUCCESS);
+    Ok(())
+}
+
+/// 渠道路由网关：微信/支付宝凭据已配置 → 真实渠道适配器；未配置 → 本地确认兜底。
+/// 记录 out_trade_no → 渠道映射，供无渠道参数的 query/cancel/refund 路由；
+/// 映射缺失（如崩溃恢复跨进程）时由调用方显式选择单渠道网关。
+pub struct RoutingGateway {
+    pub wechat: Option<crate::gateway_wechat::WechatGateway>,
+    pub alipay: Option<crate::gateway_alipay::AlipayGateway>,
+    pub local: LocalConfirmGateway,
+    routes: std::sync::Mutex<std::collections::HashMap<String, Channel>>,
+}
+
+impl RoutingGateway {
+    pub fn new(
+        wechat: Option<crate::gateway_wechat::WechatGateway>,
+        alipay: Option<crate::gateway_alipay::AlipayGateway>,
+    ) -> Self {
+        Self {
+            wechat,
+            alipay,
+            local: LocalConfirmGateway::new(),
+            routes: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn remember(&self, out_trade_no: &str, channel: Channel) {
+        if let Ok(mut r) = self.routes.lock() {
+            r.insert(out_trade_no.into(), channel);
+        }
+    }
+
+    fn route_of(&self, out_trade_no: &str) -> Option<Channel> {
+        self.routes
+            .lock()
+            .ok()
+            .and_then(|r| r.get(out_trade_no).copied())
+    }
+
+    /// 显式按渠道取网关（崩溃恢复跨进程场景：渠道从 payment_record 读取）。
+    pub fn of_channel(&self, channel: Channel) -> &dyn PaymentGateway {
+        match channel {
+            Channel::WECHAT => match &self.wechat {
+                Some(g) => g as &dyn PaymentGateway,
+                None => &self.local,
+            },
+            Channel::ALIPAY => match &self.alipay {
+                Some(g) => g as &dyn PaymentGateway,
+                None => &self.local,
+            },
+            _ => &self.local,
+        }
+    }
+
+    fn route(&self, out_trade_no: &str) -> &dyn PaymentGateway {
+        match self.route_of(out_trade_no) {
+            Some(ch) => self.of_channel(ch),
+            None => &self.local,
+        }
+    }
+}
+
+impl PaymentGateway for RoutingGateway {
+    fn micropay(&self, req: &PayRequest) -> Result<PayOutcome> {
+        self.remember(&req.out_trade_no, req.channel);
+        self.of_channel(req.channel).micropay(req)
+    }
+
+    fn native_precreate(&self, req: &PayRequest) -> Result<PayOutcome> {
+        self.remember(&req.out_trade_no, req.channel);
+        self.of_channel(req.channel).native_precreate(req)
+    }
+
+    fn query(&self, out_trade_no: &str) -> Result<PaymentState> {
+        self.route(out_trade_no).query(out_trade_no)
+    }
+
+    fn cancel(&self, out_trade_no: &str) -> Result<CancelResult> {
+        self.route(out_trade_no).cancel(out_trade_no)
+    }
+
+    fn refund(
+        &self,
+        out_trade_no: &str,
+        refund_no: &str,
+        amount_cents: i64,
+    ) -> Result<PaymentState> {
+        self.route(out_trade_no)
+            .refund(out_trade_no, refund_no, amount_cents)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,10 +438,11 @@ mod tests {
             amount_cents: 1000,
             auth_code: Some("123456".into()),
             mode: PayMode::MICROPAY,
+            channel: Channel::WECHAT,
         };
         let mut noop = |_ms: u64| {};
         assert_eq!(
-            run_micropay(&gw, &req, 1, 1, &mut noop).unwrap(),
+            run_micropay(&gw, &req, 1, 1, &mut noop).unwrap().state,
             PaymentState::SUCCESS
         );
     }
@@ -279,6 +456,7 @@ mod tests {
             amount_cents: 1000,
             auth_code: None,
             mode: PayMode::MICROPAY,
+            channel: Channel::WECHAT,
         };
         let calls = std::sync::Arc::new(Mutex::new(0));
         let c = calls.clone();
@@ -289,7 +467,7 @@ mod tests {
             }
         };
         assert_eq!(
-            run_micropay(&gw, &req, 1, 10, &mut spy).unwrap(),
+            run_micropay(&gw, &req, 1, 10, &mut spy).unwrap().state,
             PaymentState::SUCCESS
         );
     }
@@ -303,10 +481,11 @@ mod tests {
             amount_cents: 1000,
             auth_code: None,
             mode: PayMode::MICROPAY,
+            channel: Channel::WECHAT,
         };
         let mut noop = |_ms: u64| {};
         assert_eq!(
-            run_micropay(&gw, &req, 1, 2, &mut noop).unwrap(),
+            run_micropay(&gw, &req, 1, 2, &mut noop).unwrap().state,
             PaymentState::CLOSED
         );
     }
@@ -321,9 +500,10 @@ mod tests {
             amount_cents: 1000,
             auth_code: None,
             mode: PayMode::MICROPAY,
+            channel: Channel::WECHAT,
         };
         let mut noop = |_ms: u64| {};
-        let state = run_micropay(&gw, &req, 1, 2, &mut noop).unwrap();
+        let state = run_micropay(&gw, &req, 1, 2, &mut noop).unwrap().state;
         assert!(matches!(state, PaymentState::FAILED(s) if s.contains("退款")));
         assert_eq!(gw.refund_count(), 1);
     }

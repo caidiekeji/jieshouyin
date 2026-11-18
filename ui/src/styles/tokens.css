@@ -124,6 +124,9 @@
   --p-z-overlay: 100;
   --p-z-modal: 200;
   --p-z-toast: 300;
+
+  /* 遮罩：模态框背后压暗层，用中性 900 半透明表达，禁止就地写 rgba */
+  --p-overlay-scrim: rgba(15, 23, 42, 0.45);
 }
 
 /* ---------- semantic：亮色（表达用在哪） ---------- */
@@ -223,6 +226,13 @@
   --layout-auth-width: 460px;
   --layout-content-width: 900px;
   --layout-cart-width: 400px;
+  /* 管理页内容上限：1280 收银屏减两侧 24px 页边距可用 1232px，取 1200 留呼吸边；
+     会员表格 8 列 + 操作列在该宽度下单列从容铺开 */
+  --layout-admin-width: 1200px;
+  /* 表单网格单列最小宽：低于它 auto-fit 降列，保证窄屏不挤 */
+  --layout-form-col-min: 220px;
+  /* 工具栏搜索框最小宽：防止按钮挤压输入框到不可用 */
+  --control-search-min-width: 200px;
 
   --control-input-sm-width: 80px;
   --control-qty-size: 24px;
@@ -233,6 +243,8 @@
   --layout-wide-max: 92%;
   --layout-pay-label-width: 120px;
   --layout-toast-max-width: 80%;
+  /* Native 支付二维码展示区：58mm 小票屏兼容的方形弹窗内容尺寸 */
+  --layout-qr-size: 256px;
   --opacity-disabled: 0.5;
 
   /* 组件唯一可用入口：语义化的刻度别名。
@@ -280,6 +292,7 @@
   --z-overlay: var(--p-z-overlay);
   --z-modal: var(--p-z-modal);
   --z-toast: var(--p-z-toast);
+  --overlay-scrim: var(--p-overlay-scrim);
 
   /* 兼容旧组件中使用的短名 */
   --muted: var(--text-muted);

@@ -41,7 +41,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   box-shadow: var(--shadow);
 }
 .auth-card { width: var(--layout-auth-width); display: flex; flex-direction: column; gap: var(--space-3); }
-.card.wide { width: min(var(--layout-content-width), var(--layout-wide-max)); }
+.card.wide { width: 100%; }
 .brand { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-1); }
 .brand-mark {
   width: var(--control-brandmark-size);
@@ -76,6 +76,8 @@ h2 { font-size: var(--font-lg); }
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
+  /* 防竖排：按钮文字任何情况下不折行（此前「查询」被压成两字换行的根因之一） */
+  white-space: nowrap;
 }
 .btn:hover { border-color: var(--brand); }
 .btn.primary { background: var(--brand); color: var(--text-on-brand); border-color: var(--brand); }
@@ -179,8 +181,13 @@ h2 { font-size: var(--font-lg); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 
 .main-simple {
-  flex: 1; padding: var(--space-5);
-  display: flex; justify-content: center; align-items: flex-start;
+  /* 管理页统一骨架：页头 → 工具栏 → 内容卡片流，单列纵向铺开。
+     此前误用「单卡片水平居中」布局导致整页横排（标题/表头竖排的根因），
+     现按 B 端后台范式重排：内容上限 1200px，超出滚动。 */
+  flex: 1; min-height: 0; overflow-y: auto;
+  width: 100%; max-width: var(--layout-admin-width);
+  margin: 0 auto; padding: var(--space-6);
+  display: flex; flex-direction: column; gap: var(--space-4);
 }
 .row-item {
   display: flex; justify-content: space-between; align-items: center;
@@ -213,14 +220,48 @@ h2 { font-size: var(--font-lg); }
   max-width: var(--layout-toast-max-width);
 }
 
-/* 后台管理通用表格与操作区（报表/设置页） */
+/* 后台管理通用：页头 / 页签 / 工具栏 / 表格 / 行内表单（原三组件 scoped 重复定义上移去重） */
 .tbl { width: 100%; border-collapse: collapse; font-size: var(--font-sm); margin-top: var(--space-2); }
 .tbl th, .tbl td {
   padding: var(--space-2) var(--space-3);
   text-align: left;
   border-bottom: var(--border-width) solid var(--border);
 }
-.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); }
+.tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); white-space: nowrap; }
+.page-head { display: flex; align-items: center; gap: var(--space-4); }
+.tab-row { display: flex; gap: var(--space-2); }
+.toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.toolbar .input { flex: 1; min-width: var(--control-search-min-width); }
+.search-row .input { flex: 1; min-width: 0; }
+.form-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.form-row .input { flex: 1; min-width: var(--control-search-min-width); }
+.form-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--layout-form-col-min), 1fr));
+  gap: var(--space-3); margin-bottom: var(--space-3);
+}
+.form-grid label {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  font-size: var(--font-xs); color: var(--muted);
+}
+/* 勾选项横排：与 .form-grid label 同权重覆盖列布局 */
+.form-grid label.checkbox-label { flex-direction: row; align-items: center; gap: var(--space-2); }
+.checkbox-label { flex-direction: row; align-items: center; gap: var(--space-2); }
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.chip {
+  background: var(--border); border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3); font-size: var(--font-xs);
+}
+.candidate {
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer; border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+}
+.candidate:hover { background: var(--border); }
+.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
+.ok-msg { color: var(--success-text); font-size: var(--font-sm); margin: var(--space-0); }
+.warning-text { color: var(--danger); }
+.row-disabled { opacity: var(--opacity-disabled); }
+.mb-2 { margin-bottom: var(--space-2); }
 .input-sm {
   width: var(--control-input-sm-width);
   padding: var(--space-0_5) var(--space-2);
@@ -234,4 +275,57 @@ h2 { font-size: var(--font-lg); }
   margin-top: var(--space-3);
   border-top: var(--border-width) solid var(--border);
   padding-top: var(--space-3);
+}
+
+/* 会员识别 / 混合支付 / 二次授权 / 多维报表（v1 核心闭环接通） */
+.member-strip {
+  display: flex; gap: var(--space-2); align-items: center;
+  margin-top: var(--space-3); padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--border);
+}
+.member-balance {
+  margin-top: var(--space-2); font-size: var(--font-sm);
+  color: var(--success-text); background: var(--success-subtle);
+  padding: var(--space-2); border-radius: var(--radius-sm);
+}
+.coupon-row { margin-bottom: var(--space-2); }
+.pay-splits { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0; }
+.pay-split { display: flex; gap: var(--space-2); align-items: center; }
+.pay-split .input { min-width: 0; flex: 1 1 0; }
+.pay-shortfall { font-size: var(--font-sm); color: var(--danger); }
+.pay-shortfall.ok { color: var(--success-text); }
+.print-queue { display: flex; flex-direction: column; gap: var(--space-2); }
+.print-queue-row { display: flex; justify-content: space-between; align-items: center; }
+.config-row { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
+.config-key { min-width: var(--layout-pay-label-width); font-size: var(--font-sm); color: var(--text-muted); }
+.modal-mask {
+  position: fixed; inset: 0; z-index: var(--z-overlay);
+  background: var(--overlay-scrim);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--panel); color: var(--text);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-float);
+  padding: var(--space-5); min-width: var(--layout-auth-width);
+  display: flex; flex-direction: column; gap: var(--space-3);
+}
+.modal h3 { margin: 0; }
+.err-text { color: var(--danger); font-size: var(--font-sm); margin: 0; }
+.toast.err { background: var(--danger); color: var(--text-on-brand); }
+.native-modal { align-items: center; text-align: center; }
+.qr-box {
+  width: var(--layout-qr-size);
+  height: var(--layout-qr-size);
+  padding: var(--space-2);
+  background: var(--panel);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+.qr-box svg { width: 100%; height: 100%; display: block; }
+.cred-actions { display: flex; gap: var(--space-2); }
+textarea.input {
+  resize: vertical;
+  font-size: var(--font-xs);
+  line-height: var(--line-normal);
 }
