@@ -3325,13 +3325,14 @@ pub fn upload_product_image(
     })?;
 
     let dir = state.data_dir.join("images");
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| CoreError::Other(format!("创建图片目录失败: {e}")))?;
     let file_name = format!("sku{sku_id}_{}.{ext}", Utc::now().timestamp_millis());
     let path = dir.join(&file_name);
-    std::fs::write(&path, &bytes)?;
+    std::fs::write(&path, &bytes).map_err(|e| CoreError::Other(format!("保存图片失败: {e}")))?;
     // 落库用绝对路径：前端 convertFileSrc 需要绝对路径才能转成可展示地址
     let abs = path.to_string_lossy().to_string();
-    checkout_core::product::set_product_image_path(&conn, sku_id, Some(&abs))?;
+    checkout_core::product::set_product_image_path(&conn, sku_id, Some(abs.as_str()))?;
     Ok(abs)
 }
 

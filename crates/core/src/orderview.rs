@@ -261,6 +261,11 @@ pub fn order_detail(conn: &Connection, order_no: &str) -> Result<Option<OrderDet
         }
     }
 
+    // 订单不存在：直接返回 None，其余明细一并丢弃
+    let Some(header) = header else {
+        return Ok(None);
+    };
+
     Ok(Some(OrderDetail {
         header,
         items,
