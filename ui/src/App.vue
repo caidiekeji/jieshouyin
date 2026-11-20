@@ -1257,7 +1257,7 @@ async function doCloseShift() {
 }
 
 
-// ===== 统一报表中心（33 张报表）=====
+// ===== 统一报表中心（34 张报表）=====
 const reportMetas = ref<ReportMeta[]>([])
 const reportGroups = computed(() => {
   const groups: Array<{ name: string; items: ReportMeta[] }> = []

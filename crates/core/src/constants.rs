@@ -106,6 +106,10 @@ pub const CFG_NATIVE_TIMEOUT_S: &str = "native_timeout_s";
 pub const CFG_ALLOW_NEGATIVE_STOCK: &str = "allow_negative_stock_default";
 pub const CFG_POINTS_PER_YUAN: &str = "points_per_yuan";
 pub const CFG_POINTS_REDEEM_RATE: &str = "points_redeem_rate";
+/// 利润报表月度费用（元，非负整数）：房租 / 水电 / 人工。
+pub const CFG_EXPENSE_RENT_YUAN: &str = "expense_rent_yuan";
+pub const CFG_EXPENSE_UTILITY_YUAN: &str = "expense_utility_yuan";
+pub const CFG_EXPENSE_LABOR_YUAN: &str = "expense_labor_yuan";
 /// 会员积分累计总开关（'1' 启用 / '0' 停用）。关闭后结算不累计积分。
 pub const CFG_POINTS_ENABLED: &str = "points_enabled";
 pub const CFG_MAX_DISCOUNT_RATIO: &str = "max_discount_ratio";
@@ -150,7 +154,7 @@ pub const CONFIG_KIND_SWITCH: &str = "switch";
 
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
-pub const CONFIG_META: [(&str, &str, &str, &str); 22] = [
+pub const CONFIG_META: [(&str, &str, &str, &str); 25] = [
     (
         CFG_STORE_NAME,
         "门店名称",
@@ -224,6 +228,24 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 22] = [
         CONFIG_KIND_NUMBER,
     ),
     (
+        CFG_EXPENSE_RENT_YUAN,
+        "月房租（元）",
+        "利润报表按天均摊的月度房租费用",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_EXPENSE_UTILITY_YUAN,
+        "月水电（元）",
+        "利润报表按天均摊的月度水电费用",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_EXPENSE_LABOR_YUAN,
+        "月人工（元）",
+        "利润报表按天均摊的月度人工费用",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
         CFG_MAX_DISCOUNT_RATIO,
         "最大折扣率",
         "0–1 之间，限制单笔优惠幅度",
@@ -287,7 +309,7 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 22] = [
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
 /// 未列入的键（门店名称、所属行业）由专属命令管理，界面只读展示，避免点了保存却被拒。
-pub const CONFIG_EDITABLE: [&str; 20] = [
+pub const CONFIG_EDITABLE: [&str; 23] = [
     CFG_STORE_TIMEZONE,
     CFG_BUSINESS_DAY_CUTOFF,
     CFG_SCAN_GAP_MS,
@@ -298,6 +320,9 @@ pub const CONFIG_EDITABLE: [&str; 20] = [
     CFG_POINTS_ENABLED,
     CFG_POINTS_PER_YUAN,
     CFG_POINTS_REDEEM_RATE,
+    CFG_EXPENSE_RENT_YUAN,
+    CFG_EXPENSE_UTILITY_YUAN,
+    CFG_EXPENSE_LABOR_YUAN,
     CFG_MAX_DISCOUNT_RATIO,
     CFG_ALLOW_NEGATIVE_STOCK,
     CFG_PAY_CHANNEL_CASH,
@@ -320,6 +345,8 @@ pub const DEFAULT_POINTS_PER_YUAN: i64 = 1;
 pub const DEFAULT_POINTS_REDEEM_RATE: i64 = 100;
 /// 会员积分累计默认开启（老库无该键时按开启处理，避免升级后突然停止累计）。
 pub const DEFAULT_POINTS_ENABLED: i64 = 1;
+/// 利润报表月度费用默认 0（未配置则不摊费用，利润=毛利）。
+pub const DEFAULT_EXPENSE_YUAN: i64 = 0;
 pub const DEFAULT_MAX_DISCOUNT_RATIO: f64 = 0.8;
 /// 网络打印机默认端口（§7.5 IP:9100）。
 pub const DEFAULT_PRINT_PORT: u16 = 9100;

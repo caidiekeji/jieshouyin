@@ -1,6 +1,6 @@
 //! 统一报表目录（§14 扩展）。
 //!
-//! 33 张报表共用 `ReportResult` 结构与前端渲染器：后端按 report_id 分发参数化 SQL，
+//! 34 张报表共用 `ReportResult` 结构与前端渲染器：后端按 report_id 分发参数化 SQL，
 //! 金额全程整数分运算，仅在展示前用 `cents_to_yuan` 格式化，杜绝浮点误差。
 //! 每张报表都有独立单测覆盖空集与合计不变式。
 
@@ -69,7 +69,7 @@ fn n(v: i64) -> String {
     v.to_string()
 }
 
-/// 完整报表清单：5 大域、33 张报表。顺序即前端展示顺序。
+/// 完整报表清单：5 大域、34 张报表。顺序即前端展示顺序。
 pub fn report_catalog() -> Vec<ReportMeta> {
     const ITEMS: &[(&str, &str, &str)] = &[
         ("sales_daily", "销售日报", "销售"),
@@ -105,6 +105,7 @@ pub fn report_catalog() -> Vec<ReportMeta> {
         ("cash_difference", "现金差异报表", "运营"),
         ("promotion_effect", "促销效果报表", "运营"),
         ("margin_summary", "毛利汇总报表", "运营"),
+        ("profit", "利润报表", "运营"),
     ];
     ITEMS
         .iter()
@@ -152,6 +153,7 @@ pub fn run_report(conn: &Connection, id: &str, from: &str, to: &str) -> Result<R
         "cash_difference" => cash_difference(conn, from, to),
         "promotion_effect" => promotion_effect(conn, from, to),
         "margin_summary" => margin_summary(conn, from, to),
+        "profit" => profit_report(conn, from, to),
         _ => Err(CoreError::Validation(format!("未知报表 ID: {id}"))),
     }
 }
@@ -675,17 +677,18 @@ fn category_share(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
 }
 
 fn product_margin(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    // 销售额按未退数量折算（行金额×未退/数量），与成本口径对齐，避免部分退货后毛利虚增。
     let mut stmt = conn.prepare(
         "SELECT COALESCE(p.spu_name,'SKU#'||s.sku_id),
                 SUM(i.qty-i.returned_qty),
-                SUM(i.line_total_cents-i.discount_cents),
+                SUM((i.line_total_cents-i.discount_cents)*(i.qty-i.returned_qty)/i.qty),
                 COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0)
          FROM sales_order_item i
          JOIN sales_order o ON o.order_no=i.order_no
          JOIN sku s ON s.sku_id=i.sku_id
          JOIN spu p ON p.spu_id=s.spu_id
          WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
-         GROUP BY s.sku_id, p.spu_name ORDER BY (SUM(i.line_total_cents-i.discount_cents)-SUM((i.qty-i.returned_qty)*s.cost_price_cents)) DESC LIMIT 100",
+         GROUP BY s.sku_id, p.spu_name ORDER BY (SUM((i.line_total_cents-i.discount_cents)*(i.qty-i.returned_qty)/i.qty)-SUM((i.qty-i.returned_qty)*s.cost_price_cents)) DESC LIMIT 100",
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
@@ -718,7 +721,7 @@ fn product_margin(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
     Ok(ReportResult {
         id: "product_margin".into(),
         title: "商品毛利报表".into(),
-        description: "毛利=实销额−销售数量×成本价；成本取当前 SKU 进价快照。".into(),
+        description: "毛利=未退实销额−未退数量×成本价；成本取当前 SKU 进价快照，退货按比例折算销售额。".into(),
         columns: cols(&[
             ("name", "商品名称", "text"),
             ("qty", "销量", "qty"),
@@ -1901,26 +1904,42 @@ fn promotion_effect(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
 }
 
 fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
-    let mut stmt = conn.prepare(
-        "SELECT COALESCE(SUM(i.line_total_cents-i.discount_cents),0),
-                COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0),
-                COALESCE(SUM(i.discount_cents),0), COUNT(DISTINCT o.order_no)
-         FROM sales_order_item i
-         JOIN sales_order o ON o.order_no=i.order_no
-         JOIN sku s ON s.sku_id=i.sku_id
-         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2",
-    )?;
-    let (sales, cost, disc, orders): (i64, i64, i64, i64) = stmt
-        .query_row(params![from, to], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-        })?;
-    let profit = sales - cost;
-    let rate = if sales > 0 { profit * 10000 / sales } else { 0 };
+    // 净营业额 = 实收（含退款后状态单）− 区间退款；成本按未退数量计，口径对齐。
+    let net_sales: i64 = {
+        let mut stmt = conn.prepare(
+            "SELECT (SELECT COALESCE(SUM(pay_cents),0) FROM sales_order
+                     WHERE status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+                       AND business_date BETWEEN ?1 AND ?2)
+                   -
+                   (SELECT COALESCE(SUM(amount_cents),0) FROM refund_record
+                     WHERE date(created_at,'+8 hours') BETWEEN ?1 AND ?2)",
+        )?;
+        stmt.query_row(params![from, to], |r| r.get(0))?
+    };
+    let cost: i64 = {
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0)
+             FROM sales_order_item i
+             JOIN sales_order o ON o.order_no=i.order_no
+             JOIN sku s ON s.sku_id=i.sku_id
+             WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2",
+        )?;
+        stmt.query_row(params![from, to], |r| r.get(0))?
+    };
+    let orders: i64 = {
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(DISTINCT order_no) FROM sales_order
+             WHERE status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND business_date BETWEEN ?1 AND ?2",
+        )?;
+        stmt.query_row(params![from, to], |r| r.get(0))?
+    };
+    let profit = net_sales - cost;
+    let rate = if net_sales > 0 { profit * 10000 / net_sales } else { 0 };
     let rows = vec![
-        vec!["销售额".into(), money(sales)],
+        vec!["净营业额".into(), money(net_sales)],
         vec!["成本额".into(), money(cost)],
         vec!["毛利额".into(), money(profit)],
-        vec!["优惠额".into(), money(disc)],
         vec![
             "毛利率".into(),
             format!("{}.{:02}%", rate / 100, rate % 100),
@@ -1930,13 +1949,168 @@ fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
     Ok(ReportResult {
         id: "margin_summary".into(),
         title: "毛利汇总报表".into(),
-        description: "区间整体毛利：销售额−成本额，成本取 SKU 当前进价快照。".into(),
+        description: "区间整体毛利：净营业额（实收−退款）−成本额，成本按未退数量×SKU 当前进价。".into(),
         columns: cols(&[("item", "指标", "text"), ("value", "数值", "text")]),
         rows,
         metrics: vec![
             m("毛利额", money(profit)),
             m("毛利率", format!("{}.{:02}%", rate / 100, rate % 100)),
-            m("销售额", money(sales)),
+            m("净营业额", money(net_sales)),
+        ],
+    })
+}
+
+// ==================== 利润报表 ====================
+
+/// 读取月度费用配置（元，非负整数），缺失/非法回退 0。
+fn expense_yuan(conn: &Connection, key: &str) -> i64 {
+    conn.query_row(
+        "SELECT config_value FROM system_config WHERE config_key = ?1",
+        params![key],
+        |r| r.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|s| s.parse::<i64>().ok())
+    .map(|v| v.max(0))
+    .unwrap_or(0)
+}
+
+/// 利润报表：净营业额 − 销售成本 − 按天均摊月度费用（房租/水电/人工），逐日呈现盈利状况。
+///
+/// 口径：净营业额 = 实收 − 退款（退款按北京时间归属）；成本按未退数量×当前进价；
+/// 月度费用按 30 天均摊到日，费用合计 = 月费用×区间天数/30（整数分运算）。
+fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let rent = expense_yuan(conn, "expense_rent_yuan");
+    let utility = expense_yuan(conn, "expense_utility_yuan");
+    let labor = expense_yuan(conn, "expense_labor_yuan");
+    let monthly_expense_cents = (rent + utility + labor) * 100;
+
+    // 区间天数（含首尾）
+    let days: i64 = {
+        let mut stmt = conn.prepare("SELECT CAST(julianday(?2) - julianday(?1) AS INTEGER) + 1")?;
+        stmt.query_row(params![from, to], |r| r.get(0))?
+    };
+    let days = days.max(0);
+
+    // 逐日实收 / 成本 / 退款
+    let mut stmt = conn.prepare(
+        "SELECT d, COALESCE(SUM(sales),0), COALESCE(SUM(cost),0) FROM (
+             SELECT o.business_date AS d, SUM(o.pay_cents) AS sales, 0 AS cost
+             FROM sales_order o
+             WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND o.business_date BETWEEN ?1 AND ?2
+             GROUP BY o.business_date
+             UNION ALL
+             SELECT o.business_date AS d, 0 AS sales,
+                    COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0) AS cost
+             FROM sales_order_item i
+             JOIN sales_order o ON o.order_no=i.order_no
+             JOIN sku s ON s.sku_id=i.sku_id
+             WHERE o.status IN ('COMPLETED','PARTIAL_REFUND')
+               AND o.business_date BETWEEN ?1 AND ?2
+             GROUP BY o.business_date
+         ) GROUP BY d ORDER BY d",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    // 逐日退款（按北京时间归属），与营业日合并
+    let mut refund_by_day = std::collections::BTreeMap::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT date(created_at,'+8 hours') AS d, COALESCE(SUM(amount_cents),0)
+             FROM refund_record
+             WHERE date(created_at,'+8 hours') BETWEEN ?1 AND ?2
+             GROUP BY date(created_at,'+8 hours')",
+        )?;
+        let refunds = stmt
+            .query_map(params![from, to], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for (d, a) in refunds {
+            *refund_by_day.entry(d).or_insert(0i64) += a;
+        }
+    }
+
+    let expense_total = if monthly_expense_cents > 0 && days > 0 {
+        monthly_expense_cents * days / 30
+    } else {
+        0
+    };
+    let daily_expense = if days > 0 { expense_total / days } else { 0 };
+    let (mut net_total, mut cost_total, mut refund_total) = (0i64, 0i64, 0i64);
+    let mut rows = Vec::new();
+    for (d, sales, cost) in raw {
+        let refund = refund_by_day.remove(&d).unwrap_or(0);
+        let net = sales - refund;
+        let gross = net - cost;
+        let profit = gross - daily_expense;
+        net_total += net;
+        cost_total += cost;
+        refund_total += refund;
+        rows.push(vec![
+            d,
+            money(sales),
+            money(refund),
+            money(net),
+            money(cost),
+            money(gross),
+            money(daily_expense),
+            money(profit),
+        ]);
+    }
+    // 纯退款日（无销售单）也补行，保证费用/退款日不缺行
+    for (d, refund) in refund_by_day {
+        let net = -refund;
+        let profit = net - daily_expense;
+        net_total += net;
+        refund_total += refund;
+        rows.push(vec![
+            d,
+            money(0),
+            money(refund),
+            money(net),
+            money(0),
+            money(net),
+            money(daily_expense),
+            money(profit),
+        ]);
+    }
+    rows.sort_by(|a, b| a[0].cmp(&b[0]));
+
+    let gross_total = net_total - cost_total;
+    let profit_total = gross_total - expense_total;
+    let rate = if net_total > 0 { profit_total * 10000 / net_total } else { 0 };
+
+    Ok(ReportResult {
+        id: "profit".into(),
+        title: "利润报表".into(),
+        description: format!(
+            "利润 = 净营业额（实收−退款）− 销售成本 − 月度费用按天均摊；费用在「系统配置」维护：月房租 {} 元、月水电 {} 元、月人工 {} 元，区间 {} 天按 30 天均摊。",
+            rent, utility, labor, days
+        ),
+        columns: cols(&[
+            ("date", "日期", "date"),
+            ("sales", "实收额", "money"),
+            ("refund", "退款额", "money"),
+            ("net", "净营业额", "money"),
+            ("cost", "销售成本", "money"),
+            ("gross", "毛利", "money"),
+            ("expense", "分摊费用", "money"),
+            ("profit", "净利润", "money"),
+        ]),
+        rows,
+        metrics: vec![
+            m("净营业额", money(net_total)),
+            m("毛利", money(gross_total)),
+            m("费用合计", money(expense_total)),
+            m("净利润", money(profit_total)),
+            m("利润率", format!("{}.{:02}%", rate / 100, rate % 100)),
+            m("退款合计", money(refund_total)),
         ],
     })
 }
@@ -1958,9 +2132,9 @@ mod tests {
     }
 
     #[test]
-    fn catalog_has_33_reports_in_5_groups() {
+    fn catalog_has_34_reports_in_5_groups() {
         let list = report_catalog();
-        assert_eq!(list.len(), 33);
+        assert_eq!(list.len(), 34);
         let mut groups = std::collections::BTreeSet::new();
         for r in &list {
             groups.insert(r.group.as_str());
@@ -2024,7 +2198,7 @@ mod tests {
         );
     }
 
-    /// 全部 33 张报表在空库上必须可执行（SQL 列名/语法正确）且列数=行数宽度。
+    /// 全部 34 张报表在空库上必须可执行（SQL 列名/语法正确）且列数=行数宽度。
     #[test]
     fn every_report_executes_with_valid_shape() {
         let c = setup();
@@ -2039,5 +2213,63 @@ mod tests {
                 assert_eq!(row.len(), r.columns.len(), "{} 行列数不匹配", meta.id);
             }
         }
+    }
+
+    /// 利润报表：费用配置后，净利润 = 净营业额 − 成本 − 费用。
+    /// setup 单：实收 9000（total 10000 − 优惠 1000），无 SKU 成本行 → 毛利 = 9000；
+    /// 月费用 3000 元、单日区间 → 费用 = 3000×100×1/30 = 10000 分，利润 = -1000 分。
+    #[test]
+    fn profit_report_nets_expenses() {
+        let c = setup();
+        c.execute(
+            "INSERT INTO system_config(config_key, config_value, updated_at)
+             VALUES ('expense_rent_yuan','2000',datetime('now')),
+                    ('expense_utility_yuan','600',datetime('now')),
+                    ('expense_labor_yuan','400',datetime('now'))",
+            [],
+        )
+        .unwrap();
+        let r = run_report(&c, "profit", "2026-11-17", "2026-11-17").unwrap();
+        let metric = |label: &str| {
+            r.metrics
+                .iter()
+                .find(|m| m.label == label)
+                .unwrap_or_else(|| panic!("缺指标 {label}"))
+                .value
+                .clone()
+        };
+        assert_eq!(metric("净营业额"), "90.00");
+        assert_eq!(metric("费用合计"), "100.00");
+        assert_eq!(metric("净利润"), "-10.00");
+        // 按日行：分摊费用列与日利润列存在
+        assert!(!r.rows.is_empty());
+        assert_eq!(r.rows[0].len(), 8);
+    }
+
+    /// 毛利口径：部分退货后，销售额与成本须同步折算，毛利不虚增。
+    /// O1 无 SKU 行则毛利=净营业额；这里补一行带成本与退货的数据验证折算。
+    #[test]
+    fn margin_summary_nets_refunds() {
+        let c = setup();
+        // 订单实收 9000；当日发生退款 2000（需先建支付记录以满足外键）
+        c.execute(
+            "INSERT INTO payment_record(order_no,pay_channel,amount_cents,status,created_at)
+             VALUES ('O1','CASH',9000,'PAID','2026-11-17T10:31:00Z')",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO refund_record(pay_id, order_no, refund_no, amount_cents, status, created_at, updated_at)
+             VALUES (1,'O1','R1',2000,'COMPLETED','2026-11-17T11:00:00Z','2026-11-17T11:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let r = run_report(&c, "margin_summary", "2026-11-17", "2026-11-17").unwrap();
+        let net = r
+            .metrics
+            .iter()
+            .find(|m| m.label == "净营业额")
+            .expect("缺净营业额指标");
+        assert_eq!(net.value, "70.00");
     }
 }

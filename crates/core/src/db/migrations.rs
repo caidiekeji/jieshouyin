@@ -131,6 +131,9 @@ INSERT INTO system_config(config_key, config_value, updated_at) VALUES
  ('points_per_yuan','1',datetime('now')),
  ('points_redeem_rate','100',datetime('now')),
  ('points_enabled','1',datetime('now')),
+ ('expense_rent_yuan','0',datetime('now')),
+ ('expense_utility_yuan','0',datetime('now')),
+ ('expense_labor_yuan','0',datetime('now')),
  ('max_discount_ratio','0.8',datetime('now'));
 "#;
 
@@ -578,6 +581,14 @@ INSERT OR IGNORE INTO system_config(config_key, config_value, updated_at)
  VALUES ('points_enabled','1',datetime('now'));
 "#;
 
+/// M0011：利润报表月度费用（房租/水电/人工，元）。老库 OR IGNORE 补种默认 0。
+const M0011: &str = r#"
+INSERT OR IGNORE INTO system_config(config_key, config_value, updated_at)
+ VALUES ('expense_rent_yuan','0',datetime('now')),
+        ('expense_utility_yuan','0',datetime('now')),
+        ('expense_labor_yuan','0',datetime('now'));
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -629,6 +640,11 @@ pub fn all() -> Vec<Migration> {
             version: 10,
             name: "member_points_enabled",
             up: M0010,
+        },
+        Migration {
+            version: 11,
+            name: "profit_expense_config",
+            up: M0011,
         },
     ]
 }
