@@ -54,6 +54,8 @@ type View =
   | 'refund'
   | 'order'
 const view = ref<View>('boot')
+/** 商品管理页内子标签：商品列表 / 分类管理（菜单已合并为一个「商品」入口） */
+const goodsTab = ref<'list' | 'category'>('list')
 const bootError = ref('')
 const license = ref<LicenseSnapshot | null>(null)
 const needAdmin = ref(false)
@@ -108,6 +110,18 @@ const cashTendered = ref('')
 const lastOrder = ref('')
 const toast = ref('')
 const parked = ref<unknown[]>([])
+/** 挂单弹窗：付款区按钮唤起，替代原独立挂单菜单 */
+const parkDialogOpen = ref(false)
+/** 会员识别弹窗：付款区按钮唤起 */
+const memberDialogOpen = ref(false)
+
+/** 付款后清空会员识别信息，避免下一单沿用上一顾客会员 */
+function clearMember() {
+  memberPhone.value = ''
+  memberId.value = null
+  memberBalances.value = null
+  for (const l of cart.value) l.member_price_cents = null
+}
 
 // 会员识别 / 优惠券 / 混合支付（§6.5 / §13）
 const memberPhone = ref('')
@@ -681,6 +695,7 @@ async function submitCheckout() {
       startNativePolling(r.order_no)
       return
     }
+    clearMember()
     cart.value = []
     cashTendered.value = ''
     couponCode.value = ''
@@ -700,6 +715,7 @@ function startNativePolling(orderNo: string) {
       if (r.status === 'COMPLETED') {
         stopNativePolling()
         closeNativeDialog()
+        clearMember()
         cart.value = []
         cashTendered.value = ''
         couponCode.value = ''
@@ -750,6 +766,7 @@ async function confirmNativeLocal() {
   try {
     await api.confirmNativePay(d.orderNo)
     closeNativeDialog()
+    clearMember()
     cart.value = []
     cashTendered.value = ''
     couponCode.value = ''
@@ -826,10 +843,15 @@ watch(
 )
 
 async function park() {
+  if (!cart.value.length) {
+    showToast('购物车为空，无需挂单', true)
+    return
+  }
   try {
     await api.parkCart(JSON.stringify(cart.value), null)
     cart.value = []
     showToast('已挂单')
+    if (parkDialogOpen.value) await loadParked()
   } catch (e) {
     showToast(String(e))
   }
@@ -838,7 +860,6 @@ async function park() {
 async function loadParked() {
   try {
     parked.value = await api.listParked()
-    view.value = 'parked'
   } catch (e) {
     showToast(String(e))
   }
@@ -848,6 +869,7 @@ async function resume(parkId: number) {
   try {
     const json = await api.resumeCart(parkId)
     cart.value = JSON.parse(json)
+    parkDialogOpen.value = false
     view.value = 'pos'
     showToast('已取单，促销将现场重算')
   } catch (e) {
@@ -1225,9 +1247,23 @@ onMounted(() => {
   if (saved) applyTheme(saved)
 })
 function goPOS() { view.value = 'pos'; focusScan(); loadPayChannels() }
-function goProducts() { view.value = 'products' }
-function goParked() { loadParked() }
+function goProducts() { goodsTab.value = 'list'; view.value = 'products' }
 function goReport() { view.value = 'report'; loadReport(); loadReports(); loadShift() }
+
+/** 付款区「挂单」按钮：打开弹窗并刷新待取挂单列表 */
+async function openParkDialog() {
+  parkDialogOpen.value = true
+  await loadParked()
+}
+/** 付款区「会员」按钮：打开识别弹窗 */
+function openMemberDialog() {
+  memberDialogOpen.value = true
+}
+/** 弹窗内识别会员：成功则关闭弹窗 */
+async function confirmMemberDialog() {
+  await findMember()
+  if (memberId.value != null) memberDialogOpen.value = false
+}
 function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadCoupons(); loadPaymentSettings(); loadIndustries(); loadStoreProfile() }
 function doLogout() { api.logout(); view.value = 'login'; currentUser.value = '' }
 </script>
@@ -1386,11 +1422,9 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         </div>
         <nav class="nav">
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
-          <button :class="['nav-btn', { active: view === 'products' }]" @click="goProducts"><Icon name="box" :size="ICON_SIZE.lg" />商品</button>
-          <button :class="['nav-btn', { active: view === 'categories' }]" @click="view = 'categories'"><Icon name="box" :size="ICON_SIZE.lg" />分类</button>
+          <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="box" :size="ICON_SIZE.lg" />商品</button>
           <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="park" :size="ICON_SIZE.lg" />采购盘点</button>
           <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="users" :size="ICON_SIZE.lg" />会员营销</button>
-          <button :class="['nav-btn', { active: view === 'parked' }]" @click="goParked"><Icon name="park" :size="ICON_SIZE.lg" />挂单</button>
           <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="refresh" :size="ICON_SIZE.lg" />退款</button>
           <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)"><Icon name="print" :size="ICON_SIZE.lg" />订单</button>
           <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.lg" />报表</button>
@@ -1428,14 +1462,6 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             </div>
             <div v-if="!products.length" class="empty">扫码枪自动识别，或输入条码/商品名回车</div>
           </div>
-
-          <div class="member-strip">
-            <input v-model="memberPhone" class="input" placeholder="会员手机号/会员码" @keyup.enter="findMember" />
-            <button class="btn" @click="findMember"><Icon name="user" :size="ICON_SIZE.sm" />识别会员</button>
-          </div>
-          <div v-if="memberBalances" class="member-balance">
-            本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
-          </div>
         </section>
 
         <section class="panel cart-panel">
@@ -1459,6 +1485,14 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             <div class="coupon-row">
               <input v-model="couponCode" class="input" placeholder="优惠券码（可选）" />
               <span v-if="quote?.coupon_note" class="muted small">{{ quote.coupon_note }}</span>
+            </div>
+            <div class="pay-member-row">
+              <button class="btn" @click="openMemberDialog">
+                <Icon name="user" :size="ICON_SIZE.sm" />{{ memberId != null ? '已识别会员' : '识别会员' }}
+              </button>
+              <span v-if="memberBalances" class="member-balance-inline">
+                本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
+              </span>
             </div>
             <div class="total">
               <span>应收</span>
@@ -1501,7 +1535,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
               </div>
             </div>
             <div class="actions">
-              <button class="btn" @click="park">挂单</button>
+              <button class="btn" @click="openParkDialog"><Icon name="park" :size="ICON_SIZE.md" />挂单</button>
               <button class="btn primary" @click="submitCheckout"><Icon name="check" :size="ICON_SIZE.md" />收款</button>
             </div>
             <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
@@ -1509,29 +1543,25 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         </section>
       </main>
 
-      <!-- 商品管理 -->
-      <ProductAdmin v-else-if="view === 'products'" />
-
-      <!-- 商品分类 -->
-      <CategoryAdmin v-else-if="view === 'categories'" />
+      <!-- 商品与分类：合并为「商品」一个菜单，页内子标签切换 -->
+      <template v-else-if="view === 'products' || view === 'categories'">
+        <div class="goods-tabs">
+          <button :class="['goods-tab', { active: goodsTab === 'list' }]" @click="goodsTab = 'list'; view = 'products'">
+            <Icon name="box" :size="ICON_SIZE.md" />商品列表
+          </button>
+          <button :class="['goods-tab', { active: goodsTab === 'category' }]" @click="goodsTab = 'category'; view = 'categories'">
+            <Icon name="box" :size="ICON_SIZE.md" />分类管理
+          </button>
+        </div>
+        <ProductAdmin v-if="goodsTab === 'list'" />
+        <CategoryAdmin v-else />
+      </template>
 
       <!-- 采购与盘点 -->
       <SupplyAdmin v-else-if="view === 'supply'" />
 
       <!-- 会员营销 -->
       <MemberAdmin v-else-if="view === 'member'" />
-
-      <!-- 挂单 -->
-      <main v-else-if="view === 'parked'" class="main-simple">
-        <div class="card wide">
-          <h3>待取挂单</h3>
-          <div v-for="p in parked" :key="String((p as any).park_id)" class="row-item">
-            <span>单号 #{{ (p as any).park_id }} · {{ (p as any).created_at }}</span>
-            <button class="btn" @click="resume((p as any).park_id)">取单</button>
-          </div>
-          <div v-if="!parked.length" class="empty">暂无挂单</div>
-        </div>
-      </main>
 
       <!-- 报表 -->
       <main v-else-if="view === 'report'" class="main-simple">
@@ -1904,6 +1934,46 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <div class="actions">
             <button class="btn" @click="cancelNative">取消支付</button>
             <button v-if="isLocalGateway" class="btn primary" @click="confirmNativeLocal">本地确认收款</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 挂单弹窗：付款区「挂单」按钮唤起 -->
+      <div v-if="parkDialogOpen" class="modal-mask" @click.self="parkDialogOpen = false">
+        <div class="modal">
+          <h3>待取挂单</h3>
+          <p class="muted small">点击「取单」将挂单商品放回购物车，促销与会员价现场重算。</p>
+          <div class="park-dialog-list">
+            <div v-for="p in parked" :key="String((p as any).park_id)" class="row-item">
+              <span>单号 #{{ (p as any).park_id }} · {{ (p as any).created_at }}</span>
+              <button class="btn" @click="resume((p as any).park_id)">取单</button>
+            </div>
+            <div v-if="!parked.length" class="empty">暂无挂单</div>
+          </div>
+          <div class="actions">
+            <button class="btn" @click="park">挂起当前购物车</button>
+            <button class="btn primary" @click="parkDialogOpen = false">关闭</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 会员识别弹窗：付款区「会员」按钮唤起 -->
+      <div v-if="memberDialogOpen" class="modal-mask" @click.self="memberDialogOpen = false">
+        <div class="modal">
+          <h3>识别会员</h3>
+          <p class="muted small">输入会员手机号或会员码，识别后按会员价结算；本单收款完成后自动清除。</p>
+          <input
+            v-model="memberPhone"
+            class="input"
+            placeholder="会员手机号/会员码"
+            @keyup.enter="confirmMemberDialog"
+          />
+          <div v-if="memberBalances" class="member-balance">
+            本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
+          </div>
+          <div class="actions">
+            <button class="btn" @click="memberDialogOpen = false">关闭</button>
+            <button class="btn primary" @click="confirmMemberDialog">识别会员</button>
           </div>
         </div>
       </div>

@@ -336,6 +336,21 @@ h2 { font-size: var(--font-lg); }
   color: var(--success-text); background: var(--success-subtle);
   padding: var(--space-2); border-radius: var(--radius-sm);
 }
+/* 付款区会员入口：识别按钮 + 余额摘要 */
+.pay-member-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.member-balance-inline { font-size: var(--font-sm); color: var(--success-text); }
+/* 商品/分类合并页的子标签 */
+.goods-tabs { display: flex; gap: var(--space-2); flex: 0 0 auto; }
+.goods-tab {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md); background: var(--panel);
+  color: var(--muted); cursor: pointer; font-size: var(--font-sm);
+}
+.goods-tab.active { background: var(--brand); color: var(--text-on-brand); border-color: var(--brand); }
+/* 挂单弹窗列表 */
+.park-dialog-list { display: flex; flex-direction: column; gap: var(--space-2); max-height: 50vh; overflow-y: auto; }
 .coupon-row { margin-bottom: var(--space-2); }
 .pay-splits { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0; }
 .pay-split { display: flex; gap: var(--space-2); align-items: center; }
