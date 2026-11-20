@@ -3803,16 +3803,23 @@ pub fn run() {
 
             // 系统托盘：关闭按钮只隐藏到托盘，真正退出走托盘菜单。
             // 图标优先用应用默认图标，构造失败则跳过托盘，不影响主程序启动。
-            let tray_icon = app
-                .default_window_icon()
-                .cloned()
-                .or_else(|| tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok());
+            let tray_icon = app.default_window_icon().cloned().or_else(|| {
+                tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok()
+            });
             if let Some(icon) = tray_icon {
                 let show_item = tauri::menu::MenuItem::with_id(
-                    app, "tray_show", "显示收银台", true, None::<&str>,
+                    app,
+                    "tray_show",
+                    "显示收银台",
+                    true,
+                    None::<&str>,
                 );
                 let quit_item = tauri::menu::MenuItem::with_id(
-                    app, "tray_quit", "退出程序", true, None::<&str>,
+                    app,
+                    "tray_quit",
+                    "退出程序",
+                    true,
+                    None::<&str>,
                 );
                 if let (Ok(show_item), Ok(quit_item)) = (show_item, quit_item) {
                     if let Ok(tray_menu) =
