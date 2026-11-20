@@ -3824,9 +3824,10 @@ pub fn run() {
 
             // 系统托盘：关闭按钮只隐藏到托盘，真正退出走托盘菜单。
             // 图标优先用应用默认图标，构造失败则跳过托盘，不影响主程序启动。
-            let tray_icon = app.default_window_icon().cloned().or_else(|| {
-                tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok()
-            });
+            let tray_icon = app
+                .default_window_icon()
+                .cloned()
+                .or_else(|| tauri::image::Image::from_app_icon_resource(32).ok());
             if let Some(icon) = tray_icon {
                 let show_item = tauri::menu::MenuItem::with_id(
                     app,
@@ -3878,8 +3879,12 @@ pub fn run() {
                             .build(app)
                         {
                             // TrayIcon 是 RAII 句柄，必须长期持有，否则图标立即消失
-                            Ok(tray) => app.manage(tray),
-                            Err(e) => tracing::warn!("托盘图标创建失败: {e}"),
+                            Ok(tray) => {
+                                let _ = app.manage(tray);
+                            }
+                            Err(e) => {
+                                tracing::warn!("托盘图标创建失败: {e}");
+                            }
                         }
                     }
                 }
