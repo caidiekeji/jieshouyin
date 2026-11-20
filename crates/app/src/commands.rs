@@ -3713,7 +3713,10 @@ fn open_in_browser(url: &str) -> Result<()> {
         .spawn()
         .map(|_| ());
     #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg(url).spawn().map(|_| ());
+    let result = std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ());
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let result = std::process::Command::new("xdg-open")
         .arg(url)
