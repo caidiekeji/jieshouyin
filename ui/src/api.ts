@@ -246,6 +246,19 @@ export interface ChannelReport { channels: ChannelTotal[]; balanced: boolean }
 export interface ProductSales { sku_id: number; qty: number; sales_cents: number; discount_cents: number }
 export interface CategorySales { category_id: number; category_name: string; qty: number; sales_cents: number }
 export interface CashierSales { cashier_id: number; order_count: number; pay_cents: number }
+
+/** 统一报表中心：元数据 + 通用结果结构（33 张报表共用） */
+export interface ReportMeta { id: string; title: string; group: string }
+export interface ReportColumn { key: string; label: string; kind: 'money' | 'qty' | 'text' | 'percent' | 'date' }
+export interface ReportMetric { label: string; value: string }
+export interface ReportResult {
+  id: string
+  title: string
+  description: string
+  columns: ReportColumn[]
+  rows: string[][]
+  metrics: ReportMetric[]
+}
 export interface CouponRow {
   coupon_code: string
   member_id: number | null
@@ -416,6 +429,10 @@ export const api = {
     invoke<CategorySales[]>('category_report', { from, to }),
   cashierReport: (from: string, to: string) =>
     invoke<CashierSales[]>('cashier_report', { from, to }),
+  // 统一报表中心（33 张报表）
+  reportCatalog: () => invoke<ReportMeta[]>('report_catalog'),
+  genericReport: (id: string, from: string, to: string) =>
+    invoke<ReportResult>('generic_report', { reportId: id, from, to }),
   reconcileCsv: (date: string) => invoke<string>('reconcile_csv', { date }),
   // 交班闭环（§5.4）
   openShift: (openingFloatCents: number) =>

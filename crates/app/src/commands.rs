@@ -2585,6 +2585,27 @@ pub fn cashier_report(
     Ok(out)
 }
 
+// ===== 统一报表中心（§14 扩展）：33 张报表共用一个命令 =====
+
+/// 报表清单：按分组返回全部报表元数据，前端据此渲染左侧导航。
+#[tauri::command]
+pub fn report_catalog(state: State<'_, AppState>) -> Result<Vec<checkout_core::report_catalog::ReportMeta>> {
+    let (_op, _conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
+    Ok(checkout_core::report_catalog::report_catalog())
+}
+
+/// 统一报表查询：按 report_id 分发到对应 SQL，日期区间为营业日/创建日。
+#[tauri::command]
+pub fn generic_report(
+    report_id: String,
+    from: String,
+    to: String,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::report_catalog::ReportResult> {
+    let (_op, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
+    checkout_core::report_catalog::run_report(&conn, &report_id, &from, &to)
+}
+
 // ===== 交班闭环（§5.4 / F-09）=====
 
 /// 开班：创建班次并设为当前班次，收银结算引用其 shift_id。
@@ -3902,6 +3923,8 @@ pub fn run() {
             product_report,
             category_report,
             cashier_report,
+            report_catalog,
+            generic_report,
             reconcile_csv,
             print_receipt,
             print_retries,

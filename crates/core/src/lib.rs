@@ -23,6 +23,7 @@ pub mod promo;
 pub mod purchase;
 pub mod rbac;
 pub mod report;
+pub mod report_catalog;
 pub mod scanner;
 pub mod time;
 
