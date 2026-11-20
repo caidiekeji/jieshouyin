@@ -45,6 +45,9 @@ jobs:
         run: npm run build
       - name: Build Tauri app with installers
         working-directory: crates/app
+        env:
+          # 内置官网/激活服务地址，发行包开箱即用；仓库变量可覆盖
+          ACTIVATION_ENDPOINT: ${{ vars.ACTIVATION_ENDPOINT || 'https://www.lequ.pw' }}
         run: npx -y @tauri-apps/cli@2 build
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
