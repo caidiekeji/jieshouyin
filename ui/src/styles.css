@@ -261,23 +261,29 @@ h2 { font-size: var(--font-lg); }
 .pay-row { display: grid; grid-template-columns: var(--layout-pay-label-width) 1fr; gap: var(--space-2); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 
-/* 设置中心：左侧子导航 + 右侧内容，避免在单列里堆九张卡片 */
-.settings-center {
+/* 后台管理骨架：左栏贴左全高（报表中心 / 设置中心共用），右侧内容独立滚动 */
+.admin-shell {
   flex: 1; min-height: 0;
-  width: 100%; max-width: var(--layout-admin-width);
-  margin: 0 auto; padding: var(--space-6);
+  width: 100%;
   display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: var(--space-5);
-  align-items: start;
-  overflow: hidden;
+  grid-template-columns: var(--layout-side-nav-width) 1fr;
 }
-.settings-nav {
+.admin-side {
+  border-right: var(--border-width) solid var(--border);
+  background: var(--panel);
+  padding: var(--space-4) var(--space-3);
+  overflow-y: auto;
   display: flex; flex-direction: column; gap: var(--space-1);
-  background: var(--panel); border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-lg); padding: var(--space-2);
-  position: sticky; top: 0;
 }
+.admin-side-title {
+  font-size: var(--font-sm); font-weight: 700;
+  padding: var(--space-1) var(--space-2) var(--space-3);
+}
+.admin-main {
+  min-width: 0; overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+}
+.settings-content { display: flex; flex-direction: column; gap: var(--space-5); }
 .settings-nav-btn {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -287,15 +293,9 @@ h2 { font-size: var(--font-lg); }
 }
 .settings-nav-btn:hover { background: var(--surface-subtle); }
 .settings-nav-btn.active { background: var(--chrome); color: var(--on-chrome); }
-.settings-content {
-  display: flex; flex-direction: column; gap: var(--space-5);
-  min-height: 0; overflow-y: auto; max-height: 100%;
-}
-
 .main-simple {
   /* 管理页统一骨架：页头 → 工具栏 → 内容卡片流，单列纵向铺开。
-     此前误用「单卡片水平居中」布局导致整页横排（标题/表头竖排的根因），
-     现按 B 端后台范式重排：内容上限 1200px，超出滚动。 */
+     商品/采购/会员/订单/退款等无侧栏页面复用；报表与设置走 .admin-shell */
   flex: 1; min-height: 0; overflow-y: auto;
   width: 100%; max-width: var(--layout-admin-width);
   margin: 0 auto; padding: var(--space-6);
@@ -347,13 +347,7 @@ h2 { font-size: var(--font-lg); }
   border-bottom: var(--border-width) solid var(--border);
 }
 .tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); white-space: nowrap; }
-/* 统一报表中心：左侧分组清单 + 右侧通用结果表 */
-.report-center-body { display: flex; gap: var(--space-4); align-items: stretch; }
-.report-nav {
-  width: 180px; flex: none;
-  max-height: 70vh; overflow-y: auto; padding-right: var(--space-2);
-  border-right: var(--border-width) solid var(--border);
-}
+/* 报表中心左栏：分组清单（宿主 .admin-side 提供全高滚动与分隔线） */
 .report-nav-group { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3); }
 .report-nav-title {
   font-size: var(--font-xs); color: var(--muted); font-weight: 600;
@@ -365,7 +359,9 @@ h2 { font-size: var(--font-lg); }
 }
 .report-nav-item:hover { background: var(--surface-subtle); }
 .report-nav-item.active { background: var(--chrome); color: var(--on-chrome); font-weight: 600; }
-.report-detail { flex: 1; min-width: 0; }
+.report-head { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-2); }
+.report-toolbar { row-gap: var(--space-2); margin-bottom: var(--space-4); }
+.report-toolbar .input { flex: none; min-width: 0; }
 .report-table-wrap { max-height: 60vh; overflow: auto; }
 .report-table-wrap .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
 .page-head { display: flex; align-items: center; gap: var(--space-4); }

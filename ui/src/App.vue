@@ -10,10 +10,6 @@ import {
   type ProductHit,
   type CartLine,
   type OrderItemRow,
-  type ChannelReport,
-  type ProductSales,
-  type CategorySales,
-  type CashierSales,
   type ConfigRow,
   type ReportMeta,
   type ReportResult,
@@ -1090,16 +1086,6 @@ async function printReceipt() {
   }
 }
 
-const reportDate = ref(today())
-const report = ref<{ order_count: number; total_sales_cents: number; refund_cents: number; discount_cents: number } | null>(null)
-async function loadReport() {
-  try {
-    report.value = await api.dailyReport(reportDate.value)
-  } catch (e) {
-    showToast(String(e))
-  }
-}
-
 // ===== 交班汇总（§5.4）=====
 interface ShiftRow { cashier_id: number; order_count: number; total_cents: number; pay_cents: number; cash_net_cents: number }
 const shiftId = ref(1)
@@ -1140,40 +1126,6 @@ async function doCloseShift() {
   }
 }
 
-// ===== 报表维度（§14）=====
-const channelReport = ref<ChannelReport | null>(null)
-const productRows = ref<ProductSales[]>([])
-const categoryRows = ref<CategorySales[]>([])
-const cashierRows = ref<CashierSales[]>([])
-const reportFrom = ref(today())
-const reportTo = ref(today())
-async function loadReports() {
-  try {
-    ;[channelReport.value, productRows.value, categoryRows.value, cashierRows.value] = await Promise.all([
-      api.channelReport(reportDate.value),
-      api.productReport(reportFrom.value, reportTo.value),
-      api.categoryReport(reportFrom.value, reportTo.value),
-      api.cashierReport(reportFrom.value, reportTo.value),
-    ])
-  } catch (e) {
-    showToast(String(e), true)
-  }
-}
-async function exportReconcile() {
-  try {
-    const csv = await api.reconcileCsv(reportDate.value)
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `reconcile-${reportDate.value}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    showToast('对账差异已导出')
-  } catch (e) {
-    showToast(String(e), true)
-  }
-}
 
 // ===== 统一报表中心（33 张报表）=====
 const reportMetas = ref<ReportMeta[]>([])
@@ -1218,8 +1170,16 @@ async function runActiveReport() {
 }
 
 function selectReport(id: string) {
+  reportTool.value = null
   activeReportId.value = id
   void runActiveReport()
+}
+
+/** 左栏「工具」分组：班次管理 / 订单作废退货，与报表查询互斥显示。 */
+type ReportTool = 'shift' | 'orderOp'
+const reportTool = ref<ReportTool | null>(null)
+function openTool(t: ReportTool) {
+  reportTool.value = t
 }
 
 /** 导出当前报表为 CSV：列头 + 数据行，金额/占比已是格式化字符串，直接引用。 */
@@ -1526,9 +1486,7 @@ function goPOS() { view.value = 'pos'; focusScan(); loadPayChannels() }
 function goProducts() { goodsTab.value = 'list'; view.value = 'products' }
 function goReport() {
   view.value = 'report'
-  loadReport()
-  loadReports()
-  loadShift()
+  reportTool.value = null
   void loadReportCatalog().then(() => runActiveReport())
 }
 
@@ -1844,175 +1802,124 @@ function doLogout() {
       <MemberAdmin v-else-if="view === 'member'" />
 
       <!-- 报表 -->
-      <main v-else-if="view === 'report'" class="main-simple">
-        <!-- 统一报表中心：左侧 33 报表清单，右侧通用表格 -->
-        <div class="card wide report-center">
-          <h3>报表中心</h3>
-          <div class="report-center-body">
-            <aside class="report-nav">
-              <div v-for="g in reportGroups" :key="g.name" class="report-nav-group">
-                <div class="report-nav-title">{{ g.name }}</div>
-                <button
-                  v-for="m in g.items"
-                  :key="m.id"
-                  :class="['report-nav-item', { active: activeReportId === m.id }]"
-                  @click="selectReport(m.id)"
-                >{{ m.title }}</button>
-              </div>
-            </aside>
-            <section class="report-detail">
-              <div class="search-row">
-                <input v-model="centerFrom" class="input" type="date" />
-                <span class="muted small">至</span>
-                <input v-model="centerTo" class="input" type="date" />
-                <button class="btn primary" :disabled="reportLoading" @click="runActiveReport">
-                  {{ reportLoading ? '查询中…' : '查询' }}
-                </button>
-                <button class="btn" :disabled="!activeReport" @click="exportActiveReport">导出CSV</button>
-              </div>
-              <template v-if="activeReport">
-                <h4>{{ activeReport.title }}</h4>
+      <main v-else-if="view === 'report'" class="admin-shell">
+        <!-- 报表中心：后台管理式布局，左栏贴左全高（33 报表 + 工具），右侧内容独立滚动 -->
+        <aside class="admin-side">
+          <div class="admin-side-title">报表中心</div>
+          <div v-for="g in reportGroups" :key="g.name" class="report-nav-group">
+            <div class="report-nav-title">{{ g.name }}</div>
+            <button
+              v-for="m in g.items"
+              :key="m.id"
+              :class="['report-nav-item', { active: !reportTool && activeReportId === m.id }]"
+              @click="selectReport(m.id)"
+            >{{ m.title }}</button>
+          </div>
+          <div class="report-nav-group">
+            <div class="report-nav-title">工具</div>
+            <button :class="['report-nav-item', { active: reportTool === 'shift' }]" @click="openTool('shift')">班次管理</button>
+            <button :class="['report-nav-item', { active: reportTool === 'orderOp' }]" @click="openTool('orderOp')">订单作废 / 退货</button>
+          </div>
+        </aside>
+        <section class="admin-main">
+          <!-- 报表查询 -->
+          <template v-if="!reportTool">
+            <div class="toolbar report-toolbar">
+              <input v-model="centerFrom" class="input" type="date" />
+              <span class="muted small">至</span>
+              <input v-model="centerTo" class="input" type="date" />
+              <button class="btn primary" :disabled="reportLoading" @click="runActiveReport">
+                {{ reportLoading ? '查询中…' : '查询' }}
+              </button>
+              <button class="btn" :disabled="!activeReport" @click="exportActiveReport">导出CSV</button>
+            </div>
+            <template v-if="activeReport">
+              <div class="report-head">
+                <h3>{{ activeReport.title }}</h3>
                 <p class="muted small">{{ activeReport.description }}</p>
-                <div v-if="activeReport.metrics.length" class="stats">
-                  <div v-for="(mt, i) in activeReport.metrics" :key="i" class="stat">
-                    <span>{{ mt.label }}</span><strong>{{ mt.value }}</strong>
-                  </div>
+              </div>
+              <div v-if="activeReport.metrics.length" class="stats">
+                <div v-for="(mt, i) in activeReport.metrics" :key="i" class="stat">
+                  <span>{{ mt.label }}</span><strong>{{ mt.value }}</strong>
                 </div>
-                <div class="report-table-wrap">
-                  <table v-if="activeReport.rows.length" class="tbl">
-                    <thead>
-                      <tr><th v-for="(c, i) in activeReport.columns" :key="i">{{ c.label }}</th></tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(row, ri) in activeReport.rows" :key="ri">
-                        <td v-for="(cell, ci) in row" :key="ci" :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent' }">{{ cell }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <div v-else class="empty">该区间暂无数据</div>
-                </div>
-              </template>
-              <div v-else class="empty">请选择左侧报表</div>
-            </section>
-          </div>
-        </div>
-
-        <div class="card wide">
-          <h3>日结报表</h3>
-          <div class="search-row">
-            <input v-model="reportDate" class="input" type="date" />
-            <button class="btn" @click="loadReport">查询</button>
-          </div>
-          <div v-if="report" class="stats">
-            <div class="stat"><span>订单数</span><strong>{{ report.order_count }}</strong></div>
-            <div class="stat"><span>销售额</span><strong>¥{{ formatMoney(report.total_sales_cents) }}</strong></div>
-            <div class="stat"><span>退款额</span><strong>¥{{ formatMoney(report.refund_cents) }}</strong></div>
-            <div class="stat"><span>优惠额</span><strong>¥{{ formatMoney(report.discount_cents) }}</strong></div>
-          </div>
-        </div>
-
-        <div class="card wide">
-          <h3>班次管理</h3>
-          <div class="search-row">
-            <input v-model="openingFloat" class="input" type="number" placeholder="开班备用金(元)" />
-            <button class="btn" @click="doOpenShift">开班</button>
-            <span v-if="currentShiftId" class="badge">当前班次 {{ currentShiftId }}</span>
-          </div>
-          <div class="search-row">
-            <input v-model="actualCash" class="input" type="number" placeholder="关班实收现金(元)" />
-            <button class="btn" @click="doCloseShift">关班（需授权）</button>
-          </div>
-          <div class="search-row">
-            <input v-model.number="shiftId" class="input" type="number" placeholder="班次 ID" />
-            <button class="btn" @click="loadShift">查询汇总</button>
-          </div>
-          <table v-if="shiftRows.length" class="tbl">
-            <thead><tr><th>收银员</th><th>订单数</th><th>应收</th><th>实收</th><th>现金净额</th></tr></thead>
-            <tbody>
-              <tr v-for="r in shiftRows" :key="r.cashier_id">
-                <td>{{ r.cashier_id }}</td>
-                <td>{{ r.order_count }}</td>
-                <td>{{ formatMoney(r.total_cents) }}</td>
-                <td>{{ formatMoney(r.pay_cents) }}</td>
-                <td>{{ formatMoney(r.cash_net_cents) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="card wide">
-          <h3>多维销售报表</h3>
-          <div class="search-row">
-            <input v-model="reportFrom" class="input" type="date" />
-            <input v-model="reportTo" class="input" type="date" />
-            <button class="btn" @click="loadReports">加载报表</button>
-            <button class="btn" @click="exportReconcile">导出对账CSV</button>
-          </div>
-          <div v-if="channelReport" class="stats">
-            <div class="stat"><span>渠道净额合计</span><strong>¥{{ formatMoney(channelReport.channels.reduce((s, c) => s + c.amount_cents, 0)) }}</strong></div>
-            <div class="stat"><span>账实相符</span><strong>{{ channelReport.balanced ? '是' : '否' }}</strong></div>
-          </div>
-          <table v-if="channelReport?.channels.length" class="tbl">
-            <thead><tr><th>支付渠道</th><th>净额</th><th>笔数</th></tr></thead>
-            <tbody>
-              <tr v-for="c in channelReport.channels" :key="c.channel">
-                <td>{{ c.channel }}</td><td>¥{{ formatMoney(c.amount_cents) }}</td><td>{{ c.count }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <h4>按商品</h4>
-          <table v-if="productRows.length" class="tbl">
-            <thead><tr><th>SKU</th><th>数量</th><th>销售额</th><th>优惠</th></tr></thead>
-            <tbody>
-              <tr v-for="p in productRows" :key="p.sku_id">
-                <td>{{ p.sku_id }}</td><td>{{ p.qty }}</td><td>¥{{ formatMoney(p.sales_cents) }}</td><td>¥{{ formatMoney(p.discount_cents) }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <h4>按类目</h4>
-          <table v-if="categoryRows.length" class="tbl">
-            <thead><tr><th>类目</th><th>数量</th><th>销售额</th></tr></thead>
-            <tbody>
-              <tr v-for="c in categoryRows" :key="c.category_id">
-                <td>{{ c.category_name }}</td><td>{{ c.qty }}</td><td>¥{{ formatMoney(c.sales_cents) }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <h4>按收银员</h4>
-          <table v-if="cashierRows.length" class="tbl">
-            <thead><tr><th>收银员ID</th><th>订单数</th><th>实收</th></tr></thead>
-            <tbody>
-              <tr v-for="c in cashierRows" :key="c.cashier_id">
-                <td>{{ c.cashier_id }}</td><td>{{ c.order_count }}</td><td>¥{{ formatMoney(c.pay_cents) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="card wide">
-          <h3>订单操作（作废 / 退货）</h3>
-          <div class="search-row">
-            <input v-model="opOrderNo" class="input" placeholder="输入订单号" />
-            <button class="btn" @click="loadOrderItems">查询明细</button>
-          </div>
-          <table v-if="opItems.length" class="tbl">
-            <thead><tr><th>商品</th><th>数量</th><th>已退</th><th>单价</th><th>本次退货数</th></tr></thead>
-            <tbody>
-              <tr v-for="r in opItems" :key="r.item_id">
-                <td>{{ r.product_name }}</td>
-                <td>{{ r.qty }}</td>
-                <td>{{ r.returned_qty }}</td>
-                <td>{{ formatMoney(r.unit_price_cents) }}</td>
-                <td><input v-model="opQty[r.item_id]" class="input input-sm" type="number" min="0" :max="r.qty - r.returned_qty" /></td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-if="opItems.length" class="op-form">
-            <button class="btn" @click="doVoid">作废订单</button>
-            <button class="btn primary" @click="doRefund">退货退款</button>
-          </div>
-          <p class="muted small">作废：仅待支付单或当日现金单；扫码已支付订单只能退货退款。退货受角色限额约束。</p>
-        </div>
+              </div>
+              <div class="report-table-wrap">
+                <table v-if="activeReport.rows.length" class="tbl">
+                  <thead>
+                    <tr><th v-for="(c, i) in activeReport.columns" :key="i">{{ c.label }}</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, ri) in activeReport.rows" :key="ri">
+                      <td v-for="(cell, ci) in row" :key="ci" :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent' }">{{ cell }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-else class="empty">该区间暂无数据</div>
+              </div>
+            </template>
+            <div v-else class="empty">请选择左侧报表</div>
+          </template>
+          <!-- 工具：班次管理 -->
+          <template v-else-if="reportTool === 'shift'">
+            <div class="report-head">
+              <h3>班次管理</h3>
+              <p class="muted small">开班设置备用金，关班需授权并核对现金差额。</p>
+            </div>
+            <div class="toolbar">
+              <input v-model="openingFloat" class="input" type="number" placeholder="开班备用金(元)" />
+              <button class="btn" @click="doOpenShift">开班</button>
+              <span v-if="currentShiftId" class="badge">当前班次 {{ currentShiftId }}</span>
+            </div>
+            <div class="toolbar">
+              <input v-model="actualCash" class="input" type="number" placeholder="关班实收现金(元)" />
+              <button class="btn" @click="doCloseShift">关班（需授权）</button>
+            </div>
+            <div class="toolbar">
+              <input v-model.number="shiftId" class="input" type="number" placeholder="班次 ID" />
+              <button class="btn" @click="loadShift">查询汇总</button>
+            </div>
+            <table v-if="shiftRows.length" class="tbl">
+              <thead><tr><th>收银员</th><th>订单数</th><th>应收</th><th>实收</th><th>现金净额</th></tr></thead>
+              <tbody>
+                <tr v-for="r in shiftRows" :key="r.cashier_id">
+                  <td>{{ r.cashier_id }}</td>
+                  <td>{{ r.order_count }}</td>
+                  <td>{{ formatMoney(r.total_cents) }}</td>
+                  <td>{{ formatMoney(r.pay_cents) }}</td>
+                  <td>{{ formatMoney(r.cash_net_cents) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="empty">输入班次 ID 查询交班汇总</div>
+          </template>
+          <!-- 工具：订单作废 / 退货 -->
+          <template v-else>
+            <div class="report-head">
+              <h3>订单作废 / 退货</h3>
+              <p class="muted small">作废：仅待支付单或当日现金单；扫码已支付订单只能退货退款。退货受角色限额约束。</p>
+            </div>
+            <div class="toolbar">
+              <input v-model="opOrderNo" class="input" placeholder="输入订单号" />
+              <button class="btn" @click="loadOrderItems">查询明细</button>
+            </div>
+            <table v-if="opItems.length" class="tbl">
+              <thead><tr><th>商品</th><th>数量</th><th>已退</th><th>单价</th><th>本次退货数</th></tr></thead>
+              <tbody>
+                <tr v-for="r in opItems" :key="r.item_id">
+                  <td>{{ r.product_name }}</td>
+                  <td>{{ r.qty }}</td>
+                  <td>{{ r.returned_qty }}</td>
+                  <td>{{ formatMoney(r.unit_price_cents) }}</td>
+                  <td><input v-model="opQty[r.item_id]" class="input input-sm" type="number" min="0" :max="r.qty - r.returned_qty" /></td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="opItems.length" class="op-form">
+              <button class="btn" @click="doVoid">作废订单</button>
+              <button class="btn primary" @click="doRefund">退货退款</button>
+            </div>
+          </template>
+        </section>
       </main>
 
       <!-- 退款 -->
@@ -2031,9 +1938,10 @@ function doLogout() {
         @search="gotoOrder"
       />
 
-      <!-- 设置中心：左侧子导航 + 右侧内容 -->
-      <main v-else class="settings-center">
-        <nav class="settings-nav">
+      <!-- 设置中心：后台管理式布局，左栏贴左全高，右侧内容独立滚动 -->
+      <main v-else class="admin-shell">
+        <nav class="admin-side">
+          <div class="admin-side-title">设置中心</div>
           <button
             v-for="t in visibleSettingsTabs"
             :key="t.id"
@@ -2044,7 +1952,7 @@ function doLogout() {
           </button>
         </nav>
 
-        <div class="settings-content">
+        <div class="admin-main settings-content">
           <!-- 概览：门店信息 + 授权状态 -->
           <template v-if="settingsTab === 'overview'">
             <div class="card wide">
