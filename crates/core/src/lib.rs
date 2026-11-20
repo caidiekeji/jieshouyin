@@ -17,6 +17,7 @@ pub mod order;
 pub mod orderview;
 pub mod paycreds;
 pub mod payment;
+pub mod printer;
 pub mod product;
 pub mod promo;
 pub mod purchase;
@@ -32,4 +33,11 @@ pub use error::{CoreError, Result};
 pub mod embedded_key {
     include!(concat!(env!("OUT_DIR"), "/public_key.rs"));
 }
+pub use embedded_key::EMBEDDED_ACTIVATION_ENDPOINT;
 pub use embedded_key::EMBEDDED_PUBLIC_KEY;
+
+/// 内置的在线激活服务地址（构建时注入）。为空表示未随包分发地址，
+/// 用户可在「系统配置 → 在线激活服务」中填写；两者取其一即可生效。
+pub fn default_activation_endpoint() -> &'static str {
+    EMBEDDED_ACTIVATION_ENDPOINT
+}

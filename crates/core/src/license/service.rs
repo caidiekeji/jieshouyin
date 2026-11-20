@@ -88,6 +88,18 @@ impl LicenseService {
 
     /// 首次激活：验签 → 设备指纹比对 → 写安全存储 → 镜像 → 审计。全程无网络。
     pub fn activate(&self, conn: &Connection, token: &str) -> Result<LicenseSnapshot> {
+        self.activate_with_key(conn, token, None)
+    }
+
+    /// 首次激活并记录激活码。
+    /// 在线激活时传入 activation_key：后续可凭它联网向激活服务刷新授权
+    /// （撤销/过期/续期以服务端为准）；离线导入传 None。
+    pub fn activate_with_key(
+        &self,
+        conn: &Connection,
+        token: &str,
+        activation_key: Option<&str>,
+    ) -> Result<LicenseSnapshot> {
         let now = format_utc(&Utc::now());
         let (payload, sig) = match parse_and_verify(token, &self.public_key) {
             Ok(v) => v,
@@ -158,6 +170,10 @@ impl LicenseService {
             device_fingerprint: current_fp.clone(),
             activated_at: now.clone(),
             last_known_time: format_utc(&effective),
+            activation_key: activation_key
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+                .map(str::to_string),
         };
         self.store.save(&bundle)?;
         mirror_to_db(conn, &bundle)?;
@@ -207,6 +223,7 @@ impl LicenseService {
             payload: payload.clone(),
             signature: sig.to_vec(),
             last_known_time: format_utc(&effective),
+            activation_key: previous.activation_key,
         };
         self.store.save(&bundle)?;
         mirror_to_db(conn, &bundle)?;
@@ -333,6 +350,88 @@ impl LicenseService {
         mirror_to_db(conn, &updated)?;
 
         let snap = self.snapshot(status, &payload);
+        self.persist_state(conn, &snap)?;
+        Ok(snap)
+    }
+
+    /// 联网刷新授权：用本地保存的激活码向激活服务幂等换票。
+    ///
+    /// 语义（服务端为准）：
+    /// - 授权被撤销 / 已过期 / 设备超限 → 服务端返回 4xx，此处返回错误，由调用方决定降级；
+    /// - 授权正常 → 服务端重新签发载荷，本地验签后更新存储（到期日、权益随之刷新）；
+    /// - 网络不可达 → 返回错误，调用方保留本地缓存继续工作（前台收银不得因此中断）。
+    ///
+    /// 没有激活码（离线导入的授权）时直接返回错误，因为无从联网刷新。
+    pub fn refresh_online(
+        &self,
+        conn: &Connection,
+        endpoint: &str,
+        store_id: &str,
+        customer_name: &str,
+    ) -> Result<LicenseSnapshot> {
+        let bundle = self
+            .store
+            .load()?
+            .ok_or(CoreError::License(LicenseError::Unactivated))?;
+        let activation_key = bundle
+            .activation_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+            .ok_or_else(|| {
+                CoreError::Validation("当前授权不是通过在线激活获得的，无法联网刷新".into())
+            })?;
+
+        let req = super::online::OnlineActivateRequest {
+            store_id: store_id.to_string(),
+            customer_name: customer_name.to_string(),
+            device_fingerprint: bundle.device_fingerprint.clone(),
+            activation_key: activation_key.to_string(),
+        };
+        let resp = super::online::request_activation(endpoint, &req)?;
+        // 服务端返回的仍是签名载荷，走与本地激活完全相同的验签链路。
+        let snap = self.activate_with_key(conn, &resp.token, Some(activation_key))?;
+        let license_id = snap.payload.as_ref().map(|p| p.license_id.clone());
+        append_audit(
+            conn,
+            AuditEvent::StateTransition,
+            license_id.as_deref(),
+            None,
+            None,
+            json!({"event":"ONLINE_REFRESH","valid_until":snap.valid_until}),
+            &format_utc(&Utc::now()),
+        )?;
+        Ok(snap)
+    }
+
+    /// 服务端明确拒绝授权（已撤销 / 已过期 / 设备超限）时，把本地状态同步降级。
+    ///
+    /// 降级为 OFFLINE_DEGRADED：前台收银仍可用（架构硬约束），后台管理受限，
+    /// 不再显示「已激活」以免误导。原始载荷保留，便于恢复后重新刷新。
+    pub fn mark_revoked(&self, conn: &Connection, reason: &str) -> Result<LicenseSnapshot> {
+        let bundle = self.store.load()?;
+        let payload = bundle.as_ref().map(|b| b.payload.clone());
+        let snap = LicenseSnapshot {
+            status: LicenseStatus::OFFLINE_DEGRADED,
+            entitlements: payload
+                .as_ref()
+                .map(|p| p.entitlements.clone())
+                .unwrap_or_default(),
+            valid_until: payload.as_ref().and_then(|p| p.valid_until.clone()),
+            maintenance_until: payload.as_ref().and_then(|p| p.maintenance_until.clone()),
+            trial_ends_at: None,
+            payload,
+        };
+        let license_id = snap.payload.as_ref().map(|p| p.license_id.clone());
+        append_audit(
+            conn,
+            AuditEvent::DegradedEntered,
+            license_id.as_deref(),
+            None,
+            None,
+            json!({"event":"ONLINE_REJECTED","reason":reason}),
+            &format_utc(&Utc::now()),
+        )?;
         self.persist_state(conn, &snap)?;
         Ok(snap)
     }
@@ -752,5 +851,89 @@ mod tests {
         let new = f.token("2028-01-01T00:00:00Z", 7, "ANNUAL");
         let snap = svc.renew(&conn, &new).unwrap();
         assert_eq!(snap.status, LicenseStatus::ACTIVE);
+    }
+
+    #[test]
+    fn online_activation_records_activation_key() {
+        let f = Fixture::new("onlinekey");
+        let svc = f.service("2026-01-01T00:00:00Z");
+        let conn = f.conn();
+        let token = f.token("2027-06-01T00:00:00Z", 7, "ANNUAL");
+        let snap = svc
+            .activate_with_key(&conn, &token, Some("CKR-AAAA-BBBB-CCCC-DDDD"))
+            .unwrap();
+        assert_eq!(snap.status, LicenseStatus::ACTIVE);
+        // 激活码已落库，后续可凭它联网刷新授权
+        let bundle = svc.store.load().unwrap().unwrap();
+        assert_eq!(
+            bundle.activation_key.as_deref(),
+            Some("CKR-AAAA-BBBB-CCCC-DDDD")
+        );
+    }
+
+    #[test]
+    fn offline_activation_has_no_activation_key() {
+        let f = Fixture::new("offlinekey");
+        let svc = f.service("2026-01-01T00:00:00Z");
+        let conn = f.conn();
+        let token = f.token("2027-06-01T00:00:00Z", 7, "ANNUAL");
+        svc.activate(&conn, &token).unwrap();
+        let bundle = svc.store.load().unwrap().unwrap();
+        assert!(bundle.activation_key.is_none());
+    }
+
+    #[test]
+    fn renew_keeps_activation_key() {
+        let f = Fixture::new("renewkey");
+        let svc = f.service("2026-01-01T00:00:00Z");
+        let conn = f.conn();
+        let old = f.token("2026-12-01T00:00:00Z", 3, "ANNUAL");
+        svc.activate_with_key(&conn, &old, Some("CKR-KEEP-0000-0000-0000"))
+            .unwrap();
+        let new = f.token("2028-01-01T00:00:00Z", 7, "ANNUAL");
+        svc.renew(&conn, &new).unwrap();
+        let bundle = svc.store.load().unwrap().unwrap();
+        assert_eq!(
+            bundle.activation_key.as_deref(),
+            Some("CKR-KEEP-0000-0000-0000"),
+            "续期不得丢失激活码，否则后续无法联网刷新"
+        );
+    }
+
+    #[test]
+    fn revoked_marks_degraded_but_keeps_pos_core() {
+        let f = Fixture::new("revoked");
+        let svc = f.service("2026-01-01T00:00:00Z");
+        let conn = f.conn();
+        let token = f.token("2027-06-01T00:00:00Z", 7, "ANNUAL");
+        svc.activate(&conn, &token).unwrap();
+        // 服务端明确拒绝 → 本地降级
+        let snap = svc.mark_revoked(&conn, "该激活码已停用").unwrap();
+        assert_eq!(snap.status, LicenseStatus::OFFLINE_DEGRADED);
+        assert!(snap.gate("pos.core").is_ok(), "降级不得阻断前台收银");
+        assert!(snap.gate("report.standard").is_err());
+        // 状态已落库，重启后不会又显示「已激活」
+        let persisted: String = conn
+            .query_row(
+                "SELECT state FROM license_state WHERE state_key='current'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(persisted, "OFFLINE_DEGRADED");
+    }
+
+    #[test]
+    fn refresh_without_activation_key_rejected() {
+        let f = Fixture::new("norefresh");
+        let svc = f.service("2026-01-01T00:00:00Z");
+        let conn = f.conn();
+        let token = f.token("2027-06-01T00:00:00Z", 7, "ANNUAL");
+        svc.activate(&conn, &token).unwrap();
+        // 离线导入的授权没有激活码，无从联网刷新
+        let err = svc
+            .refresh_online(&conn, "https://example.invalid", "S", "S")
+            .unwrap_err();
+        assert!(err.to_string().contains("在线激活"));
     }
 }

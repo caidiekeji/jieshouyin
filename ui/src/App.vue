@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   api,
   formatMoney,
@@ -13,6 +13,7 @@ import {
   type CategorySales,
   type CashierSales,
   type ConfigRow,
+  type OrderQuote,
   type StoreProfile,
   type IndustryOption,
 } from './api'
@@ -31,6 +32,7 @@ import {
   SCAN_MIN_LENGTH,
   CENTS_PER_YUAN,
   NATIVE_POLL_INTERVAL_MS,
+  PAY_CHANNEL_LABEL,
   PAY_CRED_FIELDS,
 } from './constants'
 
@@ -60,9 +62,13 @@ const loginError = ref('')
 const activateToken = ref('')
 const activateError = ref('')
 const renewMode = ref(false)
-/** 激活方式：在线激活（联系激活服务）或离线导入激活码 */
+/** 激活方式：在线激活为默认主路径；离线导入为网络不可用时的备用入口 */
 const activateMode = ref<'online' | 'offline'>('online')
 const activateCustomer = ref('')
+/** 激活服务可达性：null=未探测，true=可达，false=不可达 */
+const activationServiceReachable = ref<boolean | null>(null)
+/** 探测激活服务中，避免重复点击 */
+const probingService = ref(false)
 const theme = ref<'light' | 'dark'>('light')
 const currentUser = ref('')
 
@@ -133,7 +139,26 @@ const banner = computed(() => {
   return ''
 })
 
+/** 授权状态中文名（界面不直接暴露后端枚举）。 */
+const LICENSE_STATUS_LABEL: Record<string, string> = {
+  UNACTIVATED: '未激活',
+  TRIAL_ACTIVE: '试用中',
+  ACTIVE: '已激活',
+  GRACE_PERIOD: '宽限期内',
+  OFFLINE_DEGRADED: '已到期（降级）',
+}
+
+const licenseStatusLabel = computed(() => {
+  const s = license.value?.status
+  if (!s) return '未知'
+  return LICENSE_STATUS_LABEL[s] ?? s
+})
+
 const subtotal = computed(() => cart.value.reduce((s, l) => s + l.qty * effectivePrice(l), 0))
+
+/** 后端口径的应收金额（原价 − 促销 − 券）；未取到时退回前端估算。 */
+const quote = ref<OrderQuote | null>(null)
+const payableAmount = computed(() => quote.value?.payable_cents ?? subtotal.value)
 
 /** 行成交价：识别会员后按会员价显示（结算时与促销取优由后端裁决，前端只负责如实呈现）。 */
 function effectivePrice(l: { unit_price_cents: number; member_price_cents?: number | null }): number {
@@ -258,6 +283,15 @@ function onScanKeydown(e: KeyboardEvent) {
 }
 
 async function handleScannedCode(code: string) {
+  // 顾客付款码优先（微信 18–19 位 / 支付宝 26–30 位纯数字）：
+  // 有待收金额时扫到付款码即走收款，不当商品条码查。
+  if (cart.value.length && payShortfall.value > 0) {
+    const channel = await api.detectPaymentCode(code)
+    if (channel) {
+      await applyPaymentCode(channel, code)
+      return
+    }
+  }
   // 称重码（22/24 前缀 EAN-13）优先按 §15.2 解析
   if (/^2[24]\d{11}$/.test(code)) {
     try {
@@ -270,6 +304,31 @@ async function handleScannedCode(code: string) {
   }
   keyword.value = code
   await search()
+}
+
+/** 扫到顾客付款码：落到对应渠道的支付行，金额取剩余待收，直接发起收款。 */
+async function applyPaymentCode(channel: string, code: string) {
+  // 先取后端权威应收，避免按前端估算金额收款
+  await refreshQuote()
+  const amount = payShortfall.value
+  if (amount <= 0) return
+  let idx = paySplits.value.findIndex((s) => s.channel === channel)
+  if (idx < 0) {
+    const only = paySplits.value.length === 1 && !paySplits.value[0].amountYuan
+    if (only) {
+      idx = 0
+    } else {
+      paySplits.value.push({ channel, amountYuan: '', authCode: '' })
+      idx = paySplits.value.length - 1
+    }
+  }
+  const split = paySplits.value[idx]
+  split.channel = channel
+  split.amountYuan = (amount / CENTS_PER_YUAN).toFixed(2)
+  split.authCode = code
+  nativeMode.value = false
+  showToast(`已识别${PAY_CHANNEL_LABEL[channel] ?? channel}付款码，正在收款`)
+  await submitCheckout()
 }
 
 function pushWeighToCart(hit: {
@@ -304,6 +363,8 @@ onMounted(async () => {
     }
     if (license.value.status === 'UNACTIVATED') {
       view.value = 'activate'
+      // 进入激活页即探测服务可达性，让用户第一时间知道能不能联网激活
+      void probeActivationService()
     } else {
       view.value = 'login'
       // user_account 为空 → 强制初始化管理员（§12.3），无需先登录失败
@@ -390,9 +451,26 @@ function gotoOrder(no: string) {
   view.value = 'order'
 }
 
-/** 在线激活：向激活服务换取授权码，失败时提示可改用离线导入 */
+/** 探测激活服务可达性：不可达时提示用户改用备用通道，而不是直接报错 */
+async function probeActivationService() {
+  if (probingService.value) return
+  probingService.value = true
+  try {
+    activationServiceReachable.value = await api.probeActivationService()
+  } catch {
+    activationServiceReachable.value = false
+  } finally {
+    probingService.value = false
+  }
+}
+
+/** 在线激活：输入官网领取的激活码，向激活服务换取授权 */
 async function submitActivateOnline() {
   activateError.value = ''
+  if (!activateToken.value.trim()) {
+    activateError.value = '请输入激活码'
+    return
+  }
   try {
     license.value = await api.activateOnline(
       activateToken.value.trim(),
@@ -404,7 +482,19 @@ async function submitActivateOnline() {
       showToast('激活成功')
     }
   } catch (e) {
-    activateError.value = `${String(e)}（网络不可达时可切换为离线导入激活码）`
+    activationServiceReachable.value = false
+    activateError.value = String(e)
+  }
+}
+
+/** 联网刷新授权：读取服务端最新状态（撤销/过期/续期以服务端为准） */
+async function refreshLicense() {
+  activateError.value = ''
+  try {
+    license.value = await api.refreshLicenseOnline()
+    showToast('授权状态已刷新')
+  } catch (e) {
+    activateError.value = String(e)
   }
 }
 
@@ -495,13 +585,25 @@ async function submitCheckout() {
       .filter((s) => Number(s.amountYuan) > 0)
       .map((s) => {
         const amount = Math.round(Number(s.amountYuan) * CENTS_PER_YUAN)
-        const tendered = s.channel === 'CASH' ? Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN) : amount
         const isScan = s.channel === 'WECHAT' || s.channel === 'ALIPAY'
+        // 现金：实收未填视为刚好付清；找零 = 实收 − 应收，不得为负
+        let tendered = amount
+        let change = 0
+        if (s.channel === 'CASH') {
+          const t = Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN)
+          if (t > 0) {
+            if (t < amount) {
+              throw new Error('实收现金不足以支付该笔金额')
+            }
+            tendered = t
+            change = t - amount
+          }
+        }
         return {
           channel: s.channel,
           amount_cents: amount,
           tendered_cents: s.channel === 'CASH' ? tendered : null,
-          change_cents: s.channel === 'CASH' ? tendered - amount : null,
+          change_cents: s.channel === 'CASH' ? change : null,
           auth_code: isScan && !nativeMode.value ? s.authCode || null : null,
           mode: isScan && nativeMode.value ? 'NATIVE' : null,
         }
@@ -641,7 +743,32 @@ function removePaySplit(index: number) {
 const paidPreview = computed(() =>
   paySplits.value.reduce((s, p) => s + (Number(p.amountYuan) || 0) * CENTS_PER_YUAN, 0)
 )
-const payShortfall = computed(() => subtotal.value - paidPreview.value)
+const payShortfall = computed(() => payableAmount.value - paidPreview.value)
+
+/** 报价刷新：购物车/会员/券变化后向后端取权威应收金额。 */
+async function refreshQuote() {
+  if (!cart.value.length) {
+    quote.value = null
+    return
+  }
+  try {
+    quote.value = await api.quoteOrder(
+      cart.value,
+      memberId.value,
+      couponCode.value.trim() || null
+    )
+  } catch {
+    quote.value = null
+  }
+}
+
+watch(
+  [() => cart.value, memberId, couponCode],
+  () => {
+    void refreshQuote()
+  },
+  { deep: true }
+)
 
 async function park() {
   try {
@@ -1108,27 +1235,50 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           </div>
         </div>
         <h2>{{ renewMode ? '导入续期码' : '设备激活' }}</h2>
-        <div class="tab-row">
-          <button :class="['btn', { primary: activateMode === 'online' }]" @click="activateMode = 'online'">在线激活</button>
-          <button :class="['btn', { primary: activateMode === 'offline' }]" @click="activateMode = 'offline'">离线导入</button>
-        </div>
 
         <template v-if="!renewMode && activateMode === 'online'">
-          <p class="muted small">输入购买后获得的激活码，联网向激活服务换取授权；授权在本机验签后保存。</p>
-          <input v-model="activateCustomer" class="input" placeholder="门店名称（选填，用于授权登记）" />
-          <input v-model="activateToken" class="input mono" placeholder="激活码" />
+          <p class="muted small">
+            在官网注册后可免费领取激活码。输入激活码后联网向激活服务换取授权，授权在本机验签后保存。
+          </p>
+          <label class="field-label">
+            激活码
+            <input
+              v-model="activateToken"
+              class="input mono"
+              placeholder="CKR-XXXX-XXXX-XXXX-XXXX"
+              autocapitalize="characters"
+            />
+          </label>
+          <label class="field-label">
+            门店名称（选填，用于授权登记）
+            <input v-model="activateCustomer" class="input" placeholder="如 城南生活超市" maxlength="30" />
+          </label>
+          <p v-if="activationServiceReachable === false" class="error">
+            激活服务当前不可达：请检查网络，或在「设置 → 系统配置 → 在线激活服务」确认地址。
+          </p>
+          <p v-else-if="activationServiceReachable === true" class="muted small">激活服务连接正常。</p>
           <p v-if="activateError" class="error">{{ activateError }}</p>
           <button class="btn primary" @click="submitActivateOnline">联网激活</button>
-          <p class="muted small">未配置激活服务或网络不通时，请切换到「离线导入」。</p>
+          <button class="btn ghost" @click="activateMode = 'offline'">
+            网络不可用？改用离线激活码
+          </button>
         </template>
 
-        <template v-else>
+        <template v-else-if="!renewMode">
           <p class="muted small">
-            {{ renewMode ? '粘贴续期码（Base64URL.签名），本机验签后立即生效。' : '粘贴激活码（Base64URL.签名），全程不发起网络请求。' }}
+            离线备用通道：粘贴服务商提供的授权码（Base64URL.签名），本机验签后立即生效，全程不发起网络请求。
           </p>
           <textarea v-model="activateToken" rows="5" placeholder="粘贴激活码（Base64URL.签名）" class="input mono"></textarea>
           <p v-if="activateError" class="error">{{ activateError }}</p>
-          <button class="btn primary" @click="submitActivate">{{ renewMode ? '续期' : '激活' }}</button>
+          <button class="btn primary" @click="submitActivate">离线激活</button>
+          <button class="btn ghost" @click="activateMode = 'online'">返回在线激活</button>
+        </template>
+
+        <template v-else>
+          <p class="muted small">粘贴续期码（Base64URL.签名），本机验签后立即生效。</p>
+          <textarea v-model="activateToken" rows="5" placeholder="粘贴续期码（Base64URL.签名）" class="input mono"></textarea>
+          <p v-if="activateError" class="error">{{ activateError }}</p>
+          <button class="btn primary" @click="submitActivate">续期</button>
         </template>
 
         <button v-if="!renewMode" class="btn ghost" @click="renewMode = !renewMode">
@@ -1247,8 +1397,15 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <div class="cart-foot">
             <div class="coupon-row">
               <input v-model="couponCode" class="input" placeholder="优惠券码（可选）" />
+              <span v-if="quote?.coupon_note" class="muted small">{{ quote.coupon_note }}</span>
             </div>
-            <div class="total"><span>合计</span><strong>¥{{ formatMoney(subtotal) }}</strong></div>
+            <div class="total">
+              <span>应收</span>
+              <strong>¥{{ formatMoney(payableAmount) }}</strong>
+            </div>
+            <div v-if="quote && quote.discount_cents > 0" class="muted small">
+              原价 ¥{{ formatMoney(quote.total_cents) }} · 优惠 ¥{{ formatMoney(quote.discount_cents) }}
+            </div>
             <div class="pay-splits">
               <div v-for="(s, i) in paySplits" :key="i" class="pay-split">
                 <select v-model="s.channel" class="input">
@@ -1458,9 +1615,13 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             <button :class="['btn', { primary: theme === 'dark' }]" @click="applyTheme('dark')">深色</button>
           </div>
           <div class="license-info">
-            <p>授权状态：<strong>{{ license?.status }}</strong></p>
+            <p>授权状态：<strong>{{ licenseStatusLabel }}</strong></p>
             <p class="muted small">{{ license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可' }}</p>
             <p v-if="license?.trial_ends_at" class="muted small">试用期至 {{ license.trial_ends_at }}</p>
+            <p class="muted small">授权状态以激活服务为准，可联网刷新。</p>
+            <button class="btn" @click="refreshLicense">
+              <Icon name="refresh" :size="ICON_SIZE.md" />刷新授权状态
+            </button>
           </div>
           <div class="user-mgmt">
             <p class="muted small">员工管理（仅管理员可见可用，user.manage 权限）</p>

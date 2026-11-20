@@ -88,6 +88,22 @@ pub enum CancelResult {
     AlreadyPaid, // 撤销遇"订单已支付" → 自动全额退款 + 审计
 }
 
+/// 顾客付款码识别（§6.2 付款码主通道）。
+/// 微信付款码 18–19 位纯数字，支付宝付款码 26–30 位纯数字。
+/// 判定规则只此一处（前端经命令复用），避免前后端各写一套导致口径不一致。
+/// 非付款码返回 None，调用方按商品条码继续处理。
+pub fn detect_payment_code(code: &str) -> Option<Channel> {
+    let t = code.trim();
+    if t.is_empty() || !t.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    match t.len() {
+        18 | 19 => Some(Channel::WECHAT),
+        26..=30 => Some(Channel::ALIPAY),
+        _ => None,
+    }
+}
+
 /// out_trade_no 规则：{order_no}P{attempt_seq}（幂等键）。
 pub fn make_out_trade_no(order_no: &str, attempt: u32) -> String {
     format!("{order_no}P{attempt}")
@@ -280,6 +296,20 @@ impl LocalConfirmGateway {
 
 impl PaymentGateway for LocalConfirmGateway {
     fn micropay(&self, req: &PayRequest) -> Result<PayOutcome> {
+        // 无付款码不构成一次真实扣款：直接失败，杜绝“没扫到码也记成功”。
+        if req
+            .auth_code
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            return Ok(PayOutcome {
+                state: PaymentState::FAILED("未获取到顾客付款码".into()),
+                trade_no: None,
+                code_url: None,
+            });
+        }
         // 付款码在本地确认即成功；记录本地 trade_no，绝不声称真实扣款。
         let mut m = self
             .states
@@ -546,5 +576,36 @@ mod tests {
     #[test]
     fn diff_types() {
         assert_eq!(DiffType::AMOUNT_MISMATCH.as_str(), "AMOUNT_MISMATCH");
+    }
+
+    #[test]
+    fn payment_code_detected_by_length() {
+        // 微信 18 位、支付宝 28 位
+        assert_eq!(detect_payment_code("134567890123456789"), Some(Channel::WECHAT));
+        assert_eq!(
+            detect_payment_code("2812345678901234567890123"),
+            Some(Channel::ALIPAY)
+        );
+        // 商品条码不是付款码
+        assert_eq!(detect_payment_code("6901234567892"), None);
+        assert_eq!(detect_payment_code("ABC123"), None);
+        assert_eq!(detect_payment_code(""), None);
+    }
+
+    #[test]
+    fn local_gateway_rejects_missing_auth_code() {
+        let gw = LocalConfirmGateway::new();
+        let req = PayRequest {
+            out_trade_no: "O1P1".into(),
+            amount_cents: 1000,
+            auth_code: None,
+            mode: PayMode::MICROPAY,
+            channel: Channel::WECHAT,
+        };
+        // 无付款码必须失败：不能记成已扣款
+        assert!(matches!(
+            gw.micropay(&req).unwrap().state,
+            PaymentState::FAILED(_)
+        ));
     }
 }

@@ -6,8 +6,10 @@ use checkout_core::constants::{
     CFG_ACTIVATION_ENDPOINT, CFG_ALLOW_NEGATIVE_STOCK, CFG_BUSINESS_DAY_CUTOFF,
     CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
     CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN,
-    CFG_SCAN_GAP_MS, CFG_STORE_NAME, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
+    CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT, CFG_SCAN_GAP_MS, CFG_STORE_NAME,
+    COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
     DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_PER_YUAN,
+    DEFAULT_PRINT_PORT,
     ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY,
     PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT,
     PERM_INVENTORY_ADJUST, PERM_POS_REFUND, PERM_POS_VOID, PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT,
@@ -16,7 +18,7 @@ use checkout_core::constants::{
 };
 use checkout_core::error::{CoreError, Result};
 use checkout_core::industry::{IndustryOption, StoreProfile};
-use checkout_core::license::LicenseSnapshot;
+use checkout_core::license::{LicenseSnapshot, LicenseStatus};
 use checkout_core::orderview::{OrderDetail, OrderSummary};
 use checkout_core::paycreds::SecretStore;
 use checkout_core::payment::{
@@ -83,7 +85,34 @@ pub fn bootstrap(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
+    // 本地验证先行：验签、指纹、状态判定，全程离线可用。
     *license = svc.verify_on_launch(&conn)?;
+    let local = license.clone();
+
+    // 已激活且有激活码时，联网向激活服务读取最新状态（撤销/过期/续期以服务端为准）。
+    // 失败分两类处理：
+    // - 服务端明确拒绝（撤销/过期/设备超限）→ 本地状态同步降级，不得继续显示「已激活」；
+    // - 网络不可达或服务端故障 → 保留本地缓存，前台收银照常（架构硬约束：不得因授权阻断前台）。
+    if local.status != LicenseStatus::UNACTIVATED {
+        if let Ok(endpoint) = resolve_activation_endpoint(&conn) {
+            let store_name = cfg_get(&conn, CFG_STORE_NAME)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            match svc.refresh_online(&conn, &endpoint, &store_name, &store_name) {
+                Ok(refreshed) => *license = refreshed,
+                Err(e) => {
+                    if matches!(
+                        e,
+                        CoreError::License(checkout_core::error::LicenseError::OnlineRejected(_))
+                    ) {
+                        *license = svc.mark_revoked(&conn, &e.to_string())?;
+                    }
+                    // 其余错误（网络不可达等）保留本地缓存状态，不影响启动与前台收银
+                }
+            }
+        }
+    }
     Ok(license.clone())
 }
 
@@ -293,6 +322,14 @@ pub fn member_prices(sku_ids: Vec<i64>, state: State<'_, AppState>) -> Result<Ve
     Ok(out)
 }
 
+/// 识别顾客付款码（微信 18–19 位 / 支付宝 26–30 位纯数字）。
+/// 扫码枪扫到时前端据此走收款而非商品识别；判定规则由后端单点给出，
+/// 避免前后端各写一套导致同一串码在两处得到不同结论。
+#[tauri::command]
+pub fn detect_payment_code(code: String) -> Result<Option<String>> {
+    Ok(checkout_core::payment::detect_payment_code(&code).map(|c| c.as_str().to_string()))
+}
+
 /// 称重码解析（SCN-02）。
 #[tauri::command]
 pub fn parse_weigh_barcode(code: String) -> Result<checkout_core::scanner::WeighedCode> {
@@ -424,6 +461,132 @@ pub struct CheckoutResult {
     pub code_url: Option<String>,
 }
 
+/// 订单金额试算结果（只读）。原价 / 优惠 / 应付 + 券可用性提示。
+struct AmountPlan {
+    cart_lines: Vec<checkout_core::promo::CartLine>,
+    applied: Vec<checkout_core::promo::AppliedPromo>,
+    total: i64,
+    discount: i64,
+    payable: i64,
+    /// 券不可用等提示（不参与金额试算，界面据此提示）。
+    coupon_note: Option<String>,
+}
+
+/// 计算订单金额（只读，不改任何状态）。
+/// 报价接口与 checkout 共用此函数，保证「界面显示的应收」与「实际收款口径」完全一致；
+/// 否则前端只按会员价相加会漏掉促销与券，收款金额对不上账。
+fn plan_amounts(
+    conn: &Connection,
+    lines: &[CartLineInput],
+    member_id: Option<i64>,
+    coupon_code: Option<&str>,
+    now: &str,
+) -> Result<AmountPlan> {
+    // 1. 行 + 会员价装载（§8.2 会员价参与单品取优）
+    let mut cart_lines: Vec<checkout_core::promo::CartLine> = Vec::with_capacity(lines.len());
+    for l in lines {
+        let mut cl = checkout_core::promo::CartLine::new(l.sku_id, l.qty, l.unit_price_cents)?;
+        if member_id.is_some() {
+            let mp: Option<i64> = conn
+                .query_row(
+                    "SELECT member_price_cents FROM sku WHERE sku_id=?1",
+                    [l.sku_id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten();
+            cl.member_price_cents = mp;
+        }
+        cart_lines.push(cl);
+    }
+    // 2. 促销计算（§8）
+    let level = member_id.map(|mid| member_level(conn, mid)).transpose()?.flatten();
+    let promos = load_active_promotions(conn, now)?;
+    let max_ratio = cfg_f64(conn, CFG_MAX_DISCOUNT_RATIO, DEFAULT_MAX_DISCOUNT_RATIO);
+    let promo_result =
+        checkout_core::promo::calc_promotions(&mut cart_lines, level, &promos, max_ratio)?;
+    // 3. 券（只读试算；状态迁移由 checkout 负责）
+    let mut coupon_discount: i64 = 0;
+    let mut coupon_note: Option<String> = None;
+    if let Some(code) = coupon_code.map(str::trim).filter(|c| !c.is_empty()) {
+        let coupon: Option<(i64, i64, String, Option<String>, Option<String>)> = conn
+            .query_row(
+                "SELECT discount_cents,min_order_cents,status,valid_from,valid_until
+                 FROM coupon WHERE coupon_code=?1",
+                [code],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .optional()?;
+        match coupon {
+            None => coupon_note = Some("优惠券不存在".into()),
+            Some((amount, min_order, status, valid_from, valid_until)) => {
+                let expired = valid_until.as_deref().map(|v| v < now).unwrap_or(false);
+                let not_started = valid_from.as_deref().map(|v| v > now).unwrap_or(false);
+                if status != COUPON_UNUSED {
+                    coupon_note = Some("优惠券不可用".into());
+                } else if expired {
+                    coupon_note = Some("优惠券已过期".into());
+                } else if not_started {
+                    coupon_note = Some("优惠券尚未生效".into());
+                } else {
+                    let after_promo: i64 = cart_lines.iter().map(|l| l.payable()).sum();
+                    if after_promo < min_order {
+                        coupon_note = Some("订单金额未达用券门槛".into());
+                    } else {
+                        coupon_discount = amount.min(after_promo);
+                    }
+                }
+            }
+        }
+    }
+    let total: i64 = cart_lines.iter().map(|l| l.line_total_cents).sum();
+    let discount: i64 = promo_result.total_discount_cents + coupon_discount;
+    Ok(AmountPlan {
+        applied: promo_result.applied,
+        cart_lines,
+        total,
+        discount,
+        payable: total - discount,
+        coupon_note,
+    })
+}
+
+/// 收银台报价：返回后端口径的应收金额，界面「合计/待收」以此为准。
+#[derive(Debug, Serialize)]
+pub struct OrderQuote {
+    pub total_cents: i64,
+    pub discount_cents: i64,
+    pub payable_cents: i64,
+    /// 券不可用等提示（不阻断报价）。
+    pub coupon_note: Option<String>,
+}
+
+#[tauri::command]
+pub fn quote_order(
+    lines: Vec<CartLineInput>,
+    member_id: Option<i64>,
+    coupon_code: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<OrderQuote> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let plan = plan_amounts(
+        &conn,
+        &lines,
+        member_id,
+        coupon_code.as_deref(),
+        &now_str(),
+    )?;
+    Ok(OrderQuote {
+        total_cents: plan.total,
+        discount_cents: plan.discount,
+        payable_cents: plan.payable,
+        coupon_note: plan.coupon_note,
+    })
+}
+
 /// 收银结算（F-05/F-06）。现金本地闭环；储值走领域扣款；扫码渠道走网关状态机。
 /// 促销引擎计算行/整单优惠并落 order_promotion；tx A → 支付 → tx B。
 /// 授权门禁只校验 entitlement，任何非 UNACTIVATED 状态不阻断 pos.core。
@@ -480,60 +643,41 @@ pub fn checkout(
                 p.channel
             )));
         }
+        // 扫码支付（MICROPAY）必须携带顾客付款码：没有付款码就没有扣款依据，
+        // 不能让订单凭空走完收款流程。
+        let is_scan_channel = p.channel == PAY_WECHAT || p.channel == PAY_ALIPAY;
+        if is_scan_channel
+            && p.mode.as_deref() != Some(PAY_MODE_NATIVE)
+            && p.auth_code.as_deref().map(str::trim).unwrap_or("").is_empty()
+        {
+            return Err(CoreError::Validation(
+                "扫码支付需要顾客付款码：请用扫码枪扫描顾客付款码".into(),
+            ));
+        }
     }
 
-    // 1. 购物车行 + 会员价装载（§8.2 会员价参与单品取优）
-    let mut cart_lines: Vec<checkout_core::promo::CartLine> = Vec::new();
-    for l in &lines {
-        let mut cl = checkout_core::promo::CartLine::new(l.sku_id, l.qty, l.unit_price_cents)?;
-        // 识别到会员才装载会员价（未识别会员时按原价）
-        if member_id.is_some() {
-            let mp: Option<i64> = conn
-                .query_row(
-                    "SELECT member_price_cents FROM sku WHERE sku_id=?1",
-                    [l.sku_id],
-                    |r| r.get(0),
-                )
-                .optional()?
-                .flatten();
-            cl.member_price_cents = mp;
-        }
-        cart_lines.push(cl);
+    // 金额试算（与报价接口共用同一口径，§8）
+    let now = now_str();
+    // 券过期标记：只在结算路径落库，报价接口保持只读
+    let coupon_key = coupon_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty());
+    if let Some(code) = coupon_key {
+        checkout_core::member::expire_lazy(&conn, code, &now)?;
     }
-
-    // 2. 促销计算（§8）
-    let level = member_id
-        .map(|mid| member_level(&conn, mid))
-        .transpose()?
-        .flatten();
-    let promos = load_active_promotions(&conn, &now_str())?;
-    let max_ratio = cfg_f64(&conn, CFG_MAX_DISCOUNT_RATIO, DEFAULT_MAX_DISCOUNT_RATIO);
-    let promo_result =
-        checkout_core::promo::calc_promotions(&mut cart_lines, level, &promos, max_ratio)?;
-
-    // 3. 券核销（§8.3 第 3 层，§13.7 状态机）
-    let mut coupon_discount: i64 = 0;
-    if let Some(code) = coupon_code.as_deref() {
-        checkout_core::member::expire_lazy(&conn, code, &now_str())?;
-        let (amount, min_order, status): (i64, i64, String) = conn.query_row(
-            "SELECT discount_cents,min_order_cents,status FROM coupon WHERE coupon_code=?1",
-            [code],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?;
-        if status != COUPON_UNUSED {
-            return Err(CoreError::Validation("优惠券不可用".into()));
-        }
-        let after_promo: i64 = cart_lines.iter().map(|l| l.payable()).sum();
-        if after_promo < min_order {
-            return Err(CoreError::Validation("订单金额未达用券门槛".into()));
-        }
-        coupon_discount = amount.min(after_promo);
+    let plan = plan_amounts(&conn, &lines, member_id, coupon_code.as_deref(), &now)?;
+    if let Some(note) = &plan.coupon_note {
+        return Err(CoreError::Validation(note.clone()));
+    }
+    // 券核销（§8.3 第 3 层，§13.7 状态机）：试算已校验可用性，此处只做状态迁移
+    if let Some(code) = coupon_key {
         checkout_core::member::transition_coupon(&conn, code, "LOCKED")?;
     }
-
-    let total: i64 = cart_lines.iter().map(|l| l.line_total_cents).sum();
-    let discount: i64 = promo_result.total_discount_cents + coupon_discount;
-    let payable: i64 = total - discount;
+    let cart_lines = plan.cart_lines;
+    let total = plan.total;
+    let discount = plan.discount;
+    let payable = plan.payable;
     if payable < 0 {
         return Err(CoreError::Validation("优惠后应付金额为负".into()));
     }
@@ -543,9 +687,14 @@ pub fn checkout(
             "支付金额不足: 应付 {payable}, 实付 {paid}"
         )));
     }
+    if paid > payable {
+        // 多收的钱没有对应科目，直接吞掉会与应收对不上账。
+        return Err(CoreError::Validation(format!(
+            "支付金额超出应收: 应付 {payable}, 实付 {paid}"
+        )));
+    }
 
     let order_no = checkout_core::order::generate_order_no("STORE", "POS1");
-    let now = now_str();
     let cutoff = business_cutoff_hour(&conn);
     let biz = checkout_core::order::business_date(&now_dt, cutoff);
     let shift_id: i64 = *state
@@ -571,7 +720,7 @@ pub fn checkout(
             &biz,
             &now,
         )?;
-        for applied in &promo_result.applied {
+        for applied in &plan.applied {
             tx.execute(
                 "INSERT INTO order_promotion(order_no,promotion_id,discount_cents,detail_json)
                  VALUES (?1,?2,?3,?4)",
@@ -724,6 +873,7 @@ pub fn checkout(
     }
 
     finalize_order_assets(&conn, &order_no)?;
+    auto_print_receipt(&conn, &order_no);
 
     Ok(CheckoutResult {
         order_no,
@@ -883,16 +1033,33 @@ pub fn daily_report(date: String, state: State<'_, AppState>) -> Result<DailyRep
     })
 }
 
-/// 打印：用订单真实数据渲染 ESC/POS 字节流，失败入重打队列，不阻断（§7）。
-/// v1 生成字节流；真实设备发送由硬件适配层（网络 9100 / USB）完成。
+/// 打印：用订单真实数据渲染 ESC/POS 字节流并发往网络打印机，失败入重打队列，不阻断（§7）。
 #[tauri::command]
 pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<String> {
-    use checkout_core::escpos::{enqueue_retry, render_receipt, Template};
-    use checkout_core::money::cents_to_yuan;
     let conn = state
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
+    print_receipt_inner(&conn, order_no.trim())
+}
+
+/// 按「结算后自动打印小票」开关打印；失败不阻断收银（内部已入重打队列）。
+fn auto_print_receipt(conn: &Connection, order_no: &str) {
+    if cfg_get(conn, CFG_PRINT_AUTO).ok().flatten().as_deref() != Some("1") {
+        return;
+    }
+    // 未配置打印机地址：不做自动打印，也不污染重打队列
+    let host = cfg_get(conn, CFG_PRINT_HOST).ok().flatten().unwrap_or_default();
+    if host.trim().is_empty() {
+        return;
+    }
+    let _ = print_receipt_inner(conn, order_no);
+}
+
+/// 生成并发送小票（手动重打与自动打印共用同一路径）。
+fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
+    use checkout_core::escpos::{enqueue_retry, render_receipt, Template};
+    use checkout_core::money::cents_to_yuan;
     let content: String = conn.query_row(
         "SELECT content_json FROM print_template WHERE template_id='receipt_default'",
         [],
@@ -909,7 +1076,7 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
         .query_row(
             "SELECT total_cents,discount_cents,pay_cents,created_at,member_id
              FROM sales_order WHERE order_no=?1",
-            [&order_no],
+            [order_no],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )?;
     let member_phone: String = match member_id {
@@ -927,7 +1094,7 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
             "SELECT pay_channel,amount_cents,cash_tendered_cents,change_cents
              FROM payment_record WHERE order_no=?1 AND status='SUCCESS' ORDER BY pay_id",
         )?;
-        let rows = stmt.query_map([&order_no], |r| {
+        let rows = stmt.query_map([order_no], |r| {
             let ch: String = r.get(0)?;
             let amt: i64 = r.get(1)?;
             let change: Option<i64> = r.get(3)?;
@@ -962,7 +1129,7 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
              JOIN sku s ON s.sku_id=i.sku_id JOIN spu p ON p.spu_id=s.spu_id
              WHERE i.order_no=?1 AND i.is_gift=0 ORDER BY i.item_id",
         )?;
-        let rows = stmt.query_map([&order_no], |r| {
+        let rows = stmt.query_map([order_no], |r| {
             let name: String = r.get(0)?;
             let qty: i64 = r.get(1)?;
             let amt: i64 = r.get(2)?;
@@ -976,9 +1143,17 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
     };
 
     let mut vars = std::collections::HashMap::new();
-    vars.insert("store_name".into(), "Checkout-R".into());
+    let store_name = cfg_get(conn, CFG_STORE_NAME)?.unwrap_or_default();
+    vars.insert(
+        "store_name".into(),
+        if store_name.trim().is_empty() {
+            "Checkout-R".into()
+        } else {
+            store_name
+        },
+    );
     vars.insert("store_phone".into(), "000-0000".into());
-    vars.insert("order_no".into(), order_no.clone());
+    vars.insert("order_no".into(), order_no.to_string());
     vars.insert("created_at".into(), created);
     vars.insert("member_phone".into(), member_phone);
     vars.insert("subtotal".into(), cents_to_yuan(total));
@@ -991,10 +1166,25 @@ pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<Str
         "qrcode_pay_url".into(),
         format!("checkout-r://order/{order_no}"),
     );
-    match render_receipt(&template, &vars) {
-        Ok(_bytes) => Ok("已生成打印字节流".into()),
+    let bytes = match render_receipt(&template, &vars) {
+        Ok(b) => b,
         Err(e) => {
-            enqueue_retry(&conn, &order_no, "receipt_default", &e.to_string())?;
+            enqueue_retry(conn, order_no, "receipt_default", &e.to_string())?;
+            return Ok(format!("小票生成失败，已入重打队列: {e}"));
+        }
+    };
+    // 送到网络打印机（IP:9100）；未配置地址直接提示，发送失败才入重打队列
+    let host = cfg_get(conn, CFG_PRINT_HOST)?.unwrap_or_default();
+    if host.trim().is_empty() {
+        return Ok("未配置打印机地址，无法打印（请在设置中填写打印机 IP）".into());
+    }
+    let port = cfg_get(conn, CFG_PRINT_PORT)?
+        .and_then(|s| s.trim().parse::<u16>().ok())
+        .unwrap_or(DEFAULT_PRINT_PORT);
+    match checkout_core::printer::send_bytes(&host, port, &bytes) {
+        Ok(()) => Ok("小票已打印".into()),
+        Err(e) => {
+            enqueue_retry(conn, order_no, "receipt_default", &e.to_string())?;
             Ok(format!("打印失败，已入重打队列: {e}"))
         }
     }
@@ -2219,9 +2409,10 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
         | CFG_PAY_CHANNEL_WECHAT
         | CFG_PAY_CHANNEL_ALIPAY
         | CFG_PAY_CHANNEL_SV
+        | CFG_PRINT_AUTO
         | CFG_ALLOW_NEGATIVE_STOCK => {
             if value != "0" && value != "1" {
-                return Err(CoreError::Validation("渠道开关只允许 0 或 1".into()));
+                return Err(CoreError::Validation("开关只允许 0 或 1".into()));
             }
         }
         CFG_ACTIVATION_ENDPOINT => {
@@ -2692,6 +2883,7 @@ pub fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<C
                 rusqlite::params![now_str(), order_no, out_trade_no],
             )?;
             finalize_order_assets(&conn, &order_no)?;
+            auto_print_receipt(&conn, &order_no);
             Ok(CheckoutResult {
                 order_no,
                 status: "COMPLETED".into(),
@@ -2801,6 +2993,7 @@ pub fn confirm_native_pay(order_no: String, state: State<'_, AppState>) -> Resul
         rusqlite::params![now_str(), order_no, out_trade_no],
     )?;
     finalize_order_assets(&conn, &order_no)?;
+    auto_print_receipt(&conn, &order_no);
     Ok(())
 }
 
@@ -3387,6 +3580,25 @@ pub fn get_order_detail(order_no: String, state: State<'_, AppState>) -> Result<
 
 // ===== 在线激活（§4.7 激活方式之二）=====
 
+/// 解析生效的激活服务地址：先取用户配置，未配置则回退到构建时内置的地址。
+/// 内置地址来自 build.rs 的 ACTIVATION_ENDPOINT 环境变量（发行包自带，无需手填）。
+fn resolve_activation_endpoint(conn: &Connection) -> Result<String> {
+    let configured = cfg_get(conn, CFG_ACTIVATION_ENDPOINT)
+        .ok()
+        .flatten()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let endpoint = configured.unwrap_or_else(|| {
+        checkout_core::default_activation_endpoint().to_string()
+    });
+    if endpoint.trim().is_empty() {
+        return Err(CoreError::Validation(
+            "未配置在线激活服务地址：请在「设置 → 系统配置 → 在线激活服务」填写官网根地址".into(),
+        ));
+    }
+    checkout_core::license::online::normalize_endpoint(&endpoint)
+}
+
 /// 在线激活：向激活服务换取签名激活码 → 本地验签 → 落库。
 /// 签发权始终在服务端；客户端只做验签与存储，与离线导入共用同一条链路。
 #[tauri::command]
@@ -3403,10 +3615,7 @@ pub fn activate_online(
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    let endpoint = cfg_get(&conn, CFG_ACTIVATION_ENDPOINT)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let endpoint = resolve_activation_endpoint(&conn)?;
     let store_name = cfg_get(&conn, CFG_STORE_NAME)
         .ok()
         .flatten()
@@ -3429,12 +3638,58 @@ pub fn activate_online(
     };
     let resp = checkout_core::license::request_activation(&endpoint, &req)?;
     let svc = build_license_service(&state);
-    let snap = svc.activate(&conn, &resp.token)?;
+    // 保存激活码：后续可凭它联网刷新授权（撤销/过期以服务端为准）
+    let snap = svc.activate_with_key(&conn, &resp.token, Some(key))?;
     *state
         .license
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))? = snap.clone();
     Ok(snap)
+}
+
+/// 在线刷新授权：用本地保存的激活码向激活服务幂等换票。
+/// 服务端明确拒绝（撤销/过期）时同步降级本地状态并回传降级快照；
+/// 网络不可达时保留本地缓存，前台收银继续可用。
+#[tauri::command]
+pub fn refresh_license_online(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let endpoint = resolve_activation_endpoint(&conn)?;
+    let store_name = cfg_get(&conn, CFG_STORE_NAME)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let svc = build_license_service(&state);
+    let snap = match svc.refresh_online(&conn, &endpoint, &store_name, &store_name) {
+        Ok(s) => s,
+        Err(e)
+            if matches!(
+                e,
+                CoreError::License(checkout_core::error::LicenseError::OnlineRejected(_))
+            ) =>
+        {
+            svc.mark_revoked(&conn, &e.to_string())?
+        }
+        Err(e) => return Err(e),
+    };
+    *state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))? = snap.clone();
+    Ok(snap)
+}
+
+/// 探测激活服务可达性：前端在激活页用于提示「服务可达 / 不可达」。
+#[tauri::command]
+pub fn probe_activation_service(state: State<'_, AppState>) -> Result<bool> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let endpoint = resolve_activation_endpoint(&conn)?;
+    Ok(checkout_core::license::online::probe_service(&endpoint)?)
 }
 
 #[tauri::command]
@@ -3526,7 +3781,9 @@ pub fn run() {
             lookup_product,
             member_prices,
             parse_weigh_barcode,
+            detect_payment_code,
             lookup_weigh,
+            quote_order,
             checkout,
             park_cart,
             list_parked,
@@ -3599,6 +3856,8 @@ pub fn run() {
             get_order_detail,
             preview_refund,
             activate_online,
+            refresh_license_online,
+            probe_activation_service,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");

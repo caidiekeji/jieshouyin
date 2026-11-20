@@ -17,6 +17,11 @@ pub struct LicenseBundle {
     pub device_fingerprint: Option<String>,
     pub activated_at: String,
     pub last_known_time: String,
+    /// 在线激活时使用的激活码（CKR-XXXX-XXXX-XXXX-XXXX）。
+    /// 保存它是为了后续能联网向激活服务刷新授权（撤销/过期/续期以服务端为准）；
+    /// 离线导入的授权没有激活码，此处为空。
+    #[serde(default)]
+    pub activation_key: Option<String>,
 }
 
 impl LicenseBundle {
@@ -232,6 +237,7 @@ mod tests {
             device_fingerprint: None,
             activated_at: "2026-01-01T00:00:00Z".into(),
             last_known_time: "2026-01-01T00:00:00Z".into(),
+            activation_key: None,
         }
     }
 

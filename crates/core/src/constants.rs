@@ -110,6 +110,8 @@ pub const CFG_MAX_DISCOUNT_RATIO: &str = "max_discount_ratio";
 /// 打印服务端地址键（§7.5 网络打印机，v1 可选配置）。
 pub const CFG_PRINT_HOST: &str = "print_host";
 pub const CFG_PRINT_PORT: &str = "print_port";
+/// 结算成功后是否自动打印小票（0 关 / 1 开）。
+pub const CFG_PRINT_AUTO: &str = "print_auto";
 
 // ── 支付渠道开关（§6.1 设置页；'1' 启用 / '0' 停用）────────────
 pub const CFG_PAY_CHANNEL_CASH: &str = "pay_channel_cash_enabled";
@@ -122,7 +124,7 @@ pub const CFG_PAY_CHANNEL_SV: &str = "pay_channel_sv_enabled";
 pub const CFG_STORE_NAME: &str = "store_name";
 /// 所属行业标识：SUPERMARKET / CLOTHING / RESTAURANT。
 pub const CFG_INDUSTRY: &str = "industry";
-/// 在线激活服务地址（Cloudflare Worker），空值表示仅支持离线导入激活码。
+/// 在线激活服务地址（Cloudflare Worker）。为空时回退到构建时内置的地址。
 pub const CFG_ACTIVATION_ENDPOINT: &str = "activation_endpoint";
 
 /// 行业标识：超市便利店。
@@ -146,7 +148,7 @@ pub const CONFIG_KIND_SWITCH: &str = "switch";
 
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
-pub const CONFIG_META: [(&str, &str, &str, &str); 20] = [
+pub const CONFIG_META: [(&str, &str, &str, &str); 21] = [
     (
         CFG_STORE_NAME,
         "门店名称",
@@ -262,16 +264,22 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 20] = [
         CONFIG_KIND_NUMBER,
     ),
     (
+        CFG_PRINT_AUTO,
+        "结算后自动打印小票",
+        "开启后收款成功立即打印小票；关闭则需在小票处手动重打",
+        CONFIG_KIND_SWITCH,
+    ),
+    (
         CFG_ACTIVATION_ENDPOINT,
         "在线激活服务",
-        "Cloudflare 激活服务地址，留空表示仅离线激活",
+        "激活服务根地址（官网地址）。发行包已内置该地址，此处可覆盖",
         CONFIG_KIND_TEXT,
     ),
 ];
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
 /// 未列入的键（门店名称、所属行业）由专属命令管理，界面只读展示，避免点了保存却被拒。
-pub const CONFIG_EDITABLE: [&str; 18] = [
+pub const CONFIG_EDITABLE: [&str; 19] = [
     CFG_STORE_TIMEZONE,
     CFG_BUSINESS_DAY_CUTOFF,
     CFG_SCAN_GAP_MS,
@@ -289,6 +297,7 @@ pub const CONFIG_EDITABLE: [&str; 18] = [
     CFG_PAY_CHANNEL_SV,
     CFG_PRINT_HOST,
     CFG_PRINT_PORT,
+    CFG_PRINT_AUTO,
     CFG_ACTIVATION_ENDPOINT,
 ];
 

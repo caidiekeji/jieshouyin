@@ -10,3 +10,6 @@ dist/
 keys/
 *.key
 .wrangler/
+
+# 闭源的激活服务（官网 + Worker），不随收银软件开源
+/jihuo/

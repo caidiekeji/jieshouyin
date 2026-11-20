@@ -33,6 +33,15 @@ export interface CartLine {
   name?: string
 }
 
+/** 收银台报价：后端口径的应收金额（原价 − 促销 − 券） */
+export interface OrderQuote {
+  total_cents: number
+  discount_cents: number
+  payable_cents: number
+  /** 券不可用等提示（不阻断报价） */
+  coupon_note: string | null
+}
+
 export interface ProductRow {
   sku_id: number
   spu_id: number
@@ -286,6 +295,8 @@ export const api = {
     invoke<{ sku_id: number; member_price_cents: number | null }[]>('member_prices', { skuIds }),
   parseWeigh: (code: string) =>
     invoke<{ instore_code: string; mode: string; value: number }>('parse_weigh_barcode', { code }),
+  quoteOrder: (lines: CartLine[], memberId: number | null, couponCode: string | null) =>
+    invoke<OrderQuote>('quote_order', { lines, memberId, couponCode }),
   checkout: (
     lines: CartLine[],
     payments: unknown[],
@@ -395,6 +406,8 @@ export const api = {
 
   // 称重码识别（SCN-02）
   lookupWeigh: (code: string) => invoke<WeighHit>('lookup_weigh', { code }),
+  // 顾客付款码识别：返回 'WECHAT' / 'ALIPAY'，非付款码返回 null
+  detectPaymentCode: (code: string) => invoke<string | null>('detect_payment_code', { code }),
   // 报表维度（§14）
   channelReport: (date: string) => invoke<ChannelReport>('channel_report', { date }),
   productReport: (from: string, to: string) =>
@@ -508,6 +521,10 @@ export const api = {
   // ===== 在线激活 =====
   activateOnline: (activationKey: string, customerName: string | null) =>
     invoke<LicenseSnapshot>('activate_online', { activationKey, customerName }),
+  /** 联网刷新授权：用本地保存的激活码向激活服务读取最新状态 */
+  refreshLicenseOnline: () => invoke<LicenseSnapshot>('refresh_license_online'),
+  /** 探测激活服务可达性 */
+  probeActivationService: () => invoke<boolean>('probe_activation_service'),
 }
 
 export function formatMoney(cents: number): string {
