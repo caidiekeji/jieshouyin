@@ -379,14 +379,17 @@ onMounted(async () => {
       await loadIndustries()
       return
     }
-    if (license.value.status === 'UNACTIVATED') {
+    // 首次流程：先创建管理员账号（首次登录），建号后再进入激活页。
+    // 已有账号时，未激活进激活页，已激活进登录页。
+    needAdmin.value = !(await api.hasUsers())
+    if (needAdmin.value) {
+      view.value = 'login'
+    } else if (license.value.status === 'UNACTIVATED') {
       view.value = 'activate'
       // 进入激活页即探测服务可达性，让用户第一时间知道能不能联网激活
       void probeActivationService()
     } else {
       view.value = 'login'
-      // user_account 为空 → 强制初始化管理员（§12.3），无需先登录失败
-      needAdmin.value = !(await api.hasUsers())
     }
   } catch (e) {
     bootError.value = String(e)
@@ -451,8 +454,16 @@ async function finishIndustrySetup() {
     storeProfile.value = await api.setStoreName(storeNameDraft.value)
     await loadStoreProfile()
     if (storeProfile.value?.configured) {
-      view.value = license.value?.status === 'UNACTIVATED' ? 'activate' : 'login'
-      if (view.value === 'login') needAdmin.value = !(await api.hasUsers())
+      // 与启动流程一致：先确保有管理员账号，再判断激活状态
+      needAdmin.value = !(await api.hasUsers())
+      if (needAdmin.value) {
+        view.value = 'login'
+      } else if (license.value?.status === 'UNACTIVATED') {
+        view.value = 'activate'
+        void probeActivationService()
+      } else {
+        view.value = 'login'
+      }
     }
   } catch (e) {
     showToast(String(e), true)
@@ -482,6 +493,16 @@ async function probeActivationService() {
   }
 }
 
+/** 打开官网获取激活码：由后端解析官方地址并唤起系统浏览器，界面不展示地址 */
+async function openOfficialSite() {
+  activateError.value = ''
+  try {
+    await api.openActivationSite()
+  } catch (e) {
+    activateError.value = String(e)
+  }
+}
+
 /** 在线激活：输入激活码，向激活服务换取授权 */
 async function submitActivateOnline() {
   activateError.value = ''
@@ -495,8 +516,9 @@ async function submitActivateOnline() {
       activateCustomer.value.trim() || null
     )
     if (license.value.status !== 'UNACTIVATED') {
-      view.value = 'login'
+      // 账号在激活前已创建，激活成功直接进入收银
       needAdmin.value = !(await api.hasUsers())
+      view.value = needAdmin.value ? 'login' : 'pos'
       showToast('激活成功')
     }
   } catch (e) {
@@ -523,8 +545,9 @@ async function submitActivate() {
       ? await api.renew(activateToken.value)
       : await api.activate(activateToken.value)
     if (license.value.status !== 'UNACTIVATED') {
-      view.value = 'login'
+      // 账号在激活前已创建，激活成功直接进入收银
       needAdmin.value = !(await api.hasUsers())
+      view.value = needAdmin.value ? 'login' : 'pos'
       showToast('激活成功')
     }
   } catch (e) {
@@ -539,8 +562,15 @@ async function submitAdmin() {
     await api.login(adminUser.value, adminPass.value)
     currentUser.value = adminUser.value
     needAdmin.value = false
-    view.value = 'pos'
-    showToast('管理员已创建')
+    // 首次建号完成后进入激活页；已激活则直接收银
+    if (license.value?.status === 'UNACTIVATED') {
+      view.value = 'activate'
+      void probeActivationService()
+      showToast('管理员已创建，请先激活设备')
+    } else {
+      view.value = 'pos'
+      showToast('管理员已创建')
+    }
   } catch (e) {
     loginError.value = String(e)
   }
@@ -1263,6 +1293,9 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
               autocapitalize="characters"
             />
           </label>
+          <button class="btn" @click="openOfficialSite">
+            <Icon name="box" :size="ICON_SIZE.md" />获取激活码
+          </button>
           <label class="field-label">
             门店名称（选填，用于授权登记）
             <input v-model="activateCustomer" class="input" placeholder="如 城南生活超市" maxlength="30" />
@@ -1316,7 +1349,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <input v-model="adminUser" class="input" placeholder="用户名（默认 admin）" />
           <input v-model="adminPass" type="password" class="input" placeholder="密码（≥8位，含字母数字）" @keyup.enter="submitAdmin" />
           <p v-if="loginError" class="error">{{ loginError }}</p>
-          <button class="btn primary" @click="submitAdmin">创建并进入收银</button>
+          <button class="btn primary" @click="submitAdmin">创建管理员并继续</button>
         </template>
         <template v-else>
           <input v-model="loginUser" class="input" placeholder="用户名" />

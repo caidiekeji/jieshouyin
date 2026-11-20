@@ -525,6 +525,8 @@ export const api = {
   refreshLicenseOnline: () => invoke<LicenseSnapshot>('refresh_license_online'),
   /** 探测激活服务可达性 */
   probeActivationService: () => invoke<boolean>('probe_activation_service'),
+  /** 用系统默认浏览器打开官网获取激活码（地址由后端解析，前端不接触） */
+  openActivationSite: () => invoke<void>('open_activation_site'),
 }
 
 export function formatMoney(cents: number): string {

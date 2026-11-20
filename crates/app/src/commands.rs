@@ -3693,6 +3693,35 @@ pub fn probe_activation_service(state: State<'_, AppState>) -> Result<bool> {
     Ok(checkout_core::license::online::probe_service(&endpoint)?)
 }
 
+/// 获取激活码：用系统默认浏览器打开官网（与激活服务同源）。
+/// 前端不接触、不展示具体地址，避免在界面暴露服务部署位置。
+#[tauri::command]
+pub fn open_activation_site(state: State<'_, AppState>) -> Result<()> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let endpoint = resolve_activation_endpoint(&conn)?;
+    open_in_browser(&endpoint)
+}
+
+/// 跨平台用系统默认浏览器打开 URL。仅接受经 normalize_endpoint 校验过的 http/https 地址。
+fn open_in_browser(url: &str) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn()
+        .map(|_| ());
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(url).spawn().map(|_| ());
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ());
+    result.map_err(|e| CoreError::Other(format!("打开官网失败：{e}")))
+}
+
 #[tauri::command]
 pub fn set_user_status(user_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
     let (_operator_id, conn) = admin_guard(&state, PERM_USER_MANAGE)?;
@@ -3859,6 +3888,7 @@ pub fn run() {
             activate_online,
             refresh_license_online,
             probe_activation_service,
+            open_activation_site,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");
