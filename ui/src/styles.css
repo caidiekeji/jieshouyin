@@ -424,8 +424,7 @@ h2 { font-size: var(--font-lg); }
   color: var(--success-text); background: var(--success-subtle);
   padding: var(--space-2); border-radius: var(--radius-sm);
 }
-/* 付款区会员入口：识别按钮 + 余额摘要 */
-.pay-member-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+/* 付款区会员余额摘要（图标按钮行下方） */
 .member-balance-inline { font-size: var(--font-sm); color: var(--success-text); }
 /* 付款区积分累计提示（识别会员后显示） */
 .points-earn-inline {
@@ -454,7 +453,32 @@ h2 { font-size: var(--font-lg); }
 .goods-tab.active { background: var(--brand); color: var(--text-on-brand); border-color: var(--brand); }
 /* 挂单弹窗列表 */
 .park-dialog-list { display: flex; flex-direction: column; gap: var(--space-2); max-height: 50vh; overflow-y: auto; }
-.coupon-row { margin-bottom: var(--space-2); }
+/* 收银台（主流式交互）：会员/券图标按钮 → 支付方式大按钮 → 渠道面板 */
+.pay-quick-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.pay-quick.active { border-color: var(--brand); background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
+.pay-methods { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); margin-top: var(--space-3); }
+.pay-method-btn {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel); color: var(--text);
+  cursor: pointer;
+}
+.pay-method-btn:hover { border-color: var(--brand); }
+.pay-method-btn.active { border-color: var(--brand); background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
+.pay-panel { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+.quick-cash { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.change-due {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--space-3);
+  background: var(--brand-subtle);
+  border-radius: var(--radius-md);
+}
+.change-due strong { color: var(--brand); font-size: var(--font-xl); }
+.pay-hint { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--font-sm); }
+.pay-hint.warn { color: var(--danger); }
+.pay-hint.ok { color: var(--success-text); }
 .pay-splits { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0; }
 .pay-split { display: flex; gap: var(--space-2); align-items: center; }
 .pay-split .input { min-width: 0; flex: 1 1 0; }

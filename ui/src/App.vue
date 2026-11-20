@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
@@ -170,9 +170,17 @@ const memberPhone = ref('')
 const memberId = ref<number | null>(null)
 const memberBalances = ref<{ principal_cents: number; bonus_cents: number; points: number } | null>(null)
 const couponCode = ref('')
+// 优惠券弹窗：券码从内联输入框改为图标按钮唤起弹窗输入
+const couponDialogOpen = ref(false)
+const couponDraft = ref('')
 // 混合支付拆分：每项 { channel, amountYuan, authCode }
 interface PaySplit { channel: string; amountYuan: string; authCode: string }
 const paySplits = ref<PaySplit[]>([{ channel: 'CASH', amountYuan: '', authCode: '' }])
+// 收银台支付状态（主流式交互）：先选支付方式，金额自动=应收，只补渠道必需信息
+type PayChannel = 'CASH' | 'STORED_VALUE' | 'WECHAT' | 'ALIPAY'
+const payChannel = ref<PayChannel>('CASH')
+const payMode = ref<'simple' | 'mixed'>('simple')
+const payAuthCode = ref('') // 微信/支付宝 B 扫 C：顾客付款码（扫码枪扫入或手输）
 // Native 支付（§6.3）：顾客扫屏幕码；弹窗 + 轮询 + 本地确认兜底
 const nativeDialog = ref<{ orderNo: string; codeUrl: string; qrSvg: string } | null>(null)
 let nativeTimer: ReturnType<typeof setInterval> | null = null
@@ -402,26 +410,14 @@ async function handleScannedCode(code: string) {
   await search()
 }
 
-/** 扫到顾客付款码：落到对应渠道的支付行，金额取剩余待收，直接发起收款。 */
+/** 扫到顾客付款码：金额自动取剩余待收，落到当前渠道直接发起收款（金额不落文本框）。 */
 async function applyPaymentCode(channel: string, code: string) {
   // 先取后端权威应收，避免按前端估算金额收款
   await refreshQuote()
-  const amount = payShortfall.value
-  if (amount <= 0) return
-  let idx = paySplits.value.findIndex((s) => s.channel === channel)
-  if (idx < 0) {
-    const only = paySplits.value.length === 1 && !paySplits.value[0].amountYuan
-    if (only) {
-      idx = 0
-    } else {
-      paySplits.value.push({ channel, amountYuan: '', authCode: '' })
-      idx = paySplits.value.length - 1
-    }
-  }
-  const split = paySplits.value[idx]
-  split.channel = channel
-  split.amountYuan = (amount / CENTS_PER_YUAN).toFixed(2)
-  split.authCode = code
+  if (payShortfall.value <= 0) return
+  payMode.value = 'simple'
+  payChannel.value = channel as PayChannel
+  payAuthCode.value = code
   nativeMode.value = false
   showToast(`已识别${PAY_CHANNEL_LABEL[channel] ?? channel}付款码，正在收款`)
   await submitCheckout()
@@ -839,6 +835,18 @@ function changeQty(index: number, delta: number) {
   if (line.qty <= 0) cart.value.splice(index, 1)
 }
 
+/** 付款成功后重置收银台：渠道回现金、清付款码/券/拆分行，回到默认单笔模式。 */
+function resetPayState() {
+  cashTendered.value = ''
+  couponCode.value = ''
+  couponDraft.value = ''
+  payAuthCode.value = ''
+  nativeMode.value = false
+  payMode.value = 'simple'
+  payChannel.value = 'CASH'
+  paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
+}
+
 async function submitCheckout() {
   if (!cart.value.length) {
     showToast('购物车为空', true)
@@ -847,36 +855,103 @@ async function submitCheckout() {
   if (paying.value) return
   paying.value = true
   try {
-    const payments = paySplits.value
-      .filter((s) => Number(s.amountYuan) > 0)
-      .map((s) => {
-        const amount = Math.round(Number(s.amountYuan) * CENTS_PER_YUAN)
-        const isScan = s.channel === 'WECHAT' || s.channel === 'ALIPAY'
+    let payments: Array<{
+      channel: string
+      amount_cents: number
+      tendered_cents: number | null
+      change_cents: number | null
+      auth_code: string | null
+      mode: string | null
+    }>
+    if (payMode.value === 'simple') {
+      // 主流式单笔支付：金额自动=应收，只按渠道补必要信息
+      const ch = payChannel.value
+      const amount = payShortfall.value
+      if (amount <= 0) {
+        showToast('购物车为空或无待收金额', true)
+        return
+      }
+      if (ch === 'WECHAT' || ch === 'ALIPAY') {
+        if (!nativeMode.value && !payAuthCode.value.trim()) {
+          showToast('请扫描或输入顾客付款码', true)
+          return
+        }
+        payments = [
+          {
+            channel: ch,
+            amount_cents: amount,
+            tendered_cents: null,
+            change_cents: null,
+            auth_code: nativeMode.value ? null : payAuthCode.value.trim(),
+            mode: nativeMode.value ? 'NATIVE' : null,
+          },
+        ]
+      } else if (ch === 'CASH') {
         // 现金：实收未填视为刚好付清；找零 = 实收 − 应收，不得为负
-        let tendered = amount
-        let change = 0
-        if (s.channel === 'CASH') {
-          const t = Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN)
-          if (t > 0) {
-            if (t < amount) {
-              throw new Error('实收现金不足以支付该笔金额')
+        const t = Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN)
+        if (t > 0 && t < amount) {
+          showToast('实收现金不足应收金额', true)
+          return
+        }
+        payments = [
+          {
+            channel: 'CASH',
+            amount_cents: amount,
+            tendered_cents: t > 0 ? t : null,
+            change_cents: t > 0 ? t - amount : null,
+            auth_code: null,
+            mode: null,
+          },
+        ]
+      } else {
+        if (memberId.value == null) {
+          showToast('储值支付需先识别会员', true)
+          return
+        }
+        payments = [
+          {
+            channel: 'STORED_VALUE',
+            amount_cents: amount,
+            tendered_cents: null,
+            change_cents: null,
+            auth_code: null,
+            mode: null,
+          },
+        ]
+      }
+    } else {
+      // 组合支付：按拆分行提交（现金行可叠加实收/找零）
+      payments = paySplits.value
+        .filter((s) => Number(s.amountYuan) > 0)
+        .map((s) => {
+          const amount = Math.round(Number(s.amountYuan) * CENTS_PER_YUAN)
+          const isScan = s.channel === 'WECHAT' || s.channel === 'ALIPAY'
+          // 现金：实收未填视为刚好付清；找零 = 实收 − 应收，不得为负
+          let tendered = amount
+          let change = 0
+          if (s.channel === 'CASH') {
+            const t = Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN)
+            if (t > 0) {
+              if (t < amount) {
+                throw new Error('实收现金不足以支付该笔金额')
+              }
+              tendered = t
+              change = t - amount
             }
-            tendered = t
-            change = t - amount
           }
-        }
-        return {
-          channel: s.channel,
-          amount_cents: amount,
-          tendered_cents: s.channel === 'CASH' ? tendered : null,
-          change_cents: s.channel === 'CASH' ? change : null,
-          auth_code: isScan && !nativeMode.value ? s.authCode || null : null,
-          mode: isScan && nativeMode.value ? 'NATIVE' : null,
-        }
-      })
-    if (!payments.length) {
-      showToast('请填写支付金额', true)
-      return
+          return {
+            channel: s.channel,
+            amount_cents: amount,
+            tendered_cents: s.channel === 'CASH' ? tendered : null,
+            change_cents: s.channel === 'CASH' ? change : null,
+            auth_code: isScan && !nativeMode.value ? s.authCode || null : null,
+            mode: isScan && nativeMode.value ? 'NATIVE' : null,
+          }
+        })
+      if (!payments.length) {
+        showToast('请填写支付金额', true)
+        return
+      }
     }
     const r = await api.checkout(
       cart.value,
@@ -893,10 +968,7 @@ async function submitCheckout() {
       return
     }
     clearMember()
-    cart.value = []
-    cashTendered.value = ''
-    couponCode.value = ''
-    paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
+    resetPayState()
     showToast(pointsToast(`收银成功：${r.order_no}`, r.points_earned))
   } catch (e) {
     showToast(String(e), true)
@@ -916,9 +988,7 @@ function startNativePolling(orderNo: string) {
         closeNativeDialog()
         clearMember()
         cart.value = []
-        cashTendered.value = ''
-        couponCode.value = ''
-        paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
+        resetPayState()
         showToast(pointsToast(`收银成功：${orderNo}`, r.points_earned))
       } else if (r.status === 'CLOSED' || r.status.startsWith('FAILED')) {
         stopNativePolling()
@@ -967,9 +1037,7 @@ async function confirmNativeLocal() {
     closeNativeDialog()
     clearMember()
     cart.value = []
-    cashTendered.value = ''
-    couponCode.value = ''
-    paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
+    resetPayState()
     showToast(pointsToast(`收银成功：${d.orderNo}`, points))
   } catch (e) {
     showToast(String(e), true)
@@ -1015,6 +1083,68 @@ const paidPreview = computed(() =>
   paySplits.value.reduce((s, p) => s + (Number(p.amountYuan) || 0) * CENTS_PER_YUAN, 0)
 )
 const payShortfall = computed(() => payableAmount.value - paidPreview.value)
+
+// ===== 收银台（主流式交互）辅助 =====
+/** 单笔支付方式清单：受设置页渠道开关过滤 */
+const payMethods = computed(() =>
+  (
+    [
+      { id: 'CASH', label: '现金', icon: 'cash' },
+      { id: 'WECHAT', label: '微信', icon: 'chat' },
+      { id: 'ALIPAY', label: '支付宝', icon: 'phone' },
+      { id: 'STORED_VALUE', label: '储值', icon: 'wallet' },
+    ] as Array<{ id: PayChannel; label: string; icon: 'cash' | 'chat' | 'phone' | 'wallet' }>
+  ).filter((m) => channelEnabled.value[m.id] !== false)
+)
+
+function selectPayChannel(id: PayChannel) {
+  payMode.value = 'simple'
+  payChannel.value = id
+}
+
+/** 微信/支付宝面板出现时自动聚焦付款码输入，扫码枪无需点选即可扫入 */
+const payCodeInput = ref<HTMLInputElement | null>(null)
+watch(
+  () => [payMode.value, payChannel.value, nativeMode.value] as const,
+  () => {
+    if (
+      payMode.value === 'simple' &&
+      !nativeMode.value &&
+      (payChannel.value === 'WECHAT' || payChannel.value === 'ALIPAY')
+    ) {
+      void nextTick(() => payCodeInput.value?.focus())
+    }
+  }
+)
+
+/** 现金找零：实收 − 应收；不足时显示待收差额 */
+const cashTenderedCents = computed(() =>
+  Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN)
+)
+const changeDue = computed(() => Math.max(0, cashTenderedCents.value - payableAmount.value))
+const cashShort = computed(() => Math.max(0, payableAmount.value - cashTenderedCents.value))
+const cashOverpaid = computed(() => cashTenderedCents.value > 0 && cashTenderedCents.value >= payableAmount.value)
+
+/** 快捷实收面额：常见整钞 + 「刚好」付清 */
+const QUICK_CASH_YUAN = [10, 20, 50, 100]
+function exactCash() {
+  cashTendered.value = (payableAmount.value / CENTS_PER_YUAN).toFixed(2)
+}
+
+function openCouponDialog() {
+  couponDraft.value = couponCode.value
+  couponDialogOpen.value = true
+}
+function applyCouponDialog() {
+  couponCode.value = couponDraft.value.trim()
+  couponDialogOpen.value = false
+  void refreshQuote()
+}
+function clearCoupon() {
+  couponCode.value = ''
+  couponDraft.value = ''
+  void refreshQuote()
+}
 
 /** 报价刷新：购物车/会员/券变化后向后端取权威应收金额。 */
 async function refreshQuote() {
@@ -1712,18 +1842,19 @@ function doLogout() {
             <div v-if="!cart.length" class="empty">购物车为空</div>
           </div>
           <div class="cart-foot">
-            <div class="coupon-row">
-              <input v-model="couponCode" class="input" placeholder="优惠券码（可选）" />
-              <span v-if="quote?.coupon_note" class="muted small">{{ quote.coupon_note }}</span>
-            </div>
-            <div class="pay-member-row">
-              <button class="btn" @click="openMemberDialog">
-                <Icon name="user" :size="ICON_SIZE.sm" />{{ memberId != null ? '已识别会员' : '识别会员' }}
+            <div class="pay-quick-row">
+              <button class="btn pay-quick" :class="{ active: memberId != null }" @click="openMemberDialog">
+                <Icon name="user" :size="ICON_SIZE.md" />{{ memberId != null ? `会员 #${memberId}` : '会员' }}
               </button>
-              <span v-if="memberBalances" class="member-balance-inline">
-                本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
-              </span>
+              <button class="btn pay-quick" :class="{ active: !!couponCode }" @click="openCouponDialog">
+                <Icon name="ticket" :size="ICON_SIZE.md" />{{ couponCode ? `券 ${couponCode}` : '优惠券' }}
+              </button>
+              <button v-if="couponCode" class="btn ghost pay-quick" @click="clearCoupon"><Icon name="close" :size="ICON_SIZE.sm" />清除券</button>
             </div>
+            <span v-if="quote?.coupon_note" class="muted small">{{ quote.coupon_note }}</span>
+            <span v-if="memberBalances" class="member-balance-inline">
+              本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
+            </span>
             <div v-if="memberId != null" class="points-earn-inline">
               <Icon name="star" :size="ICON_SIZE.sm" />
               <span v-if="(quote?.points_earned ?? 0) > 0">本单预计累计 <strong>+{{ quote?.points_earned }}</strong> 积分</span>
@@ -1736,7 +1867,69 @@ function doLogout() {
             <div v-if="quote && quote.discount_cents > 0" class="muted small">
               原价 ¥{{ formatMoney(quote.total_cents) }} · 优惠 ¥{{ formatMoney(quote.discount_cents) }}
             </div>
-            <div class="pay-splits">
+            <!-- 支付方式大按钮：金额自动=应收，选择后只补渠道必需信息 -->
+            <div class="pay-methods">
+              <button
+                v-for="m in payMethods"
+                :key="m.id"
+                :class="['pay-method-btn', { active: payMode === 'simple' && payChannel === m.id }]"
+                @click="selectPayChannel(m.id)"
+              >
+                <Icon :name="m.icon" :size="ICON_SIZE.md" />{{ m.label }}
+              </button>
+              <button :class="['pay-method-btn', { active: payMode === 'mixed' }]" @click="payMode = 'mixed'">
+                <Icon name="plus" :size="ICON_SIZE.md" />组合
+              </button>
+            </div>
+            <!-- 微信 / 支付宝：只露付款码输入，金额已自动带出 -->
+            <div v-if="payMode === 'simple' && (payChannel === 'WECHAT' || payChannel === 'ALIPAY')" class="pay-panel">
+              <template v-if="!nativeMode">
+                <input
+                  ref="payCodeInput"
+                  v-model="payAuthCode"
+                  class="input input-lg"
+                  placeholder="扫描顾客付款码，回车即收款"
+                  @keyup.enter="submitCheckout"
+                />
+                <p class="muted small">收款金额已按应收 ¥{{ formatMoney(payableAmount) }} 自动带出，扫码枪扫顾客付款码即完成收款。</p>
+                <button class="btn ghost" @click="nativeMode = true"><Icon name="qr" :size="ICON_SIZE.sm" />改为顾客扫屏幕二维码</button>
+              </template>
+              <template v-else>
+                <p class="pay-hint">
+                  <Icon name="qr" :size="ICON_SIZE.md" />
+                  点击「收款」后将展示二维码，顾客用{{ payChannel === 'WECHAT' ? '微信' : '支付宝' }}扫码支付 ¥{{ formatMoney(payableAmount) }}。
+                </p>
+                <button class="btn ghost" @click="nativeMode = false"><Icon name="undo" :size="ICON_SIZE.sm" />改回扫描顾客付款码</button>
+              </template>
+            </div>
+            <!-- 现金：实收金额 + 找零 -->
+            <div v-else-if="payMode === 'simple' && payChannel === 'CASH'" class="pay-panel">
+              <input
+                v-model="cashTendered"
+                class="input input-lg"
+                type="number"
+                step="0.01"
+                placeholder="实收现金（元），留空视为刚好付清"
+                @keyup.enter="submitCheckout"
+              />
+              <div class="quick-cash">
+                <button v-for="v in QUICK_CASH_YUAN" :key="v" class="btn ghost" :disabled="v * CENTS_PER_YUAN < payableAmount" @click="cashTendered = String(v)">¥{{ v }}</button>
+                <button class="btn ghost" @click="exactCash">刚好</button>
+              </div>
+              <div v-if="cashOverpaid" class="change-due">
+                <span>找零</span><strong>¥{{ formatMoney(changeDue) }}</strong>
+              </div>
+              <div v-else class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
+                待收 ¥{{ formatMoney(cashShort > 0 ? cashShort : 0) }}
+              </div>
+            </div>
+            <!-- 储值：需先识别会员，金额自动带出 -->
+            <div v-else-if="payMode === 'simple' && payChannel === 'STORED_VALUE'" class="pay-panel">
+              <p v-if="memberId == null" class="pay-hint warn"><Icon name="alert" :size="ICON_SIZE.md" />储值支付需先点击「会员」识别会员。</p>
+              <p v-else class="pay-hint ok"><Icon name="wallet" :size="ICON_SIZE.md" />将从会员储值余额扣除 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}。</p>
+            </div>
+            <!-- 组合支付：多渠道拆分行 -->
+            <div v-else class="pay-splits">
               <div v-for="(s, i) in paySplits" :key="i" class="pay-split">
                 <select v-model="s.channel" class="input">
                   <option v-if="channelEnabled.CASH !== false" value="CASH">现金</option>
@@ -1757,17 +1950,18 @@ function doLogout() {
                 <input v-model="nativeMode" type="checkbox" />
                 Native 支付（顾客扫屏幕二维码，微信/支付宝）
               </label>
-              <button class="btn ghost full" @click="addPaySplit">+ 添加支付方式</button>
+              <button class="btn ghost" @click="addPaySplit">+ 添加支付方式</button>
               <input
                 v-if="paySplits.some((s) => s.channel === 'CASH')"
                 v-model="cashTendered"
                 class="input"
-                placeholder="现金收钞(元)"
+                placeholder="现金实收(元)"
                 type="number"
               />
               <div class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
                 待收 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}
               </div>
+              <button class="btn ghost" @click="payMode = 'simple'; payChannel = 'CASH'"><Icon name="undo" :size="ICON_SIZE.sm" />返回单笔支付</button>
             </div>
             <div class="actions">
               <button class="btn" @click="openParkDialog"><Icon name="pause" :size="ICON_SIZE.md" />挂单</button>
@@ -2247,6 +2441,25 @@ function doLogout() {
       </div>
 
       <!-- 会员识别弹窗：付款区「会员」按钮唤起 -->
+      <!-- 优惠券弹窗：点击付款区「优惠券」图标按钮唤起 -->
+      <div v-if="couponDialogOpen" class="modal-mask" @click.self="couponDialogOpen = false">
+        <div class="modal">
+          <h3>使用优惠券</h3>
+          <p class="muted small">输入优惠券码，应用后按券规则计算优惠；不使用可清除。</p>
+          <input
+            v-model="couponDraft"
+            class="input"
+            placeholder="优惠券码"
+            @keyup.enter="applyCouponDialog"
+          />
+          <div class="actions">
+            <button class="btn" @click="couponDialogOpen = false">取消</button>
+            <button v-if="couponCode" class="btn" @click="clearCoupon(); couponDialogOpen = false">清除已用券</button>
+            <button class="btn primary" @click="applyCouponDialog">应用</button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="memberDialogOpen" class="modal-mask" @click.self="memberDialogOpen = false">
         <div class="modal">
           <h3>识别会员</h3>

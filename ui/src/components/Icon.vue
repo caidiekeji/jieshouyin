@@ -12,6 +12,7 @@ type IconName =
   | 'heart' | 'users' | 'user' | 'undo' | 'receipt' | 'print' | 'report'
   | 'settings' | 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'cash' | 'star'
   | 'ticket' | 'pause' | 'image' | 'truck' | 'alert' | 'info'
+  | 'chat' | 'phone' | 'qr'
   | 'plus' | 'minus' | 'check' | 'close' | 'refresh' | 'edit' | 'trash'
   | 'lock' | 'logout'
 
@@ -161,6 +162,25 @@ const ICONS: Record<IconName, string[]> = {
     'M13 17v2',
   ],
   pause: ['M6 4h4v16H6z', 'M14 4h4v16h-4z'],
+  chat: [
+    'M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z',
+    'M8.5 11.5h.01',
+    'M12 11.5h.01',
+    'M15.5 11.5h.01',
+  ],
+  phone: [
+    'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z',
+    'M11 19h2',
+  ],
+  qr: [
+    'M4 4h6v6H4z',
+    'M14 4h6v6h-6z',
+    'M4 14h6v6H4z',
+    'M14 14h2v2h-2z',
+    'M18 14h2v2h-2z',
+    'M14 18h2v2h-2z',
+    'M18 18h2v2h-2z',
+  ],
   image: [
     'M3 3h18v18H3z',
     'M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z',
