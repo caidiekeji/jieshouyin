@@ -482,7 +482,7 @@ async function probeActivationService() {
   }
 }
 
-/** 在线激活：输入官网领取的激活码，向激活服务换取授权 */
+/** 在线激活：输入激活码，向激活服务换取授权 */
 async function submitActivateOnline() {
   activateError.value = ''
   if (!activateToken.value.trim()) {
@@ -1252,7 +1252,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
 
         <template v-if="!renewMode && activateMode === 'online'">
           <p class="muted small">
-            在官网注册后可免费领取激活码。输入激活码后联网向激活服务换取授权，授权在本机验签后保存。
+            输入激活码后联网向激活服务换取授权，授权在本机验签后保存。
           </p>
           <label class="field-label">
             激活码

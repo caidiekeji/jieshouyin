@@ -3594,7 +3594,7 @@ fn resolve_activation_endpoint(conn: &Connection) -> Result<String> {
         configured.unwrap_or_else(|| checkout_core::default_activation_endpoint().to_string());
     if endpoint.trim().is_empty() {
         return Err(CoreError::Validation(
-            "未配置在线激活服务地址：请在「设置 → 系统配置 → 在线激活服务」填写官网根地址".into(),
+            "未配置在线激活服务地址：请在「设置 → 系统配置 → 在线激活服务」填写服务地址".into(),
         ));
     }
     checkout_core::license::online::normalize_endpoint(&endpoint)

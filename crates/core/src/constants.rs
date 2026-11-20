@@ -124,7 +124,7 @@ pub const CFG_PAY_CHANNEL_SV: &str = "pay_channel_sv_enabled";
 pub const CFG_STORE_NAME: &str = "store_name";
 /// 所属行业标识：SUPERMARKET / CLOTHING / RESTAURANT。
 pub const CFG_INDUSTRY: &str = "industry";
-/// 在线激活服务地址（Cloudflare Worker）。为空时回退到构建时内置的地址。
+/// 在线激活服务地址。为空时回退到构建时内置的地址。
 pub const CFG_ACTIVATION_ENDPOINT: &str = "activation_endpoint";
 
 /// 行业标识：超市便利店。
@@ -272,7 +272,7 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 21] = [
     (
         CFG_ACTIVATION_ENDPOINT,
         "在线激活服务",
-        "激活服务根地址（官网地址）。发行包已内置该地址，此处可覆盖",
+        "在线激活服务地址，留空使用内置服务",
         CONFIG_KIND_TEXT,
     ),
 ];
