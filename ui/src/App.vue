@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { listen } from '@tauri-apps/api/event'
 import {
   api,
   formatMoney,
@@ -76,6 +77,16 @@ const activationServiceReachable = ref<boolean | null>(null)
 const probingService = ref(false)
 const theme = ref<'light' | 'dark'>('light')
 const currentUser = ref('')
+
+// ===== 锁机码：离岗锁屏 / 隐藏到托盘自动锁屏（纯本地，不参与授权）=====
+const LOCK_CODE_KEY = 'checkoutr.lock_code'
+const lockCode = ref('')
+const lockCodeDraft = ref('')
+const lockSetupOpen = ref(false)
+const pendingLockAfterSetup = ref(false)
+const locked = ref(false)
+const lockInput = ref('')
+const lockError = ref('')
 
 // 设置中心子页：左侧导航 + 右侧内容，避免九张卡片堆一屏
 type SettingsTab = 'overview' | 'appearance' | 'staff' | 'system' | 'payment' | 'recon' | 'coupon' | 'print'
@@ -497,6 +508,94 @@ function gotoOrder(no: string) {
   orderNo.value = no
   view.value = 'order'
 }
+
+// ===== 锁机码逻辑 =====
+/** 读取本机锁机码；本地存储不可用时保持为空，锁机按钮会引导重设 */
+function loadLockCode() {
+  try {
+    lockCode.value = localStorage.getItem(LOCK_CODE_KEY) || ''
+  } catch {
+    lockCode.value = ''
+  }
+}
+
+/** 保存锁机码；若由「锁机」按钮触发的设置，保存后立即进入锁屏 */
+function saveLockCode() {
+  const code = lockCodeDraft.value.trim()
+  if (!code) {
+    showToast('请输入锁机码', true)
+    return
+  }
+  try {
+    localStorage.setItem(LOCK_CODE_KEY, code)
+    lockCode.value = code
+    lockCodeDraft.value = ''
+    lockSetupOpen.value = false
+    const shouldLock = pendingLockAfterSetup.value
+    pendingLockAfterSetup.value = false
+    if (shouldLock) {
+      lockInput.value = ''
+      lockError.value = ''
+      locked.value = true
+    }
+    showToast('锁机码已设置')
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+/** 清除锁机码 */
+function clearLockCode() {
+  try {
+    localStorage.removeItem(LOCK_CODE_KEY)
+  } catch {
+    // 本地存储不可用时忽略，锁机码仍从内存清空
+  }
+  lockCode.value = ''
+  lockCodeDraft.value = ''
+  showToast('锁机码已清除')
+}
+
+/** 锁屏：未设置锁机码时先引导设置，设置完成立即锁屏 */
+function lockScreen() {
+  if (locked.value) return
+  lockInput.value = ''
+  lockError.value = ''
+  if (!lockCode.value) {
+    pendingLockAfterSetup.value = true
+    lockSetupOpen.value = true
+    return
+  }
+  locked.value = true
+}
+
+/** 解锁：比对锁机码，错误时给出提示并保持锁屏 */
+function unlock() {
+  if (lockInput.value === lockCode.value) {
+    locked.value = false
+    lockInput.value = ''
+    lockError.value = ''
+    showToast('已解锁')
+  } else {
+    lockError.value = '锁机码不正确'
+  }
+}
+
+/** 取消锁机码设置：同时清除「设置后立即锁屏」的待办标记 */
+function cancelLockSetup() {
+  lockSetupOpen.value = false
+  pendingLockAfterSetup.value = false
+}
+
+onMounted(() => {
+  loadLockCode()
+  // 窗口隐藏到托盘时后端发出 lock-request：从托盘恢复后保持锁屏，需输码解锁
+  void listen('lock-request', () => {
+    lockScreen()
+  }).catch(() => {
+    // 浏览器预览环境无 Tauri 事件，忽略即可
+  })
+})
 
 /** 选择试用15天：接受当前试用期，直接进入收银（试用期由后端在首次启动时开启） */
 function enterTrial() {
@@ -1314,7 +1413,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
       </div>
     </div>
 
-    <!-- 激活 -->
+    <!-- 激活：极简——一个激活码输入框 + 两个按钮（试用 / 免费获取） -->
     <div v-else-if="view === 'activate'" class="center-screen">
       <div class="card auth-card">
         <div class="brand">
@@ -1324,66 +1423,25 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
             <p class="muted">收银系统授权</p>
           </div>
         </div>
-        <h2>{{ renewMode ? '导入续期码' : '设备激活' }}</h2>
-
-        <!-- 首启三选一之一：先试用 15 天。试用期由系统在首次启动时开启。 -->
-        <div v-if="!renewMode && license?.status === 'TRIAL_ACTIVE'" class="trial-entry">
-          <p class="muted small">可先免费试用，当前剩余 <strong>{{ trialDaysLeft }} 天</strong>，到期后需用激活码激活。</p>
-          <button class="btn primary" @click="enterTrial">先试用 15 天，进入收银</button>
-        </div>
-
-        <template v-if="!renewMode && activateMode === 'online'">
-          <p class="muted small">
-            输入激活码后联网向激活服务换取授权，授权在本机验签后保存。
-          </p>
-          <label class="field-label">
-            激活码
+        <h2>设备激活</h2>
+        <label class="field-label">
+          激活码
+          <div class="activate-code-row">
             <input
               v-model="activateToken"
               class="input mono"
-              placeholder="CKR-XXXX-XXXX-XXXX-XXXX"
+              placeholder="输入激活码后回车激活"
               autocapitalize="characters"
+              @keyup.enter="submitActivateOnline"
             />
-          </label>
-          <button class="btn" @click="openOfficialSite">
-            <Icon name="box" :size="ICON_SIZE.md" />获取激活码
-          </button>
-          <label class="field-label">
-            门店名称（选填，用于授权登记）
-            <input v-model="activateCustomer" class="input" placeholder="如 城南生活超市" maxlength="30" />
-          </label>
-          <p v-if="activationServiceReachable === false" class="error">
-            激活服务当前不可达：请检查网络，或在「设置 → 系统配置 → 在线激活服务」确认地址。
-          </p>
-          <p v-else-if="activationServiceReachable === true" class="muted small">激活服务连接正常。</p>
-          <p v-if="activateError" class="error">{{ activateError }}</p>
-          <button class="btn primary" @click="submitActivateOnline">联网激活</button>
-          <button class="btn ghost" @click="activateMode = 'offline'">
-            网络不可用？改用离线激活码
-          </button>
-        </template>
-
-        <template v-else-if="!renewMode">
-          <p class="muted small">
-            离线备用通道：粘贴服务商提供的授权码（Base64URL.签名），本机验签后立即生效，全程不发起网络请求。
-          </p>
-          <textarea v-model="activateToken" rows="5" placeholder="粘贴激活码（Base64URL.签名）" class="input mono"></textarea>
-          <p v-if="activateError" class="error">{{ activateError }}</p>
-          <button class="btn primary" @click="submitActivate">离线激活</button>
-          <button class="btn ghost" @click="activateMode = 'online'">返回在线激活</button>
-        </template>
-
-        <template v-else>
-          <p class="muted small">粘贴续期码（Base64URL.签名），本机验签后立即生效。</p>
-          <textarea v-model="activateToken" rows="5" placeholder="粘贴续期码（Base64URL.签名）" class="input mono"></textarea>
-          <p v-if="activateError" class="error">{{ activateError }}</p>
-          <button class="btn primary" @click="submitActivate">续期</button>
-        </template>
-
-        <button v-if="!renewMode" class="btn ghost" @click="renewMode = !renewMode">
-          {{ renewMode ? '返回激活' : '已有授权，导入续期码' }}
-        </button>
-        <button v-else class="btn ghost" @click="renewMode = false">返回激活</button>
+            <button class="btn primary" @click="submitActivateOnline">激活</button>
+          </div>
+        </label>
+        <p v-if="activateError" class="error">{{ activateError }}</p>
+        <div class="activate-actions">
+          <button class="btn" @click="enterTrial">试用15天</button>
+          <button class="btn" @click="openOfficialSite">免费获取激活码</button>
+        </div>
       </div>
     </div>
 
@@ -1430,7 +1488,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.lg" />报表</button>
           <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="ICON_SIZE.lg" />设置</button>
         </nav>
-        <div class="user"><Icon name="user" :size="ICON_SIZE.md" /><span>{{ currentUser }}</span><button class="link" @click="doLogout">退出</button></div>
+        <div class="user"><Icon name="user" :size="ICON_SIZE.md" /><span>{{ currentUser }}</span><button class="link" @click="lockScreen">锁机</button><button class="link" @click="doLogout">退出</button></div>
       </header>
 
       <div v-if="banner" class="banner">{{ banner }}</div>
@@ -1807,6 +1865,22 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
                 <button class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
               </div>
             </div>
+            <div class="config-row config-row-stacked">
+              <div class="config-label">
+                <strong>锁机码</strong>
+                <span class="muted small">离岗锁屏、关闭窗口隐藏到托盘后，输入此码解锁（仅存本机）</span>
+              </div>
+              <div class="config-control">
+                <input
+                  v-model="lockCodeDraft"
+                  class="input"
+                  type="password"
+                  :placeholder="lockCode ? '已设置，输入新值覆盖' : '输入锁机码'"
+                />
+                <button class="btn btn-sm primary" @click="saveLockCode">保存</button>
+                <button v-if="lockCode" class="btn btn-sm ghost" @click="clearLockCode">清除</button>
+              </div>
+            </div>
             <p class="muted small">扫码判定间隔 20–200 毫秒；业务日切点格式 HH:MM；最大折扣率 0–1。</p>
           </div>
 
@@ -1974,6 +2048,43 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <div class="actions">
             <button class="btn" @click="memberDialogOpen = false">关闭</button>
             <button class="btn primary" @click="confirmMemberDialog">识别会员</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 锁机码锁屏：离岗锁屏或隐藏到托盘时覆盖整个界面 -->
+      <div v-if="locked" class="lock-overlay">
+        <div class="lock-card">
+          <div class="brand-mark"><Icon name="user" :size="ICON_SIZE.xxl" /></div>
+          <h2>收银台已锁定</h2>
+          <p class="muted small">收银员临时离岗，请输入锁机码解锁</p>
+          <input
+            v-model="lockInput"
+            class="input mono lock-input"
+            type="password"
+            placeholder="输入锁机码"
+            @keyup.enter="unlock"
+          />
+          <p v-if="lockError" class="error">{{ lockError }}</p>
+          <button class="btn primary" @click="unlock">解锁</button>
+        </div>
+      </div>
+
+      <!-- 锁机码设置：首次锁机尚未设码时由「锁机」按钮唤起 -->
+      <div v-if="lockSetupOpen" class="modal-mask" @click.self="cancelLockSetup">
+        <div class="modal">
+          <h3>设置锁机码</h3>
+          <p class="muted small">离岗锁屏、或关闭窗口隐藏到托盘后，输入此码解锁。仅保存在本机。</p>
+          <input
+            v-model="lockCodeDraft"
+            class="input mono"
+            type="password"
+            placeholder="输入锁机码"
+            @keyup.enter="saveLockCode"
+          />
+          <div class="actions">
+            <button class="btn" @click="cancelLockSetup">取消</button>
+            <button class="btn primary" @click="saveLockCode">保存并锁屏</button>
           </div>
         </div>
       </div>

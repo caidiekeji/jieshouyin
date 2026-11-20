@@ -41,15 +41,10 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   box-shadow: var(--shadow);
 }
 .auth-card { width: var(--layout-auth-width); display: flex; flex-direction: column; gap: var(--space-3); }
-/* 激活页「先试用」入口：与下方激活码表单区分的首启第一路径 */
-.trial-entry {
-  display: flex; flex-direction: column; gap: var(--space-2);
-  padding: var(--space-3);
-  border: var(--border-width) solid var(--brand);
-  border-radius: var(--radius-md);
-  background: var(--surface-subtle);
-}
-.trial-entry p { margin: var(--space-0); }
+/* 激活页极简布局：激活码输入行 + 两个并列操作按钮 */
+.activate-code-row { display: flex; gap: var(--space-2); align-items: stretch; }
+.activate-code-row .input { flex: 1; min-width: 0; }
+.activate-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .card.wide { width: 100%; }
 .brand { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-1); }
 .brand-mark {
@@ -412,6 +407,22 @@ h2 { font-size: var(--font-lg); }
   display: flex; flex-direction: column; gap: var(--space-3);
 }
 .modal h3 { margin: 0; }
+/* 锁机码锁屏：覆盖全屏（含顶栏与弹窗），输码后才能回到收银界面 */
+.lock-overlay {
+  position: fixed; inset: 0; z-index: calc(var(--z-overlay) + 10);
+  background: var(--overlay-scrim);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+}
+.lock-card {
+  width: var(--layout-auth-width); max-width: 92vw;
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
+  padding: var(--space-6); text-align: center;
+  background: var(--panel); color: var(--text);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-float);
+}
+.lock-input { width: 100%; text-align: center; letter-spacing: 0.2em; }
 .err-text { color: var(--danger); font-size: var(--font-sm); margin: 0; }
 .toast.err { background: var(--danger); color: var(--text-on-brand); }
 .native-modal { align-items: center; text-align: center; }

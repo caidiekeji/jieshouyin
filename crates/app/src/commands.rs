@@ -29,7 +29,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 fn now_str() -> String {
     Utc::now().to_rfc3339()
@@ -3800,7 +3800,76 @@ pub fn run() {
                 current_shift: std::sync::Mutex::new(0i64),
                 pending_sensitive: std::sync::Mutex::new(None),
             });
+
+            // 系统托盘：关闭按钮只隐藏到托盘，真正退出走托盘菜单。
+            // 图标优先用应用默认图标，构造失败则跳过托盘，不影响主程序启动。
+            let tray_icon = app
+                .default_window_icon()
+                .cloned()
+                .or_else(|| tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok());
+            if let Some(icon) = tray_icon {
+                let show_item = tauri::menu::MenuItem::with_id(
+                    app, "tray_show", "显示收银台", true, None::<&str>,
+                );
+                let quit_item = tauri::menu::MenuItem::with_id(
+                    app, "tray_quit", "退出程序", true, None::<&str>,
+                );
+                if let (Ok(show_item), Ok(quit_item)) = (show_item, quit_item) {
+                    if let Ok(tray_menu) =
+                        tauri::menu::Menu::with_items(app, &[&show_item, &quit_item])
+                    {
+                        match tauri::tray::TrayIconBuilder::new()
+                            .icon(icon)
+                            .tooltip("Checkout-R 收银系统")
+                            // 左键点击直接恢复窗口；右键才弹菜单（显示/退出）
+                            .show_menu_on_left_click(false)
+                            .menu(&tray_menu)
+                            .on_menu_event(|app, event| match event.id.as_ref() {
+                                "tray_show" => {
+                                    if let Some(window) = app.get_webview_window("main") {
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
+                                }
+                                "tray_quit" => app.exit(0),
+                                _ => {}
+                            })
+                            .on_tray_icon_event(|tray, event| {
+                                if let tauri::tray::TrayIconEvent::Click {
+                                    button: tauri::tray::MouseButton::Left,
+                                    ..
+                                } = event
+                                {
+                                    let app = tray.app_handle();
+                                    if let Some(window) = app.get_webview_window("main") {
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
+                                }
+                            })
+                            .build(app)
+                        {
+                            // TrayIcon 是 RAII 句柄，必须长期持有，否则图标立即消失
+                            Ok(tray) => app.manage(tray),
+                            Err(e) => tracing::warn!("托盘图标创建失败: {e}"),
+                        }
+                    }
+                }
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 关闭按钮隐藏到托盘；真正退出走托盘菜单「退出程序」
+                api.prevent_close();
+                if let Err(e) = window.hide() {
+                    tracing::warn!("隐藏窗口到托盘失败: {e}");
+                }
+                // 通知前端锁屏：从托盘恢复后需输入锁机码
+                if let Err(e) = window.emit("lock-request", ()) {
+                    tracing::warn!("发送锁屏事件失败: {e}");
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
