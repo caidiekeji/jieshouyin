@@ -91,18 +91,20 @@ mod tests {
 
     #[test]
     fn fresh_db_applies_all_migrations() {
+        // 断言跟随迁移清单长度：新增迁移无需同步改测试
+        let expected = migrations::all().len() as i32;
         let mut conn = open_in_memory().unwrap();
         run_migrations(&mut conn).unwrap();
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 9);
+        assert_eq!(count, expected);
         let max: i32 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(max, 9);
+        assert_eq!(max, expected);
     }
 
     #[test]
@@ -113,7 +115,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 9);
+        assert_eq!(count, migrations::all().len() as i32);
     }
 
     #[test]
