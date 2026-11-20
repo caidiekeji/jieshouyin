@@ -37,10 +37,38 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   background: var(--panel);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-6);
   box-shadow: var(--shadow);
 }
-.auth-card { width: var(--layout-auth-width); display: flex; flex-direction: column; gap: var(--space-3); }
+/* 登录/激活卡片：容器留白大于组内间距——外层 28px、表单组间 16px，呼吸感优先 */
+.auth-card {
+  width: var(--layout-auth-width);
+  display: flex; flex-direction: column; gap: var(--space-4);
+  padding: var(--space-7);
+}
+/* 登录品牌区：垂直居中排版，与表单之间拉开一组距离 */
+.auth-brand {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  text-align: center;
+  margin-bottom: var(--space-5);
+}
+.auth-brand .brand-mark { width: var(--control-brandmark-lg-size); height: var(--control-brandmark-lg-size); }
+.auth-brand h1 { font-size: var(--font-xl); }
+/* 表单字段：标签 + 控件成组，组内紧、组间松 */
+.field { display: flex; flex-direction: column; gap: var(--space-1); }
+.field-label { font-size: var(--font-sm); color: var(--text-muted); }
+.input-lg { padding: var(--space-3) var(--space-4); font-size: var(--font-md); }
+.btn-lg { padding: var(--space-3) var(--space-6); font-size: var(--font-md); }
+/* 表单错误：淡底 + 图标 + 文案，说清哪错了 */
+.form-error {
+  display: flex; align-items: center; gap: var(--space-2);
+  color: var(--danger);
+  background: var(--danger-subtle);
+  border: var(--border-width) solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+}
 /* 激活页极简布局：激活码输入行 + 两个并列操作按钮 */
 .activate-code-row { display: flex; gap: var(--space-2); align-items: stretch; }
 .activate-code-row .input { flex: 1; min-width: 0; }
@@ -141,27 +169,53 @@ h2 { font-size: var(--font-lg); }
   flex: 1; min-height: 0;
   display: grid;
   grid-template-columns: 1fr var(--layout-cart-width);
-  gap: var(--space-3);
-  padding: var(--space-3);
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 .panel {
   background: var(--panel);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  padding: var(--space-4);
   display: flex; flex-direction: column;
   min-height: 0;
 }
-.search-row { display: flex; gap: var(--space-2); }
-.product-list { flex: 1; overflow-y: auto; margin-top: var(--space-2); }
+/* 通用搜索工具栏：管理页多控件并排（查询/新增等） */
+.search-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+/* 收银页扫码搜索：输入框独占，加载/候选提示内嵌在输入框右侧，不放识别按钮 */
+.scan-search { position: relative; flex-wrap: nowrap; }
+.scan-search .input { padding-right: 110px; }
+.scan-spinner, .scan-hint {
+  position: absolute; right: var(--space-3); top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.scan-hint { color: var(--text-muted); font-size: var(--font-xs); white-space: nowrap; }
+.scan-spinner {
+  width: var(--control-inline-spinner-size); height: var(--control-inline-spinner-size);
+  border: 2px solid var(--border);
+  border-top-color: var(--brand);
+  border-radius: var(--radius-circle);
+  animation: spin var(--duration-spin) linear infinite;
+}
+/* 按钮内加载：与文字同行，宽度由文字撑开防抖 */
+.btn-spinner {
+  width: var(--control-inline-spinner-size); height: var(--control-inline-spinner-size);
+  border: 2px solid var(--text-on-brand);
+  border-top-color: transparent;
+  border-radius: var(--radius-circle);
+  animation: spin var(--duration-spin) linear infinite;
+}
+.product-list { flex: 1; overflow-y: auto; margin-top: var(--space-3); }
 .product-item {
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-3);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-sm);
-  margin-bottom: var(--space-2); cursor: pointer;
+  margin-bottom: var(--space-1); cursor: pointer;
+  background: var(--panel);
 }
-.product-item:hover { border-color: var(--brand); }
+.product-item:hover { border-color: var(--brand); background: var(--brand-subtle); }
 .product-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-0_5); }
 .price-stack { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-0_5); }
 .price { color: var(--brand); font-weight: 600; white-space: nowrap; }
@@ -234,7 +288,7 @@ h2 { font-size: var(--font-lg); }
 .settings-nav-btn:hover { background: var(--surface-subtle); }
 .settings-nav-btn.active { background: var(--chrome); color: var(--on-chrome); }
 .settings-content {
-  display: flex; flex-direction: column; gap: var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-5);
   min-height: 0; overflow-y: auto; max-height: 100%;
 }
 

@@ -285,6 +285,10 @@
   --control-qty-size: 24px;
   --control-spinner-size: 36px;
   --control-brandmark-size: 42px;
+  /* 登录页品牌标识：比通用 brand-mark 大一档，作为页面的视觉锚点 */
+  --control-brandmark-lg-size: 56px;
+  /* 行内轻量加载指示：嵌在输入框/按钮里，16px 不抢内容 */
+  --control-inline-spinner-size: 16px;
   --control-spinner-border-width: 3px;
   /* 商品缩略图：表格行高内的方形缩略图，40px 足够辨认商品又不过度抢眼 */
   --control-thumb-size: 40px;

@@ -147,6 +147,10 @@ const refundOrderNo = ref('')
 // 收银状态
 const keyword = ref('')
 const products = ref<ProductHit[]>([])
+/** 联想查询中：搜索框内显示轻量加载指示，不打断输入 */
+const searchBusy = ref(false)
+/** 收款提交中：按钮禁用防重复提交，保留宽度防抖 */
+const paying = ref(false)
 const cart = ref<(CartLine & { name: string })[]>([])
 const cashTendered = ref('')
 const lastOrder = ref('')
@@ -358,6 +362,10 @@ function onScanKeydown(e: KeyboardEvent) {
     if (fast) {
       e.preventDefault()
       void handleScannedCode(code)
+    } else if (products.value.length) {
+      // 手动回车：联想候选第一条直接入购物车（自动联想的键盘路径）
+      e.preventDefault()
+      addToCart(products.value[0])
     }
     return
   }
@@ -390,6 +398,11 @@ async function handleScannedCode(code: string) {
     }
   }
   keyword.value = code
+  // 扫码枪整码命中走精确查询，取消输入防抖避免双重请求
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
   await search()
 }
 
@@ -774,14 +787,31 @@ async function submitLogin() {
 async function search() {
   if (!keyword.value.trim()) {
     products.value = []
+    searchBusy.value = false
     return
   }
   try {
     products.value = await api.lookup(keyword.value.trim())
   } catch (e) {
     showToast(String(e))
+  } finally {
+    searchBusy.value = false
   }
 }
+
+// ===== 自动联想：输入停顿 250ms 后自动查询，无需点击识别按钮 =====
+const SEARCH_DEBOUNCE_MS = 250
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, (val) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (!val.trim()) {
+    products.value = []
+    searchBusy.value = false
+    return
+  }
+  searchBusy.value = true
+  searchTimer = setTimeout(() => void search(), SEARCH_DEBOUNCE_MS)
+})
 
 /** 商品图片展示地址：本地图片走 Tauri 资产协议，在线图片直接用；均无则返回 null。 */
 function productImageSrc(p: { image_path?: string | null; image_url?: string | null }): string | null {
@@ -818,6 +848,8 @@ async function submitCheckout() {
     showToast('购物车为空', true)
     return
   }
+  if (paying.value) return
+  paying.value = true
   try {
     const payments = paySplits.value
       .filter((s) => Number(s.amountYuan) > 0)
@@ -872,6 +904,8 @@ async function submitCheckout() {
     showToast(pointsToast(`收银成功：${r.order_no}`, r.points_earned))
   } catch (e) {
     showToast(String(e), true)
+  } finally {
+    paying.value = false
   }
 }
 
@@ -1603,24 +1637,34 @@ function doLogout() {
     <!-- 登录：首次仅显示「设置账号和密码」，之后仅显示登录表单 -->
     <div v-else-if="view === 'login'" class="center-screen">
       <div class="card auth-card">
-        <div class="brand">
-          <div class="brand-mark"><Icon name="user" :size="ICON_SIZE.xxl" /></div>
-          <div>
-            <h1>{{ needAdmin ? '设置账号和密码' : '登录' }}</h1>
-            <p class="muted">{{ needAdmin ? '首次使用，请设置管理员账号和密码' : '输入账号密码开始收银' }}</p>
-          </div>
+        <div class="auth-brand">
+          <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
+          <h1>{{ needAdmin ? '设置账号和密码' : '欢迎回来' }}</h1>
+          <p class="muted">{{ needAdmin ? '首次使用，请设置管理员账号和密码' : '输入账号密码开始收银' }}</p>
         </div>
         <template v-if="needAdmin">
-          <input v-model="adminUser" class="input" placeholder="用户名（默认 admin）" />
-          <input v-model="adminPass" type="password" class="input" placeholder="密码（≥8位，含字母数字）" @keyup.enter="submitAdmin" />
-          <p v-if="loginError" class="error">{{ loginError }}</p>
-          <button class="btn primary" @click="submitAdmin">创建管理员并继续</button>
+          <label class="field">
+            <span class="field-label">用户名</span>
+            <input v-model="adminUser" class="input input-lg" placeholder="默认 admin" @keyup.enter="submitAdmin" />
+          </label>
+          <label class="field">
+            <span class="field-label">密码</span>
+            <input v-model="adminPass" type="password" class="input input-lg" placeholder="至少 8 位，含字母和数字" @keyup.enter="submitAdmin" />
+          </label>
+          <p v-if="loginError" class="form-error"><Icon name="alert" :size="ICON_SIZE.sm" />{{ loginError }}</p>
+          <button class="btn primary btn-lg" @click="submitAdmin">创建管理员并继续</button>
         </template>
         <template v-else>
-          <input v-model="loginUser" class="input" placeholder="用户名" />
-          <input v-model="loginPass" type="password" class="input" placeholder="密码" @keyup.enter="submitLogin" />
-          <p v-if="loginError" class="error">{{ loginError }}</p>
-          <button class="btn primary" @click="submitLogin">登录</button>
+          <label class="field">
+            <span class="field-label">用户名</span>
+            <input v-model="loginUser" class="input input-lg" placeholder="用户名" @keyup.enter="submitLogin" />
+          </label>
+          <label class="field">
+            <span class="field-label">密码</span>
+            <input v-model="loginPass" type="password" class="input input-lg" placeholder="密码" @keyup.enter="submitLogin" />
+          </label>
+          <p v-if="loginError" class="form-error"><Icon name="alert" :size="ICON_SIZE.sm" />{{ loginError }}</p>
+          <button class="btn primary btn-lg" @click="submitLogin">登录</button>
         </template>
       </div>
     </div>
@@ -1659,16 +1703,17 @@ function doLogout() {
       <!-- 收银 -->
       <main v-if="view === 'pos'" class="pos-layout">
         <section class="panel product-panel">
-          <div class="search-row">
+          <div class="search-row scan-search">
             <input
               ref="scanCapture"
               v-model="keyword"
               class="input"
-              placeholder="扫码 / 条码 / 商品名"
+              placeholder="扫码 / 条码 / 商品名，自动联想"
               @keydown="onScanKeydown"
               @focus="focusScan"
             />
-            <button class="btn" @click="search"><Icon name="scan" :size="ICON_SIZE.md" />识别</button>
+            <span v-if="searchBusy" class="scan-spinner" aria-label="搜索中"></span>
+            <span v-else-if="products.length" class="scan-hint">{{ products.length }} 个候选 · 回车收第一条</span>
           </div>
           <div class="product-list">
             <div v-for="p in products" :key="p.sku_id" class="product-item" @click="addToCart(p)">
@@ -1683,7 +1728,9 @@ function doLogout() {
                 <span v-if="memberPriceOf(p)" class="price member">会员 ¥{{ formatMoney(memberPriceOf(p)!) }}</span>
               </div>
             </div>
-            <div v-if="!products.length" class="empty">扫码枪自动识别，或输入条码/商品名回车</div>
+            <div v-if="!products.length" class="empty">
+              {{ keyword.trim() ? '没有匹配的商品' : '输入条码或商品名即自动联想，扫码枪扫码直接入购物车' }}
+            </div>
           </div>
         </section>
 
@@ -1766,7 +1813,10 @@ function doLogout() {
             </div>
             <div class="actions">
               <button class="btn" @click="openParkDialog"><Icon name="pause" :size="ICON_SIZE.md" />挂单</button>
-              <button class="btn primary" @click="submitCheckout"><Icon name="check" :size="ICON_SIZE.md" />收款</button>
+              <button class="btn primary" :disabled="paying" @click="submitCheckout">
+                <span v-if="paying" class="btn-spinner" aria-label="处理中"></span>
+                <Icon v-else name="check" :size="ICON_SIZE.md" />{{ paying ? '处理中…' : '收款' }}
+              </button>
             </div>
             <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
           </div>
