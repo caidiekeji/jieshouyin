@@ -172,6 +172,14 @@ const licenseStatusLabel = computed(() => {
   return LICENSE_STATUS_LABEL[s] ?? s
 })
 
+/** 试用期剩余天数（供激活页「试用15天」入口展示）。 */
+const trialDaysLeft = computed(() => {
+  if (license.value?.status !== 'TRIAL_ACTIVE') return 0
+  const ends = license.value.trial_ends_at
+  if (!ends) return 15
+  return Math.max(1, Math.ceil((new Date(ends).getTime() - Date.now()) / MS_PER_DAY))
+})
+
 const subtotal = computed(() => cart.value.reduce((s, l) => s + l.qty * effectivePrice(l), 0))
 
 /** 后端口径的应收金额（原价 − 促销 − 券）；未取到时退回前端估算。 */
@@ -373,14 +381,10 @@ onMounted(async () => {
   try {
     license.value = await api.bootstrap()
     await loadStoreProfile()
-    if (!storeProfile.value?.configured) {
-      // 首次启动：先选行业并设店名，再进入激活/登录
-      view.value = 'industry'
-      await loadIndustries()
-      return
-    }
-    // 首次流程：先创建管理员账号（首次登录），建号后再进入激活页。
-    // 已有账号时，未激活进激活页，已激活进登录页。
+    // 行业列表供「设置 → 门店概览」使用，不参与首启流程
+    await loadIndustries()
+    // 首启流程固定为：登录（首次即设置账号和密码）→ 激活 → 收银。
+    // 行业与店名设置已归入「设置 → 门店概览」，不再作为首启拦截。
     needAdmin.value = !(await api.hasUsers())
     if (needAdmin.value) {
       view.value = 'login'
@@ -480,6 +484,16 @@ function gotoOrder(no: string) {
   view.value = 'order'
 }
 
+/** 选择试用15天：接受当前试用期，直接进入收银（试用期由后端在首次启动时开启） */
+function enterTrial() {
+  if (license.value?.status !== 'TRIAL_ACTIVE') {
+    showToast('试用期不可用，请使用激活码激活', true)
+    return
+  }
+  view.value = 'pos'
+  showToast(`已进入试用，剩余 ${trialDaysLeft.value} 天`)
+}
+
 /** 探测激活服务可达性：不可达时提示用户改用备用通道，而不是直接报错 */
 async function probeActivationService() {
   if (probingService.value) return
@@ -562,15 +576,11 @@ async function submitAdmin() {
     await api.login(adminUser.value, adminPass.value)
     currentUser.value = adminUser.value
     needAdmin.value = false
-    // 首次建号完成后进入激活页；已激活则直接收银
-    if (license.value?.status === 'UNACTIVATED') {
-      view.value = 'activate'
-      void probeActivationService()
-      showToast('管理员已创建，请先激活设备')
-    } else {
-      view.value = 'pos'
-      showToast('管理员已创建')
-    }
+    // 首启固定三步：登录（建号）→ 激活 → 收银。
+    // 不按授权状态跳过：首次启动处于 TRIAL_ACTIVE 试用态，若据此判断会漏掉激活页。
+    view.value = 'activate'
+    void probeActivationService()
+    showToast('管理员已创建，请先激活设备')
   } catch (e) {
     loginError.value = String(e)
   }
@@ -1279,6 +1289,12 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           </div>
         </div>
         <h2>{{ renewMode ? '导入续期码' : '设备激活' }}</h2>
+
+        <!-- 首启三选一之一：先试用 15 天。试用期由系统在首次启动时开启。 -->
+        <div v-if="!renewMode && license?.status === 'TRIAL_ACTIVE'" class="trial-entry">
+          <p class="muted small">可先免费试用，当前剩余 <strong>{{ trialDaysLeft }} 天</strong>，到期后需用激活码激活。</p>
+          <button class="btn primary" @click="enterTrial">先试用 15 天，进入收银</button>
+        </div>
 
         <template v-if="!renewMode && activateMode === 'online'">
           <p class="muted small">

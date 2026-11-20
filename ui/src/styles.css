@@ -41,6 +41,15 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   box-shadow: var(--shadow);
 }
 .auth-card { width: var(--layout-auth-width); display: flex; flex-direction: column; gap: var(--space-3); }
+/* 激活页「先试用」入口：与下方激活码表单区分的首启第一路径 */
+.trial-entry {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--brand);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+.trial-entry p { margin: var(--space-0); }
 .card.wide { width: 100%; }
 .brand { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-1); }
 .brand-mark {
