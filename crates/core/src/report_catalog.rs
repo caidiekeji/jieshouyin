@@ -2010,12 +2010,16 @@ mod tests {
         let r = run_report(&c, "sales_hourly", "2026-11-18", "2026-11-18").unwrap();
         // UTC 20:30 → 北京时间次日 04:30，应落在 04:00 时段，而非 UTC 的 20:00。
         assert!(
-            r.rows.iter().any(|row| row.first().map(String::as_str) == Some("04:00")),
+            r.rows
+                .iter()
+                .any(|row| row.first().map(String::as_str) == Some("04:00")),
             "应含北京时段 04:00，实际: {:?}",
             r.rows
         );
         assert!(
-            !r.rows.iter().any(|row| row.first().map(String::as_str) == Some("20:00")),
+            !r.rows
+                .iter()
+                .any(|row| row.first().map(String::as_str) == Some("20:00")),
             "不应出现 UTC 时段 20:00"
         );
     }
