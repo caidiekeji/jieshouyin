@@ -14,6 +14,8 @@ import {
   type CategorySales,
   type CashierSales,
   type ConfigRow,
+  type ReportMeta,
+  type ReportResult,
   type OrderQuote,
   type StoreProfile,
   type IndustryOption,
@@ -1071,6 +1073,70 @@ async function exportReconcile() {
   }
 }
 
+// ===== 统一报表中心（33 张报表）=====
+const reportMetas = ref<ReportMeta[]>([])
+const reportGroups = computed(() => {
+  const groups: Array<{ name: string; items: ReportMeta[] }> = []
+  for (const meta of reportMetas.value) {
+    let g = groups.find((x) => x.name === meta.group)
+    if (!g) {
+      g = { name: meta.group, items: [] }
+      groups.push(g)
+    }
+    g.items.push(meta)
+  }
+  return groups
+})
+const activeReportId = ref('sales_daily')
+const activeReport = ref<ReportResult | null>(null)
+const reportLoading = ref(false)
+const centerFrom = ref(today())
+const centerTo = ref(today())
+
+async function loadReportCatalog() {
+  try {
+    reportMetas.value = await api.reportCatalog()
+    if (reportMetas.value.length && !reportMetas.value.some((m) => m.id === activeReportId.value)) {
+      activeReportId.value = reportMetas.value[0].id
+    }
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+async function runActiveReport() {
+  reportLoading.value = true
+  try {
+    activeReport.value = await api.genericReport(activeReportId.value, centerFrom.value, centerTo.value)
+  } catch (e) {
+    showToast(String(e), true)
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+function selectReport(id: string) {
+  activeReportId.value = id
+  void runActiveReport()
+}
+
+/** 导出当前报表为 CSV：列头 + 数据行，金额/占比已是格式化字符串，直接引用。 */
+function exportActiveReport() {
+  const r = activeReport.value
+  if (!r) return
+  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`
+  const lines = [r.columns.map((c) => esc(c.label)).join(',')]
+  for (const row of r.rows) lines.push(row.map(esc).join(','))
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${r.id}-${centerFrom.value}_${centerTo.value}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+  showToast('报表已导出')
+}
+
 // ===== 系统配置（§15/§14）=====
 const configs = ref<ConfigRow[]>([])
 const configDraft = ref<Record<string, string>>({})
@@ -1347,7 +1413,13 @@ onMounted(() => {
 })
 function goPOS() { view.value = 'pos'; focusScan(); loadPayChannels() }
 function goProducts() { goodsTab.value = 'list'; view.value = 'products' }
-function goReport() { view.value = 'report'; loadReport(); loadReports(); loadShift() }
+function goReport() {
+  view.value = 'report'
+  loadReport()
+  loadReports()
+  loadShift()
+  void loadReportCatalog().then(() => runActiveReport())
+}
 
 /** 付款区「挂单」按钮：打开弹窗并刷新待取挂单列表 */
 async function openParkDialog() {
@@ -1623,6 +1695,58 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
 
       <!-- 报表 -->
       <main v-else-if="view === 'report'" class="main-simple">
+        <!-- 统一报表中心：左侧 33 报表清单，右侧通用表格 -->
+        <div class="card wide report-center">
+          <h3>报表中心</h3>
+          <div class="report-center-body">
+            <aside class="report-nav">
+              <div v-for="g in reportGroups" :key="g.name" class="report-nav-group">
+                <div class="report-nav-title">{{ g.name }}</div>
+                <button
+                  v-for="m in g.items"
+                  :key="m.id"
+                  :class="['report-nav-item', { active: activeReportId === m.id }]"
+                  @click="selectReport(m.id)"
+                >{{ m.title }}</button>
+              </div>
+            </aside>
+            <section class="report-detail">
+              <div class="search-row">
+                <input v-model="centerFrom" class="input" type="date" />
+                <span class="muted small">至</span>
+                <input v-model="centerTo" class="input" type="date" />
+                <button class="btn primary" :disabled="reportLoading" @click="runActiveReport">
+                  {{ reportLoading ? '查询中…' : '查询' }}
+                </button>
+                <button class="btn" :disabled="!activeReport" @click="exportActiveReport">导出CSV</button>
+              </div>
+              <template v-if="activeReport">
+                <h4>{{ activeReport.title }}</h4>
+                <p class="muted small">{{ activeReport.description }}</p>
+                <div v-if="activeReport.metrics.length" class="stats">
+                  <div v-for="(mt, i) in activeReport.metrics" :key="i" class="stat">
+                    <span>{{ mt.label }}</span><strong>{{ mt.value }}</strong>
+                  </div>
+                </div>
+                <div class="report-table-wrap">
+                  <table v-if="activeReport.rows.length" class="tbl">
+                    <thead>
+                      <tr><th v-for="(c, i) in activeReport.columns" :key="i">{{ c.label }}</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, ri) in activeReport.rows" :key="ri">
+                        <td v-for="(cell, ci) in row" :key="ci" :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent' }">{{ cell }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div v-else class="empty">该区间暂无数据</div>
+                </div>
+              </template>
+              <div v-else class="empty">请选择左侧报表</div>
+            </section>
+          </div>
+        </div>
+
         <div class="card wide">
           <h3>日结报表</h3>
           <div class="search-row">

@@ -271,6 +271,27 @@ h2 { font-size: var(--font-lg); }
   border-bottom: var(--border-width) solid var(--border);
 }
 .tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); white-space: nowrap; }
+/* 统一报表中心：左侧分组清单 + 右侧通用结果表 */
+.report-center-body { display: flex; gap: var(--space-4); align-items: stretch; }
+.report-nav {
+  width: 180px; flex: none;
+  max-height: 70vh; overflow-y: auto; padding-right: var(--space-2);
+  border-right: var(--border-width) solid var(--border);
+}
+.report-nav-group { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3); }
+.report-nav-title {
+  font-size: var(--font-xs); color: var(--muted); font-weight: 600;
+  padding: var(--space-1) var(--space-2); letter-spacing: 0.05em;
+}
+.report-nav-item {
+  text-align: left; padding: var(--space-2); border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); cursor: pointer; font-size: var(--font-sm);
+}
+.report-nav-item:hover { background: var(--surface-subtle); }
+.report-nav-item.active { background: var(--chrome); color: var(--on-chrome); font-weight: 600; }
+.report-detail { flex: 1; min-width: 0; }
+.report-table-wrap { max-height: 60vh; overflow: auto; }
+.report-table-wrap .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
 .page-head { display: flex; align-items: center; gap: var(--space-4); }
 .tab-row { display: flex; gap: var(--space-2); }
 .toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; }
