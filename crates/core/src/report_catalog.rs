@@ -1759,7 +1759,7 @@ fn abnormal_transaction(conn: &Connection, from: &str, to: &str) -> Result<Repor
          ORDER BY 4 DESC LIMIT 500",
     )?;
     let raw = stmt
-        .query_map(params![from, to, from, to, from, to], |r| {
+        .query_map(params![from, to], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
