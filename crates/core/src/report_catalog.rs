@@ -605,9 +605,7 @@ fn product_ranking(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
     let rows = raw
         .iter()
         .enumerate()
-        .map(|(idx, (_, name, q, a))| {
-            vec![n((idx + 1) as i64), name.clone(), n(*q), money(*a)]
-        })
+        .map(|(idx, (_, name, q, a))| vec![n((idx + 1) as i64), name.clone(), n(*q), money(*a)])
         .collect();
     Ok(ReportResult {
         id: "product_ranking".into(),
@@ -620,7 +618,10 @@ fn product_ranking(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
             ("sales", "销售额", "money"),
         ]),
         rows,
-        metrics: vec![m("入榜商品数", n(raw.len() as i64)), m("入榜销售额", money(sales))],
+        metrics: vec![
+            m("入榜商品数", n(raw.len() as i64)),
+            m("入榜销售额", money(sales)),
+        ],
     })
 }
 
@@ -648,7 +649,11 @@ fn category_share(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
         .iter()
         .map(|(name, a)| {
             let pct = if total > 0 { *a * 10000 / total } else { 0 };
-            vec![name.clone(), money(*a), format!("{}.{:02}%", pct / 100, pct % 100)]
+            vec![
+                name.clone(),
+                money(*a),
+                format!("{}.{:02}%", pct / 100, pct % 100),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -661,7 +666,10 @@ fn category_share(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
             ("share", "占比", "percent"),
         ]),
         rows,
-        metrics: vec![m("品类总数", n(raw.len() as i64)), m("销售合计", money(total))],
+        metrics: vec![
+            m("品类总数", n(raw.len() as i64)),
+            m("销售合计", money(total)),
+        ],
     })
 }
 
@@ -785,7 +793,10 @@ fn product_turnover(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
             ("flag", "状态", "text"),
         ]),
         rows,
-        metrics: vec![m("动销商品数", n(active)), m("在售商品数", n(raw.len() as i64))],
+        metrics: vec![
+            m("动销商品数", n(active)),
+            m("在售商品数", n(raw.len() as i64)),
+        ],
     })
 }
 
@@ -817,9 +828,7 @@ fn inventory_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let rows = raw
         .iter()
-        .map(|(name, inq, outq, ret, net)| {
-            vec![name.clone(), n(*inq), n(*outq), n(*ret), n(*net)]
-        })
+        .map(|(name, inq, outq, ret, net)| vec![name.clone(), n(*inq), n(*outq), n(*ret), n(*net)])
         .collect();
     Ok(ReportResult {
         id: "inventory_summary".into(),
@@ -922,7 +931,14 @@ fn inventory_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
     let rows = raw
         .iter()
         .map(|(t, name, typ, q, refno, op)| {
-            vec![t.clone(), name.clone(), typ.clone(), n(*q), refno.clone(), op.clone()]
+            vec![
+                t.clone(),
+                name.clone(),
+                typ.clone(),
+                n(*q),
+                refno.clone(),
+                op.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -975,8 +991,16 @@ fn inventory_alert(conn: &Connection, _from: &str, _to: &str) -> Result<ReportRe
                 n(*q),
                 n(*alert),
                 n(gap),
-                if *q <= 0 { "缺货".into() } else { "低库存".into() },
-                if *allow_neg == 1 { "允许负库存".into() } else { "禁止负库存".into() },
+                if *q <= 0 {
+                    "缺货".into()
+                } else {
+                    "低库存".into()
+                },
+                if *allow_neg == 1 {
+                    "允许负库存".into()
+                } else {
+                    "禁止负库存".into()
+                },
             ]
         })
         .collect();
@@ -993,7 +1017,10 @@ fn inventory_alert(conn: &Connection, _from: &str, _to: &str) -> Result<ReportRe
             ("policy", "负库存策略", "text"),
         ]),
         rows,
-        metrics: vec![m("预警商品数", n(raw.len() as i64)), m("缺货商品数", n(critical))],
+        metrics: vec![
+            m("预警商品数", n(raw.len() as i64)),
+            m("缺货商品数", n(critical)),
+        ],
     })
 }
 
@@ -1055,7 +1082,10 @@ fn stocktake_diff(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
             ("finished", "完成时间", "text"),
         ]),
         rows,
-        metrics: vec![m("差异绝对值合计", n(diff_abs)), m("盘点项数", n(raw.len() as i64))],
+        metrics: vec![
+            m("差异绝对值合计", n(diff_abs)),
+            m("盘点项数", n(raw.len() as i64)),
+        ],
     })
 }
 
@@ -1101,7 +1131,10 @@ fn scrap_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult>
             ("operator", "操作人", "text"),
         ]),
         rows,
-        metrics: vec![m("报损数量合计", n(loss_qty)), m("报损笔数", n(raw.len() as i64))],
+        metrics: vec![
+            m("报损数量合计", n(loss_qty)),
+            m("报损笔数", n(raw.len() as i64)),
+        ],
     })
 }
 
@@ -1133,7 +1166,14 @@ fn member_consumption(conn: &Connection, from: &str, to: &str) -> Result<ReportR
         .map(|(id, name, c, amt, last)| {
             total += amt;
             let avg = if *c > 0 { *amt / *c } else { 0 };
-            vec![n(*id), name.clone(), n(*c), money(*amt), money(avg), last.clone()]
+            vec![
+                n(*id),
+                name.clone(),
+                n(*c),
+                money(*amt),
+                money(avg),
+                last.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -1149,7 +1189,10 @@ fn member_consumption(conn: &Connection, from: &str, to: &str) -> Result<ReportR
             ("last", "最近消费", "date"),
         ]),
         rows,
-        metrics: vec![m("消费会员数", n(raw.len() as i64)), m("会员消费合计", money(total))],
+        metrics: vec![
+            m("消费会员数", n(raw.len() as i64)),
+            m("会员消费合计", money(total)),
+        ],
     })
 }
 
@@ -1182,7 +1225,11 @@ fn member_repurchase(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
             if *visits >= 2 {
                 repeat += 1;
             }
-            let gap = if *days > 1 { (*days - 1) / (*visits - 1).max(1) } else { 0 };
+            let gap = if *days > 1 {
+                (*days - 1) / (*visits - 1).max(1)
+            } else {
+                0
+            };
             vec![
                 n(*id),
                 name.clone(),
@@ -1194,7 +1241,11 @@ fn member_repurchase(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
             ]
         })
         .collect();
-    let rate = if raw.is_empty() { 0 } else { repeat * 10000 / raw.len() as i64 };
+    let rate = if raw.is_empty() {
+        0
+    } else {
+        repeat * 10000 / raw.len() as i64
+    };
     Ok(ReportResult {
         id: "member_repurchase".into(),
         title: "会员复购报表".into(),
@@ -1354,7 +1405,10 @@ fn stored_value_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
             ("ref", "关联单号", "text"),
         ]),
         rows,
-        metrics: vec![m("充值合计", money(recharge)), m("流水笔数", n(raw.len() as i64))],
+        metrics: vec![
+            m("充值合计", money(recharge)),
+            m("流水笔数", n(raw.len() as i64)),
+        ],
     })
 }
 
@@ -1369,7 +1423,12 @@ fn points_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut earned = 0i64;
@@ -1396,7 +1455,11 @@ fn points_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
             ("points", "积分变动", "qty"),
         ]),
         rows,
-        metrics: vec![m("发放积分", n(earned)), m("使用/冲正", n(used)), m("净积分", n(earned + used))],
+        metrics: vec![
+            m("发放积分", n(earned)),
+            m("使用/冲正", n(used)),
+            m("净积分", n(earned + used)),
+        ],
     })
 }
 
@@ -1429,7 +1492,14 @@ fn cashier_performance(conn: &Connection, from: &str, to: &str) -> Result<Report
             sales += amt;
             orders += c;
             let avg = if *c > 0 { *amt / *c } else { 0 };
-            vec![n(*id), name.clone(), n(*c), money(*amt), money(avg), money(*disc)]
+            vec![
+                n(*id),
+                name.clone(),
+                n(*c),
+                money(*amt),
+                money(avg),
+                money(*disc),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -1505,7 +1575,10 @@ fn shift_handover(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
             ("reason", "差额原因", "text"),
         ]),
         rows,
-        metrics: vec![m("班次数量", n(raw.len() as i64)), m("差额绝对合计", money(diff_abs))],
+        metrics: vec![
+            m("班次数量", n(raw.len() as i64)),
+            m("差额绝对合计", money(diff_abs)),
+        ],
     })
 }
 
@@ -1534,7 +1607,13 @@ fn operation_audit(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
     let rows = raw
         .iter()
         .map(|(t, cmd, op, appr, detail)| {
-            vec![t.clone(), cmd.clone(), op.clone(), appr.clone(), detail.clone()]
+            vec![
+                t.clone(),
+                cmd.clone(),
+                op.clone(),
+                appr.clone(),
+                detail.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -1581,13 +1660,21 @@ fn store_comparison(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
             sales += s;
             orders += o;
             let net = s - rf;
-            vec![d.clone(), n(*o), money(*s), money(*disc), money(*rf), money(net)]
+            vec![
+                d.clone(),
+                n(*o),
+                money(*s),
+                money(*disc),
+                money(*rf),
+                money(net),
+            ]
         })
         .collect();
     Ok(ReportResult {
         id: "store_comparison".into(),
         title: "门店经营对比报表".into(),
-        description: "单机单店口径，按营业日对比订单、销售、优惠与退款；多店版按门店 ID 聚合。".into(),
+        description: "单机单店口径，按营业日对比订单、销售、优惠与退款；多店版按门店 ID 聚合。"
+            .into(),
         columns: cols(&[
             ("date", "营业日期", "date"),
             ("orders", "订单数", "qty"),
@@ -1625,7 +1712,15 @@ fn daily_settlement(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
         .map(|(d, o, s, rf, disc, gen)| {
             sales += s;
             orders += o;
-            vec![d.clone(), n(*o), money(*s), money(*rf), money(*disc), money(s - rf), gen.clone()]
+            vec![
+                d.clone(),
+                n(*o),
+                money(*s),
+                money(*rf),
+                money(*disc),
+                money(s - rf),
+                gen.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -1642,7 +1737,11 @@ fn daily_settlement(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
             ("generated", "生成时间", "text"),
         ]),
         rows,
-        metrics: vec![m("结存天数", n(raw.len() as i64)), m("销售额合计", money(sales)), m("订单合计", n(orders))],
+        metrics: vec![
+            m("结存天数", n(raw.len() as i64)),
+            m("销售额合计", money(sales)),
+            m("订单合计", n(orders)),
+        ],
     })
 }
 
@@ -1688,7 +1787,10 @@ fn abnormal_transaction(conn: &Connection, from: &str, to: &str) -> Result<Repor
             ("date", "发生日期", "date"),
         ]),
         rows,
-        metrics: vec![m("异常笔数", n(raw.len() as i64)), m("涉及金额", money(amount))],
+        metrics: vec![
+            m("异常笔数", n(raw.len() as i64)),
+            m("涉及金额", money(amount)),
+        ],
     })
 }
 
@@ -1722,7 +1824,14 @@ fn cash_difference(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
             if *diff != 0 {
                 mismatch += 1;
             }
-            vec![n(*id), t.clone(), money(*exp), money(*act), money(*diff), reason.clone()]
+            vec![
+                n(*id),
+                t.clone(),
+                money(*exp),
+                money(*act),
+                money(*diff),
+                reason.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -1755,7 +1864,12 @@ fn promotion_effect(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut discount = 0i64;
@@ -1795,9 +1909,10 @@ fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
          JOIN sku s ON s.sku_id=i.sku_id
          WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2",
     )?;
-    let (sales, cost, disc, orders): (i64, i64, i64, i64) = stmt.query_row(params![from, to], |r| {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-    })?;
+    let (sales, cost, disc, orders): (i64, i64, i64, i64) = stmt
+        .query_row(params![from, to], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?;
     let profit = sales - cost;
     let rate = if sales > 0 { profit * 10000 / sales } else { 0 };
     let rows = vec![
@@ -1805,7 +1920,10 @@ fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
         vec!["成本额".into(), money(cost)],
         vec!["毛利额".into(), money(profit)],
         vec!["优惠额".into(), money(disc)],
-        vec!["毛利率".into(), format!("{}.{:02}%", rate / 100, rate % 100)],
+        vec![
+            "毛利率".into(),
+            format!("{}.{:02}%", rate / 100, rate % 100),
+        ],
         vec!["订单数".into(), n(orders)],
     ];
     Ok(ReportResult {
