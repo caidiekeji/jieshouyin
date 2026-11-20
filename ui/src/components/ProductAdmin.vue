@@ -48,11 +48,6 @@ const editInstore = ref('')
 const adjustSku = ref<number | null>(null)
 const adjustQty = ref('')
 const adjustReason = ref('')
-// 分类
-const showCategory = ref(false)
-const newCategoryName = ref('')
-const newCategoryParent = ref<number | null>(null)
-
 // 商品图片：上传本地文件或登记在线地址
 const imageSku = ref<number | null>(null)
 const imageUrlDraft = ref('')
@@ -232,20 +227,6 @@ async function saveAdjust() {
   }
 }
 
-async function addCategory() {
-  const name = newCategoryName.value.trim()
-  if (!name) return
-  try {
-    await api.createCategory(newCategoryParent.value, name)
-    newCategoryName.value = ''
-    newCategoryParent.value = null
-    done('分类已创建')
-    await reload()
-  } catch (e) {
-    fail(e)
-  }
-}
-
 onMounted(reload)
 </script>
 
@@ -261,27 +242,11 @@ onMounted(reload)
     <div class="toolbar">
       <input v-model="keyword" class="input" placeholder="搜索商品名 / 条码" @keyup.enter="reload" />
       <button class="btn" @click="reload"><Icon name="refresh" :size="ICON_SIZE.md" />查询</button>
-      <button class="btn" @click="showCategory = !showCategory"><Icon name="box" :size="ICON_SIZE.md" />分类</button>
       <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />新增商品</button>
     </div>
 
     <p v-if="err" class="error">{{ err }}</p>
     <p v-if="okMsg" class="ok-msg">{{ okMsg }}</p>
-
-    <div v-if="showCategory" class="card">
-      <h3>商品分类</h3>
-      <div class="chip-row">
-        <span v-for="c in categories" :key="c.category_id" class="chip">{{ c.name }}</span>
-      </div>
-      <div class="form-row">
-        <input v-model="newCategoryName" class="input" placeholder="新分类名称" @keyup.enter="addCategory" />
-        <select v-model.number="newCategoryParent" class="input">
-          <option :value="null">顶级分类</option>
-          <option v-for="c in categories" :key="c.category_id" :value="c.category_id">{{ c.name }}</option>
-        </select>
-        <button class="btn" @click="addCategory"><Icon name="plus" :size="ICON_SIZE.md" />添加分类</button>
-      </div>
-    </div>
 
     <div v-if="showCreate" class="card">
       <h3>新增商品</h3>

@@ -6,35 +6,68 @@
  * component  组件层：在组件 <style> 内声明局部变量，引用语义层。
  *
  * 推导依据：B 端收银工作台——操作密集、扫读为主、色彩克制、动效极低。
+ * 配色范式：对标 Square 的「沉稳主体 + 单一撞色强调」，主体取 Starbucks 森林绿。
+ *   - 主体墨绿（forest）：顶栏、导航、品牌承载信息密度，沉稳权威；
+ *   - 撞色朱橙（ember）：收款/金额/选中/主行动一眼跳出，商业温度；
+ *   - 绿橙在色环上对撞，冷暖分明，全程避开蓝紫。
+ *   - 暖中性（ink）：内容区背景与正文，掺暖调避免纯灰的 AI 味。
  * ============================================================ */
 
 /* ---------- primitives：色阶 ---------- */
 :root {
-  /* 品牌蓝阶：以现有品牌色 #1558d6 为 600，沿明度双向派生（纯色，无渐变） */
-  --p-brand-50: #eef4ff;
-  --p-brand-100: #d9e6ff;
-  --p-brand-200: #bcd3ff;
-  --p-brand-300: #8eb4ff;
-  --p-brand-400: #5a8df5;
-  --p-brand-500: #2f6be8;
-  --p-brand-600: #1558d6;
-  --p-brand-700: #0f47b3;
-  --p-brand-800: #103b8a;
-  --p-brand-900: #0f316e;
+  /* 撞色强调阶：朱橙（ember），以 #e8590c 为 600 沿明度双向派生（纯色，无渐变）。
+     取自 Square 语义橙 #cc4b00 与 Strava #fc4c02 之间，兼顾警示感与商业暖度。 */
+  --p-brand-50: #fff2e8;
+  --p-brand-100: #ffe0cc;
+  --p-brand-200: #ffc19e;
+  --p-brand-300: #ff9b66;
+  --p-brand-400: #f97330;
+  --p-brand-500: #ea5f14;
+  --p-brand-600: #e8590c;
+  --p-brand-700: #c24107;
+  --p-brand-800: #9a350b;
+  --p-brand-900: #7a2e0e;
 
-  /* 中性阶：掺入蓝相，避免纯灰；0/900 同时是亮/暗两极画布 */
-  --p-neutral-0: #ffffff;
-  --p-neutral-25: #f8fafc;
-  --p-neutral-50: #f4f6fa;
-  --p-neutral-100: #e9edf3;
-  --p-neutral-200: #dfe4ec;
-  --p-neutral-300: #c4ccd8;
-  --p-neutral-400: #98a3b3;
-  --p-neutral-500: #6b7684;
-  --p-neutral-600: #4a5563;
-  --p-neutral-700: #2d3746;
-  --p-neutral-800: #1b2430;
-  --p-neutral-900: #141922;
+  /* 主体墨绿阶（forest）：顶栏、导航、品牌标识的承载色，与朱橙撞色。
+     取自 Starbucks 森林绿，沉稳不张扬；0/900 同时是亮/暗两极。 */
+  --p-forest-50: #ebf5ef;
+  --p-forest-100: #cbe8d7;
+  --p-forest-200: #9ed3b5;
+  --p-forest-300: #6bb98d;
+  --p-forest-400: #3d9c69;
+  --p-forest-500: #1f7d50;
+  --p-forest-600: #136340;
+  --p-forest-700: #0e4e33;
+  --p-forest-800: #0a3b27;
+  --p-forest-900: #072b1d;
+
+  /* 暖中性阶（ink）：内容区背景与正文，掺暖调而非纯灰；0/900 是亮/暗两极画布。 */
+  --p-ink-0: #ffffff;
+  --p-ink-25: #faf8f6;
+  --p-ink-50: #f5f2ee;
+  --p-ink-100: #ebe5de;
+  --p-ink-200: #ddd5cb;
+  --p-ink-300: #c3b8ab;
+  --p-ink-400: #9c9082;
+  --p-ink-500: #6f6559;
+  --p-ink-600: #4f473d;
+  --p-ink-700: #332d26;
+  --p-ink-800: #211c17;
+  --p-ink-900: #15110e;
+
+  /* 中性阶保留别名指向墨炭，兼容既有 var(--p-neutral-*) 引用 */
+  --p-neutral-0: var(--p-ink-0);
+  --p-neutral-25: var(--p-ink-25);
+  --p-neutral-50: var(--p-ink-50);
+  --p-neutral-100: var(--p-ink-100);
+  --p-neutral-200: var(--p-ink-200);
+  --p-neutral-300: var(--p-ink-300);
+  --p-neutral-400: var(--p-ink-400);
+  --p-neutral-500: var(--p-ink-500);
+  --p-neutral-600: var(--p-ink-600);
+  --p-neutral-700: var(--p-ink-700);
+  --p-neutral-800: var(--p-ink-800);
+  --p-neutral-900: var(--p-ink-900);
 
   /* 危险： destructive 动作与校验错误 */
   --p-danger-50: #fdecea;
@@ -50,19 +83,19 @@
   --p-success-600: #18794e;
   --p-success-900: #153325;
 
-  /* 警示： 试用期、到期提醒；暖黄与品牌蓝区分，不与危险色混淆 */
-  --p-warning-50: #fff6e0;
-  --p-warning-100: #f0d999;
-  --p-warning-500: #b7791f;
-  --p-warning-700: #8a5b00;
-  --p-warning-900: #3a2f14;
-  --p-warning-950: #5a4a20;
+  /* 警示： 试用期、到期提醒；金黄与朱橙、危险红都拉开，避免撞色混淆 */
+  --p-warning-50: #fdf6e3;
+  --p-warning-100: #f5e4ae;
+  --p-warning-500: #b8890f;
+  --p-warning-700: #8a6604;
+  --p-warning-900: #3a2f10;
+  --p-warning-950: #5a4a18;
 
-  /* 暗色表面： 深底带蓝相，相邻层靠提亮区分而非描边 */
-  --p-surface-dark-1: #141922;
-  --p-surface-dark-2: #1e2530;
-  --p-surface-dark-3: #252d3a;
-  --p-border-dark: #313b49;
+  /* 暗色表面： 墨炭深底带暖调，相邻层靠提亮区分而非描边 */
+  --p-surface-dark-1: #15110e;
+  --p-surface-dark-2: #211c17;
+  --p-surface-dark-3: #332d26;
+  --p-border-dark: #4f473d;
 
   /* ---------- primitives：刻度 ---------- */
 
@@ -109,9 +142,9 @@
   /* 描边：全站统一 1px，靠颜色而非粗细区分层级 */
   --p-border-width: 1px;
 
-  /* 阴影：只有「卡片」与「浮层」两级海拔 */
-  --p-shadow-card: 0 2px 10px rgba(20, 35, 60, 0.08);
-  --p-shadow-float: 0 2px 12px rgba(0, 0, 0, 0.3);
+  /* 阴影：只有「卡片」与「浮层」两级海拔；暖调墨炭投影，不带蓝 */
+  --p-shadow-card: 0 2px 10px rgba(32, 24, 16, 0.10);
+  --p-shadow-float: 0 2px 12px rgba(0, 0, 0, 0.32);
 
   /* 动效：工具类仅保留状态切换 120ms；spinner 是持续运动单独一档 */
   --p-duration-fast: 120ms;
@@ -125,8 +158,8 @@
   --p-z-modal: 200;
   --p-z-toast: 300;
 
-  /* 遮罩：模态框背后压暗层，用中性 900 半透明表达，禁止就地写 rgba */
-  --p-overlay-scrim: rgba(15, 23, 42, 0.45);
+  /* 遮罩：模态框背后压暗层，用墨炭 900 半透明表达，禁止就地写 rgba */
+  --p-overlay-scrim: rgba(21, 17, 14, 0.5);
 }
 
 /* ---------- semantic：亮色（表达用在哪） ---------- */
@@ -147,11 +180,18 @@
   --border: var(--p-neutral-200);
   --border-strong: var(--p-neutral-300);
 
-  /* 主色生命周期 */
+  /* 撞色强调（朱橙）：收款、金额、主行动、选中态 */
   --brand: var(--p-brand-600);
   --brand-hover: var(--p-brand-700);
   --brand-subtle: var(--p-brand-50);
   --brand-border: var(--p-brand-300);
+
+  /* 主体色（墨绿）：顶栏、导航、品牌标识 */
+  --chrome: var(--p-forest-700);
+  --chrome-hover: var(--p-forest-600);
+  --chrome-active: var(--p-forest-500);
+  --on-chrome: var(--p-ink-0);
+  --chrome-subtle: var(--p-forest-50);
 
   /* 语义色生命周期 */
   --danger: var(--p-danger-500);
@@ -193,11 +233,18 @@
   --border: var(--p-border-dark);
   --border-strong: var(--p-neutral-600);
 
-  /* 主色：暗底下提亮一档保证对比度 */
+  /* 撞色强调：暗底下提亮一档保证对比度 */
   --brand: var(--p-brand-400);
   --brand-hover: var(--p-brand-300);
   --brand-subtle: var(--p-brand-900);
   --brand-border: var(--p-brand-700);
+
+  /* 主体色：暗底下提亮保证顶栏与内容区可辨 */
+  --chrome: var(--p-forest-600);
+  --chrome-hover: var(--p-forest-500);
+  --chrome-active: var(--p-forest-400);
+  --on-chrome: var(--p-ink-0);
+  --chrome-subtle: var(--p-forest-900);
 
   /* 语义色：文字色提亮，淡底转深色 */
   --danger: var(--p-danger-500);
