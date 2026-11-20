@@ -721,7 +721,9 @@ fn product_margin(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
     Ok(ReportResult {
         id: "product_margin".into(),
         title: "商品毛利报表".into(),
-        description: "毛利=未退实销额−未退数量×成本价；成本取当前 SKU 进价快照，退货按比例折算销售额。".into(),
+        description:
+            "毛利=未退实销额−未退数量×成本价；成本取当前 SKU 进价快照，退货按比例折算销售额。"
+                .into(),
         columns: cols(&[
             ("name", "商品名称", "text"),
             ("qty", "销量", "qty"),
@@ -1935,7 +1937,11 @@ fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
         stmt.query_row(params![from, to], |r| r.get(0))?
     };
     let profit = net_sales - cost;
-    let rate = if net_sales > 0 { profit * 10000 / net_sales } else { 0 };
+    let rate = if net_sales > 0 {
+        profit * 10000 / net_sales
+    } else {
+        0
+    };
     let rows = vec![
         vec!["净营业额".into(), money(net_sales)],
         vec!["成本额".into(), money(cost)],
@@ -1949,7 +1955,8 @@ fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
     Ok(ReportResult {
         id: "margin_summary".into(),
         title: "毛利汇总报表".into(),
-        description: "区间整体毛利：净营业额（实收−退款）−成本额，成本按未退数量×SKU 当前进价。".into(),
+        description: "区间整体毛利：净营业额（实收−退款）−成本额，成本按未退数量×SKU 当前进价。"
+            .into(),
         columns: cols(&[("item", "指标", "text"), ("value", "数值", "text")]),
         rows,
         metrics: vec![
@@ -2013,7 +2020,11 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -2084,7 +2095,11 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
 
     let gross_total = net_total - cost_total;
     let profit_total = gross_total - expense_total;
-    let rate = if net_total > 0 { profit_total * 10000 / net_total } else { 0 };
+    let rate = if net_total > 0 {
+        profit_total * 10000 / net_total
+    } else {
+        0
+    };
 
     Ok(ReportResult {
         id: "profit".into(),
