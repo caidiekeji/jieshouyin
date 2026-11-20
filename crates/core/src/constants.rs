@@ -106,6 +106,8 @@ pub const CFG_NATIVE_TIMEOUT_S: &str = "native_timeout_s";
 pub const CFG_ALLOW_NEGATIVE_STOCK: &str = "allow_negative_stock_default";
 pub const CFG_POINTS_PER_YUAN: &str = "points_per_yuan";
 pub const CFG_POINTS_REDEEM_RATE: &str = "points_redeem_rate";
+/// 会员积分累计总开关（'1' 启用 / '0' 停用）。关闭后结算不累计积分。
+pub const CFG_POINTS_ENABLED: &str = "points_enabled";
 pub const CFG_MAX_DISCOUNT_RATIO: &str = "max_discount_ratio";
 /// 打印服务端地址键（§7.5 网络打印机，v1 可选配置）。
 pub const CFG_PRINT_HOST: &str = "print_host";
@@ -148,7 +150,7 @@ pub const CONFIG_KIND_SWITCH: &str = "switch";
 
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
-pub const CONFIG_META: [(&str, &str, &str, &str); 21] = [
+pub const CONFIG_META: [(&str, &str, &str, &str); 22] = [
     (
         CFG_STORE_NAME,
         "门店名称",
@@ -202,6 +204,12 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 21] = [
         "主扫支付超时",
         "单位秒，超时后允许作废订单",
         CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_POINTS_ENABLED,
+        "启用会员积分",
+        "开启后会员付款自动累计积分；关闭则不累计",
+        CONFIG_KIND_SWITCH,
     ),
     (
         CFG_POINTS_PER_YUAN,
@@ -279,7 +287,7 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 21] = [
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
 /// 未列入的键（门店名称、所属行业）由专属命令管理，界面只读展示，避免点了保存却被拒。
-pub const CONFIG_EDITABLE: [&str; 19] = [
+pub const CONFIG_EDITABLE: [&str; 20] = [
     CFG_STORE_TIMEZONE,
     CFG_BUSINESS_DAY_CUTOFF,
     CFG_SCAN_GAP_MS,
@@ -287,6 +295,7 @@ pub const CONFIG_EDITABLE: [&str; 19] = [
     CFG_MICROPAY_TIMEOUT_S,
     CFG_NATIVE_POLL_MS,
     CFG_NATIVE_TIMEOUT_S,
+    CFG_POINTS_ENABLED,
     CFG_POINTS_PER_YUAN,
     CFG_POINTS_REDEEM_RATE,
     CFG_MAX_DISCOUNT_RATIO,
@@ -309,6 +318,8 @@ pub const DEFAULT_NATIVE_POLL_MS: u64 = 3000;
 pub const DEFAULT_NATIVE_TIMEOUT_S: u64 = 300;
 pub const DEFAULT_POINTS_PER_YUAN: i64 = 1;
 pub const DEFAULT_POINTS_REDEEM_RATE: i64 = 100;
+/// 会员积分累计默认开启（老库无该键时按开启处理，避免升级后突然停止累计）。
+pub const DEFAULT_POINTS_ENABLED: i64 = 1;
 pub const DEFAULT_MAX_DISCOUNT_RATIO: f64 = 0.8;
 /// 网络打印机默认端口（§7.5 IP:9100）。
 pub const DEFAULT_PRINT_PORT: u16 = 9100;

@@ -125,7 +125,7 @@ onMounted(async () => {
     <div class="page-head">
       <h2>退款</h2>
       <div class="tab-row">
-        <button class="btn" @click="loadOrders"><Icon name="refresh" :size="ICON_SIZE.md" />查询</button>
+        <button class="btn" @click="loadOrders"><Icon name="search" :size="ICON_SIZE.md" />查询</button>
       </div>
     </div>
 

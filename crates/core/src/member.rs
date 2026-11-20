@@ -207,17 +207,18 @@ pub fn refund_mirror(
     })
 }
 
-/// 积分累积（§13.4）：每消费 1 元积 1 分，BONUS 抵扣部分不计。
+/// 积分累积（§13.4）：每消费 1 元积 N 分（N 由系统配置「每元赠送积分」决定），
+/// BONUS 赠送金抵扣部分不计。返回本次实际赠送的积分数，供结算界面回显。
 pub fn accrue_points(
     conn: &Connection,
     member_id: i64,
     order_no: &str,
     payable_excluding_bonus: i64,
     points_per_yuan: i64,
-) -> Result<()> {
+) -> Result<i64> {
     let points = payable_excluding_bonus / 100 * points_per_yuan;
-    if points == 0 {
-        return Ok(());
+    if points <= 0 {
+        return Ok(0);
     }
     append_asset_log(
         conn,
@@ -229,7 +230,7 @@ pub fn accrue_points(
         &format!("SALE:{order_no}:{POINTS}"),
         &format_utc(&Utc::now()),
     )?;
-    Ok(())
+    Ok(points)
 }
 
 /// 券状态机（§13.7）：拒绝非法转移 REFUNDED → REDEEMED。
@@ -460,6 +461,25 @@ mod tests {
             )
             .unwrap();
         assert_eq!(bal, -10);
+    }
+
+    #[test]
+    fn accrue_points_returns_earned_and_skips_zero() {
+        let c = setup();
+        // 应付 2500 分 = 25 元，每元 2 分 → 50 分
+        let earned = accrue_points(&c, 1, "ORD-P", 2500, 2).unwrap();
+        assert_eq!(earned, 50);
+        let bal: i64 = c
+            .query_row(
+                "SELECT balance FROM member_asset WHERE member_id=1 AND asset_type='POINTS'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(bal, 50);
+        // 不足一元或每元 0 分 → 不写流水，返回 0
+        assert_eq!(accrue_points(&c, 1, "ORD-Z", 99, 2).unwrap(), 0);
+        assert_eq!(accrue_points(&c, 1, "ORD-R", 1000, 0).unwrap(), 0);
     }
 
     #[test]

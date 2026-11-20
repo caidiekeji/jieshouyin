@@ -91,20 +91,48 @@ const locked = ref(false)
 const lockInput = ref('')
 const lockError = ref('')
 
+// ===== 角色与菜单可见性 =====
+// 与后端 M0002 角色种子一致：CASHIER < MANAGER < ADMIN。
+// 这里只控制「显示什么」，真正的权限拦截仍由后端角色权限完成。
+type Role = 'CASHIER' | 'MANAGER' | 'ADMIN'
+const currentRole = ref<Role>('CASHIER')
+const ROLE_RANK: Record<Role, number> = { CASHIER: 1, MANAGER: 2, ADMIN: 3 }
+function normalizeRole(roleName: string): Role {
+  return roleName === 'ADMIN' ? 'ADMIN' : roleName === 'MANAGER' ? 'MANAGER' : 'CASHIER'
+}
+/** 当前角色是否达到要求等级：店员仅收银，店长增加经营管理，管理员全量。 */
+function atLeast(role: Role): boolean {
+  return ROLE_RANK[currentRole.value] >= ROLE_RANK[role]
+}
+
 // 设置中心子页：左侧导航 + 右侧内容，避免九张卡片堆一屏
-type SettingsTab = 'overview' | 'appearance' | 'staff' | 'system' | 'payment' | 'recon' | 'coupon' | 'print'
-type SettingsIcon = 'box' | 'settings' | 'users' | 'cash' | 'report' | 'print'
+type SettingsTab = 'overview' | 'appearance' | 'staff' | 'system' | 'payment' | 'points' | 'recon' | 'coupon' | 'print'
+type SettingsIcon = 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'star' | 'report' | 'ticket' | 'print'
 const settingsTab = ref<SettingsTab>('overview')
-const settingsTabs: Array<{ id: SettingsTab; label: string; icon: SettingsIcon }> = [
-  { id: 'overview', label: '门店概览', icon: 'box' },
-  { id: 'appearance', label: '外观主题', icon: 'settings' },
-  { id: 'staff', label: '员工管理', icon: 'users' },
-  { id: 'system', label: '系统配置', icon: 'settings' },
-  { id: 'payment', label: '支付设置', icon: 'cash' },
-  { id: 'recon', label: '渠道对账', icon: 'report' },
-  { id: 'coupon', label: '优惠券', icon: 'cash' },
-  { id: 'print', label: '打印队列', icon: 'print' },
+const settingsTabs: Array<{ id: SettingsTab; label: string; icon: SettingsIcon; minRole: Role }> = [
+  { id: 'overview', label: '门店概览', icon: 'store', minRole: 'MANAGER' },
+  { id: 'appearance', label: '外观主题', icon: 'sun', minRole: 'MANAGER' },
+  { id: 'staff', label: '员工管理', icon: 'shield', minRole: 'ADMIN' },
+  { id: 'system', label: '系统配置', icon: 'sliders', minRole: 'ADMIN' },
+  { id: 'payment', label: '支付设置', icon: 'wallet', minRole: 'MANAGER' },
+  { id: 'points', label: '积分配置', icon: 'star', minRole: 'MANAGER' },
+  { id: 'recon', label: '渠道对账', icon: 'report', minRole: 'MANAGER' },
+  { id: 'coupon', label: '优惠券', icon: 'ticket', minRole: 'MANAGER' },
+  { id: 'print', label: '打印队列', icon: 'print', minRole: 'MANAGER' },
 ]
+const visibleSettingsTabs = computed(() => settingsTabs.filter((t) => atLeast(t.minRole)))
+
+/** 受角色保护的视图；店员只能进入 pos。 */
+const ROLE_GUARDED_VIEWS: View[] = ['products', 'categories', 'supply', 'member', 'refund', 'order', 'report', 'settings', 'parked']
+watch([view, currentRole], () => {
+  if (ROLE_GUARDED_VIEWS.includes(view.value) && !atLeast('MANAGER')) {
+    view.value = 'pos'
+  }
+  if (view.value === 'settings') {
+    const tab = settingsTabs.find((t) => t.id === settingsTab.value)
+    if (tab && !atLeast(tab.minRole)) settingsTab.value = 'overview'
+  }
+})
 
 // ===== 门店档案与行业（多行业适配）=====
 const storeProfile = ref<StoreProfile | null>(null)
@@ -232,6 +260,11 @@ function memberPriceOf(p: ProductHit): number | null {
 function showToast(msg: string, isError = false) {
   toast.value = msg
   setTimeout(() => (toast.value = ''), isError ? ERROR_DURATION_MS : TOAST_DURATION_MS)
+}
+
+/** 收银成功提示：有积分累计时附上本次积分 */
+function pointsToast(base: string, points: number | undefined): string {
+  return points && points > 0 ? `${base}，积分 +${points}` : base
 }
 
 // ===== 二次授权（§12.4）=====
@@ -421,6 +454,7 @@ onMounted(async () => {
       // 进入激活页即探测服务可达性，让用户第一时间知道能不能联网激活
       void probeActivationService()
     } else {
+      await applyCurrentSession()
       view.value = 'login'
     }
   } catch (e) {
@@ -646,9 +680,13 @@ async function submitActivateOnline() {
       activateCustomer.value.trim() || null
     )
     if (license.value.status !== 'UNACTIVATED') {
-      // 账号在激活前已创建，激活成功直接进入收银
+      // 账号在激活前已创建：有有效会话则直接进收银，否则回登录页重新识别角色
       needAdmin.value = !(await api.hasUsers())
-      view.value = needAdmin.value ? 'login' : 'pos'
+      if (needAdmin.value || !(await applyCurrentSession())) {
+        view.value = 'login'
+      } else {
+        view.value = 'pos'
+      }
       showToast('激活成功')
     }
   } catch (e) {
@@ -675,9 +713,13 @@ async function submitActivate() {
       ? await api.renew(activateToken.value)
       : await api.activate(activateToken.value)
     if (license.value.status !== 'UNACTIVATED') {
-      // 账号在激活前已创建，激活成功直接进入收银
+      // 账号在激活前已创建：有有效会话则直接进收银，否则回登录页重新识别角色
       needAdmin.value = !(await api.hasUsers())
-      view.value = needAdmin.value ? 'login' : 'pos'
+      if (needAdmin.value || !(await applyCurrentSession())) {
+        view.value = 'login'
+      } else {
+        view.value = 'pos'
+      }
       showToast('激活成功')
     }
   } catch (e) {
@@ -685,11 +727,26 @@ async function submitActivate() {
   }
 }
 
+/** 从后端会话恢复界面角色；返回是否存在有效登录。 */
+async function applyCurrentSession(): Promise<boolean> {
+  try {
+    const session = await api.currentSession()
+    if (session) {
+      currentRole.value = normalizeRole(session.role_name)
+      return true
+    }
+  } catch {
+    // 未登录或会话过期：保持最低权限默认值
+  }
+  return false
+}
+
 async function submitAdmin() {
   loginError.value = ''
   try {
     await api.initAdmin(adminUser.value, adminPass.value)
-    await api.login(adminUser.value, adminPass.value)
+    const session = await api.login(adminUser.value, adminPass.value)
+    currentRole.value = normalizeRole(session.role_name)
     currentUser.value = adminUser.value
     needAdmin.value = false
     // 首启固定三步：登录（建号）→ 激活 → 收银。
@@ -705,7 +762,8 @@ async function submitAdmin() {
 async function submitLogin() {
   loginError.value = ''
   try {
-    await api.login(loginUser.value, loginPass.value)
+    const session = await api.login(loginUser.value, loginPass.value)
+    currentRole.value = normalizeRole(session.role_name)
     currentUser.value = loginUser.value
     view.value = 'pos'
   } catch (e) {
@@ -811,7 +869,7 @@ async function submitCheckout() {
     cashTendered.value = ''
     couponCode.value = ''
     paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
-    showToast(`收银成功：${r.order_no}`)
+    showToast(pointsToast(`收银成功：${r.order_no}`, r.points_earned))
   } catch (e) {
     showToast(String(e), true)
   }
@@ -831,7 +889,7 @@ function startNativePolling(orderNo: string) {
         cashTendered.value = ''
         couponCode.value = ''
         paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
-        showToast(`收银成功：${orderNo}`)
+        showToast(pointsToast(`收银成功：${orderNo}`, r.points_earned))
       } else if (r.status === 'CLOSED' || r.status.startsWith('FAILED')) {
         stopNativePolling()
         closeNativeDialog()
@@ -875,14 +933,14 @@ async function confirmNativeLocal() {
   if (!d) return
   stopNativePolling()
   try {
-    await api.confirmNativePay(d.orderNo)
+    const points = await api.confirmNativePay(d.orderNo)
     closeNativeDialog()
     clearMember()
     cart.value = []
     cashTendered.value = ''
     couponCode.value = ''
     paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
-    showToast(`收银成功：${d.orderNo}`)
+    showToast(pointsToast(`收银成功：${d.orderNo}`, points))
   } catch (e) {
     showToast(String(e), true)
   }
@@ -1150,8 +1208,17 @@ function exportActiveReport() {
 // ===== 系统配置（§15/§14）=====
 const configs = ref<ConfigRow[]>([])
 const configDraft = ref<Record<string, string>>({})
-/** 仅渲染后端标注为可编辑的配置项；门店名称与所属行业由「门店信息」卡片管理。 */
-const editableConfigs = computed(() => configs.value.filter((c) => c.editable))
+/** 积分配置页：只取积分相关的三个键，避免在「系统配置」里重复出现。 */
+const POINTS_CONFIG_KEYS = ['points_enabled', 'points_per_yuan', 'points_redeem_rate']
+const pointsConfigs = computed(() =>
+  POINTS_CONFIG_KEYS.map((key) => configs.value.find((c) => c.config_key === key)).filter(
+    (c): c is ConfigRow => !!c
+  )
+)
+/** 系统配置页排除积分项（积分配置有独立入口） */
+const nonPointsConfigs = computed(() =>
+  configs.value.filter((c) => c.editable && !POINTS_CONFIG_KEYS.includes(c.config_key))
+)
 async function loadConfigs() {
   try {
     configs.value = await api.getConfigs()
@@ -1446,7 +1513,13 @@ async function confirmMemberDialog() {
   if (memberId.value != null) memberDialogOpen.value = false
 }
 function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadCoupons(); loadPaymentSettings(); loadIndustries(); loadStoreProfile() }
-function doLogout() { api.logout(); view.value = 'login'; currentUser.value = '' }
+function doLogout() {
+  api.logout()
+  view.value = 'login'
+  currentUser.value = ''
+  currentRole.value = 'CASHIER'
+  settingsTab.value = 'overview'
+}
 </script>
 
 <template>
@@ -1562,15 +1635,23 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
         </div>
         <nav class="nav">
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
-          <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="box" :size="ICON_SIZE.lg" />商品</button>
-          <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="park" :size="ICON_SIZE.lg" />采购盘点</button>
-          <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="users" :size="ICON_SIZE.lg" />会员营销</button>
-          <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="refresh" :size="ICON_SIZE.lg" />退款</button>
-          <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)"><Icon name="print" :size="ICON_SIZE.lg" />订单</button>
-          <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.lg" />报表</button>
-          <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="ICON_SIZE.lg" />设置</button>
+          <template v-if="atLeast('MANAGER')">
+            <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="package" :size="ICON_SIZE.lg" />商品</button>
+            <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="clipboard" :size="ICON_SIZE.lg" />采购盘点</button>
+            <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="heart" :size="ICON_SIZE.lg" />会员营销</button>
+            <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="undo" :size="ICON_SIZE.lg" />退款</button>
+            <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)"><Icon name="receipt" :size="ICON_SIZE.lg" />订单</button>
+            <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.lg" />报表</button>
+            <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="ICON_SIZE.lg" />设置</button>
+          </template>
         </nav>
-        <div class="user"><Icon name="user" :size="ICON_SIZE.md" /><span>{{ currentUser }}</span><button class="link" @click="lockScreen">锁机</button><button class="link" @click="doLogout">退出</button></div>
+        <div class="user">
+          <Icon name="user" :size="ICON_SIZE.md" />
+          <span>{{ currentUser }}</span>
+          <span class="role-tag">{{ currentRole === 'ADMIN' ? '管理员' : currentRole === 'MANAGER' ? '店长' : '店员' }}</span>
+          <button class="link" @click="lockScreen"><Icon name="lock" :size="ICON_SIZE.sm" />锁机</button>
+          <button class="link" @click="doLogout"><Icon name="logout" :size="ICON_SIZE.sm" />退出</button>
+        </div>
       </header>
 
       <div v-if="banner" class="banner">{{ banner }}</div>
@@ -1638,6 +1719,11 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
                 本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
               </span>
             </div>
+            <div v-if="memberId != null" class="points-earn-inline">
+              <Icon name="star" :size="ICON_SIZE.sm" />
+              <span v-if="(quote?.points_earned ?? 0) > 0">本单预计累计 <strong>+{{ quote?.points_earned }}</strong> 积分</span>
+              <span v-else>本单无积分累计（未达整元或积分功能已关闭）</span>
+            </div>
             <div class="total">
               <span>应收</span>
               <strong>¥{{ formatMoney(payableAmount) }}</strong>
@@ -1679,7 +1765,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
               </div>
             </div>
             <div class="actions">
-              <button class="btn" @click="openParkDialog"><Icon name="park" :size="ICON_SIZE.md" />挂单</button>
+              <button class="btn" @click="openParkDialog"><Icon name="pause" :size="ICON_SIZE.md" />挂单</button>
               <button class="btn primary" @click="submitCheckout"><Icon name="check" :size="ICON_SIZE.md" />收款</button>
             </div>
             <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
@@ -1691,7 +1777,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
       <template v-else-if="view === 'products' || view === 'categories'">
         <div class="goods-tabs">
           <button :class="['goods-tab', { active: goodsTab === 'list' }]" @click="goodsTab = 'list'; view = 'products'">
-            <Icon name="box" :size="ICON_SIZE.md" />商品列表
+            <Icon name="package" :size="ICON_SIZE.md" />商品列表
           </button>
           <button :class="['goods-tab', { active: goodsTab === 'category' }]" @click="goodsTab = 'category'; view = 'categories'">
             <Icon name="box" :size="ICON_SIZE.md" />分类管理
@@ -1899,7 +1985,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
       <main v-else class="settings-center">
         <nav class="settings-nav">
           <button
-            v-for="t in settingsTabs"
+            v-for="t in visibleSettingsTabs"
             :key="t.id"
             :class="['settings-nav-btn', { active: settingsTab === t.id }]"
             @click="settingsTab = t.id"
@@ -1981,7 +2067,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <!-- 系统配置 -->
           <div v-else-if="settingsTab === 'system'" class="card wide">
             <h3>系统配置</h3>
-            <div v-for="c in editableConfigs" :key="c.config_key" class="config-row config-row-stacked">
+            <div v-for="c in nonPointsConfigs" :key="c.config_key" class="config-row config-row-stacked">
               <div class="config-label">
                 <strong>{{ c.label }}</strong>
                 <span class="muted small">{{ c.description }}</span>
@@ -2049,6 +2135,39 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
                   <button class="btn btn-sm ghost" @click="removeCredential(f.key)">删除</button>
                 </span>
               </label>
+            </div>
+          </div>
+
+          <!-- 积分配置 -->
+          <div v-else-if="settingsTab === 'points'" class="card wide">
+            <h3>积分配置</h3>
+            <p class="muted small">识别会员收款后自动累计积分：按实付整元数 × 每元赠送积分计算，赠送金抵扣部分不计分；退款时按原单积分扣回。修改后对新订单生效。</p>
+            <div v-for="c in pointsConfigs" :key="c.config_key" class="config-row config-row-stacked">
+              <div class="config-label">
+                <strong>{{ c.label }}</strong>
+                <span class="muted small">{{ c.description }}</span>
+              </div>
+              <div class="config-control">
+                <Switch
+                  v-if="c.kind === 'switch'"
+                  :model-value="configDraft[c.config_key] === '1'"
+                  :label="c.label"
+                  @update:model-value="toggleConfigSwitch(c.config_key)"
+                />
+                <input
+                  v-else
+                  v-model="configDraft[c.config_key]"
+                  class="input"
+                  type="number"
+                  step="1"
+                  min="0"
+                />
+                <button v-if="c.kind !== 'switch'" class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
+              </div>
+            </div>
+            <div class="points-summary">
+              <Icon name="star" :size="ICON_SIZE.md" />
+              <span>当前规则：每消费 1 元累计 <strong>{{ configDraft['points_per_yuan'] ?? '1' }}</strong> 积分；{{ configDraft['points_enabled'] === '0' ? '积分累计已关闭' : '积分累计已开启' }}。</span>
             </div>
           </div>
 
@@ -2183,6 +2302,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <div v-if="memberBalances" class="member-balance">
             本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
           </div>
+          <p class="muted small">识别后本单按会员价结算，并在收款成功后自动累计积分（赠送金抵扣部分不计分）。</p>
           <div class="actions">
             <button class="btn" @click="memberDialogOpen = false">关闭</button>
             <button class="btn primary" @click="confirmMemberDialog">识别会员</button>
@@ -2193,7 +2313,7 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
       <!-- 锁机码锁屏：离岗锁屏或隐藏到托盘时覆盖整个界面 -->
       <div v-if="locked" class="lock-overlay">
         <div class="lock-card">
-          <div class="brand-mark"><Icon name="user" :size="ICON_SIZE.xxl" /></div>
+          <div class="brand-mark"><Icon name="lock" :size="ICON_SIZE.xxl" /></div>
           <h2>收银台已锁定</h2>
           <p class="muted small">收银员临时离岗，请输入锁机码解锁</p>
           <input

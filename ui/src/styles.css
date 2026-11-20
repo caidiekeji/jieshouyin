@@ -89,7 +89,19 @@ h2 { font-size: var(--font-lg); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--brand); }
 .btn.full { width: 100%; }
 .link { background: none; border: none; color: var(--brand); cursor: pointer; }
-.user .link { color: var(--on-chrome); text-decoration: underline; }
+.user .link {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--on-chrome); text-decoration: none;
+}
+.user .link:hover { text-decoration: underline; }
+.role-tag {
+  font-size: var(--font-xs);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-hover);
+  color: var(--on-chrome);
+  opacity: 0.85;
+}
 .error { color: var(--danger); margin: var(--space-0); font-size: var(--font-xs); }
 .inline-form {
   border-top: var(--border-width) solid var(--border);
@@ -365,6 +377,21 @@ h2 { font-size: var(--font-lg); }
 /* 付款区会员入口：识别按钮 + 余额摘要 */
 .pay-member-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
 .member-balance-inline { font-size: var(--font-sm); color: var(--success-text); }
+/* 付款区积分累计提示（识别会员后显示） */
+.points-earn-inline {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--font-sm); color: var(--success-text);
+  margin-bottom: var(--space-2);
+}
+.points-earn-inline strong { font-weight: 700; }
+/* 积分配置页规则摘要 */
+.points-summary {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-top: var(--space-3); padding: var(--space-3);
+  color: var(--success-text); background: var(--success-subtle);
+  border-radius: var(--radius-sm); font-size: var(--font-sm);
+}
+.points-summary strong { font-weight: 700; }
 /* 商品/分类合并页的子标签 */
 .goods-tabs { display: flex; gap: var(--space-2); flex: 0 0 auto; }
 .goods-tab {

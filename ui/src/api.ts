@@ -44,6 +44,17 @@ export interface OrderQuote {
   payable_cents: number
   /** 券不可用等提示（不阻断报价） */
   coupon_note: string | null
+  /** 识别会员后本单预计累计积分 */
+  points_earned: number
+}
+
+/** 收银结算结果 */
+export interface CheckoutResult {
+  order_no: string
+  status: string
+  code_url: string | null
+  /** 本单会员实际累计积分 */
+  points_earned: number
 }
 
 export interface ProductRow {
@@ -306,6 +317,8 @@ export const api = {
   login: (username: string, password: string) =>
     invoke<{ user_id: number; role_name: string }>('login', { username, password }),
   logout: () => invoke<void>('logout'),
+  /** 恢复界面角色：未登录或会话过期返回 null。 */
+  currentSession: () => invoke<{ user_id: number; role_name: string } | null>('current_session'),
   lookup: (keyword: string) => invoke<ProductHit[]>('lookup_product', { keyword }),
   /** 批量取 SKU 会员价（识别会员后刷新购物车行） */
   memberPrices: (skuIds: number[]) =>
@@ -320,7 +333,7 @@ export const api = {
     memberId: number | null,
     couponCode: string | null
   ) =>
-    invoke<{ order_no: string; status: string; code_url: string | null }>('checkout', {
+    invoke<CheckoutResult>('checkout', {
       lines,
       payments,
       memberId,
@@ -470,10 +483,9 @@ export const api = {
     invoke<string>('issue_coupon', { memberId, discountCents, minOrderCents, validUntil }),
 
   // Native 支付收口（§6.3）
-  pollNativePay: (orderNo: string) =>
-    invoke<{ order_no: string; status: string; code_url: string | null }>('poll_native_pay', { orderNo }),
+  pollNativePay: (orderNo: string) => invoke<CheckoutResult>('poll_native_pay', { orderNo }),
   cancelNativePay: (orderNo: string) => invoke<void>('cancel_native_pay', { orderNo }),
-  confirmNativePay: (orderNo: string) => invoke<void>('confirm_native_pay', { orderNo }),
+  confirmNativePay: (orderNo: string) => invoke<number>('confirm_native_pay', { orderNo }),
   // 支付凭据与网关状态（§6.8，只报状态不回显明文）
   setPaymentCredential: (channel: string, field: string, value: string) =>
     invoke<void>('set_payment_credential', { channel, field, value }),

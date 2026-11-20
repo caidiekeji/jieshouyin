@@ -130,6 +130,7 @@ INSERT INTO system_config(config_key, config_value, updated_at) VALUES
  ('allow_negative_stock_default','1',datetime('now')),
  ('points_per_yuan','1',datetime('now')),
  ('points_redeem_rate','100',datetime('now')),
+ ('points_enabled','1',datetime('now')),
  ('max_discount_ratio','0.8',datetime('now'));
 "#;
 
@@ -571,6 +572,12 @@ ALTER TABLE sku ADD COLUMN image_path TEXT;
 ALTER TABLE sku ADD COLUMN image_url TEXT;
 "#;
 
+/// M0010：会员积分累计总开关。老库无该键，OR IGNORE 补种不影响已有配置。
+const M0010: &str = r#"
+INSERT OR IGNORE INTO system_config(config_key, config_value, updated_at)
+ VALUES ('points_enabled','1',datetime('now'));
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -617,6 +624,11 @@ pub fn all() -> Vec<Migration> {
             version: 9,
             name: "industry_category_template_product_image",
             up: M0009,
+        },
+        Migration {
+            version: 10,
+            name: "member_points_enabled",
+            up: M0010,
         },
     ]
 }

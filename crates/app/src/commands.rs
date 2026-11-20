@@ -5,9 +5,10 @@ use crate::state::{build_license_service, init_db, AppState, PendingSensitive};
 use checkout_core::constants::{
     CFG_ACTIVATION_ENDPOINT, CFG_ALLOW_NEGATIVE_STOCK, CFG_BUSINESS_DAY_CUTOFF,
     CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
-    CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN,
-    CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT, CFG_SCAN_GAP_MS, CFG_STORE_NAME, COUPON_UNUSED,
-    DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S,
+    CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_ENABLED,
+    CFG_POINTS_PER_YUAN, CFG_POINTS_REDEEM_RATE, CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT,
+    CFG_SCAN_GAP_MS, CFG_STORE_NAME, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
+    DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_ENABLED,
     DEFAULT_POINTS_PER_YUAN, DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE,
     ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY,
     PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_POS_REFUND,
@@ -69,6 +70,25 @@ fn cfg_f64(conn: &Connection, key: &str, default: f64) -> f64 {
         .flatten()
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(default)
+}
+
+/// 积分累计是否启用（缺失按默认开启处理，老库升级不中断积分）。
+fn points_enabled(conn: &Connection) -> bool {
+    cfg_get(conn, CFG_POINTS_ENABLED)
+        .ok()
+        .flatten()
+        .map(|v| v != "0")
+        .unwrap_or(DEFAULT_POINTS_ENABLED == 1)
+}
+
+/// 按应付金额预估积分（报价用）。口径与 member::accrue_points 一致：整元累计，
+/// 每元赠送积分数由系统配置决定；未识别会员或积分关闭返回 0。
+fn estimate_points(conn: &Connection, member_id: Option<i64>, payable_cents: i64) -> i64 {
+    if member_id.is_none() || !points_enabled(conn) || payable_cents <= 0 {
+        return 0;
+    }
+    let per_yuan = cfg_i64(conn, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN).max(0);
+    (payable_cents / 100) * per_yuan
 }
 
 /// 启动：迁移 → 许可证验证 → 管理员初始化 → 加载状态。
@@ -238,6 +258,18 @@ pub fn logout(state: State<'_, AppState>) -> Result<()> {
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))? = None;
     Ok(())
+}
+
+/// 当前会话：仅用于界面按角色显示菜单，未登录或已过期返回 null。
+/// 真正的权限判定仍在各业务命令中完成，这里不构成安全边界。
+#[tauri::command]
+pub fn current_session(state: State<'_, AppState>) -> Result<Option<Session>> {
+    let now = parse_rfc3339(&now_str())?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    Ok(session.as_ref().filter(|s| s.expires_at >= now).cloned())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -469,6 +501,8 @@ pub struct CheckoutResult {
     pub status: String,
     /// Native 支付二维码内容（MICROPAY/现金/储值为 None）。
     pub code_url: Option<String>,
+    /// 本单会员实际累计的积分（未识别会员/未累计为 0），供收银台回显。
+    pub points_earned: i64,
 }
 
 /// 订单金额试算结果（只读）。原价 / 优惠 / 应付 + 券可用性提示。
@@ -572,6 +606,8 @@ pub struct OrderQuote {
     pub payable_cents: i64,
     /// 券不可用等提示（不阻断报价）。
     pub coupon_note: Option<String>,
+    /// 本单识别会员后预计累计的积分（未识别会员/积分关闭为 0）。
+    pub points_earned: i64,
 }
 
 #[tauri::command]
@@ -586,11 +622,13 @@ pub fn quote_order(
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let plan = plan_amounts(&conn, &lines, member_id, coupon_code.as_deref(), &now_str())?;
+    let points_earned = estimate_points(&conn, member_id, plan.payable);
     Ok(OrderQuote {
         total_cents: plan.total,
         discount_cents: plan.discount,
         payable_cents: plan.payable,
         coupon_note: plan.coupon_note,
+        points_earned,
     })
 }
 
@@ -880,16 +918,18 @@ pub fn checkout(
             order_no,
             status: "PENDING_PAYMENT".into(),
             code_url: native_code_url,
+            points_earned: 0,
         });
     }
 
-    finalize_order_assets(&conn, &order_no)?;
+    let points_earned = finalize_order_assets(&conn, &order_no)?;
     auto_print_receipt(&conn, &order_no);
 
     Ok(CheckoutResult {
         order_no,
         status: "COMPLETED".into(),
         code_url: None,
+        points_earned,
     })
 }
 
@@ -898,7 +938,7 @@ pub fn checkout(
 /// - 积分累积（赠送金抵扣部分不计分）
 /// - 券 UNUSED→REDEEMED
 /// - commit_order（库存扣减 + 订单完成）
-fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<()> {
+fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<i64> {
     let (member_id, total, discount, status, coupon_code): (
         Option<i64>,
         i64,
@@ -912,8 +952,8 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<()> {
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
     )?;
     if status != "PENDING_PAYMENT" {
-        // 幂等：已完成的订单直接返回
-        return Ok(());
+        // 幂等：已完成的订单直接返回，不再重复累计积分
+        return Ok(0);
     }
     let now = now_str();
 
@@ -938,11 +978,20 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<()> {
         )?;
     }
 
-    // 积分累积（§13.4）
+    // 积分累积（§13.4）：受「启用会员积分」开关控制；赠送金抵扣部分不计分。
+    let mut points_earned: i64 = 0;
     if let Some(mid) = member_id {
-        let per_yuan = cfg_i64(conn, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN);
-        let payable = total - discount;
-        checkout_core::member::accrue_points(conn, mid, order_no, payable - bonus_used, per_yuan)?;
+        if points_enabled(conn) {
+            let per_yuan = cfg_i64(conn, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN).max(0);
+            let payable = total - discount;
+            points_earned = checkout_core::member::accrue_points(
+                conn,
+                mid,
+                order_no,
+                payable - bonus_used,
+                per_yuan,
+            )?;
+        }
     }
 
     // 券 UNUSED→REDEEMED + 订单提交
@@ -957,7 +1006,7 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<()> {
     )?;
     checkout_core::order::commit_order(&tx, order_no, cashier)?;
     tx.commit()?;
-    Ok(())
+    Ok(points_earned)
 }
 
 #[tauri::command]
@@ -2424,9 +2473,18 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
         | CFG_PAY_CHANNEL_ALIPAY
         | CFG_PAY_CHANNEL_SV
         | CFG_PRINT_AUTO
+        | CFG_POINTS_ENABLED
         | CFG_ALLOW_NEGATIVE_STOCK => {
             if value != "0" && value != "1" {
                 return Err(CoreError::Validation("开关只允许 0 或 1".into()));
+            }
+        }
+        CFG_POINTS_PER_YUAN | CFG_POINTS_REDEEM_RATE => {
+            let n: i64 = value
+                .parse()
+                .map_err(|_| CoreError::Validation("积分配置必须为非负整数".into()))?;
+            if n < 0 {
+                return Err(CoreError::Validation("积分配置必须为非负整数".into()));
             }
         }
         CFG_ACTIVATION_ENDPOINT => {
@@ -2890,11 +2948,20 @@ pub fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<C
         .optional()?
         .ok_or_else(|| CoreError::Validation("订单不存在".into()))?;
     if status != "PENDING_PAYMENT" {
-        // 幂等：已完成/已作废直接回当前状态
+        // 幂等：已完成/已作废直接回当前状态；已完成的单回显本单已累计积分
+        let points_earned: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(change_amount),0) FROM member_asset_log
+                 WHERE ref_order_no=?1 AND asset_type='POINTS' AND reason='SALE_POINTS'",
+                [&order_no],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
         return Ok(CheckoutResult {
             order_no,
             status,
             code_url: None,
+            points_earned,
         });
     }
     let (out_trade_no, channel_str): (String, String) = conn
@@ -2919,12 +2986,13 @@ pub fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<C
                  WHERE order_no=?2 AND out_trade_no=?3",
                 rusqlite::params![now_str(), order_no, out_trade_no],
             )?;
-            finalize_order_assets(&conn, &order_no)?;
+            let points_earned = finalize_order_assets(&conn, &order_no)?;
             auto_print_receipt(&conn, &order_no);
             Ok(CheckoutResult {
                 order_no,
                 status: "COMPLETED".into(),
                 code_url: None,
+                points_earned,
             })
         }
         PaymentState::CLOSED => {
@@ -2937,17 +3005,20 @@ pub fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<C
                 order_no,
                 status: "CLOSED".into(),
                 code_url: None,
+                points_earned: 0,
             })
         }
         PaymentState::FAILED(msg) => Ok(CheckoutResult {
             order_no,
             status: format!("FAILED:{msg}"),
             code_url: None,
+            points_earned: 0,
         }),
         PaymentState::USERPAYING => Ok(CheckoutResult {
             order_no,
             status: "PENDING_PAYMENT".into(),
             code_url: None,
+            points_earned: 0,
         }),
     }
 }
@@ -3009,7 +3080,7 @@ pub fn cancel_native_pay(order_no: String, state: State<'_, AppState>) -> Result
 
 /// 本地确认 Native 支付完成（无真实渠道凭据时的本地确认模式）。
 #[tauri::command]
-pub fn confirm_native_pay(order_no: String, state: State<'_, AppState>) -> Result<()> {
+pub fn confirm_native_pay(order_no: String, state: State<'_, AppState>) -> Result<i64> {
     let conn = state
         .conn
         .lock()
@@ -3029,9 +3100,9 @@ pub fn confirm_native_pay(order_no: String, state: State<'_, AppState>) -> Resul
          WHERE order_no=?2 AND out_trade_no=?3",
         rusqlite::params![now_str(), order_no, out_trade_no],
     )?;
-    finalize_order_assets(&conn, &order_no)?;
+    let points_earned = finalize_order_assets(&conn, &order_no)?;
     auto_print_receipt(&conn, &order_no);
-    Ok(())
+    Ok(points_earned)
 }
 
 /// 订单上的待用券释放（REDEEM/LOCKED → UNUSED，§13.7 取消路径）。
@@ -3284,7 +3355,7 @@ pub fn recover_pending_orders(
         let has_success = records.iter().any(|(_, _, _, st)| st == "SUCCESS");
         if has_success {
             // 支付已确认但崩溃在提交前 → 补收口
-            finalize_order_assets(conn, &order_no)?;
+            let _ = finalize_order_assets(conn, &order_no)?;
             recovered += 1;
             continue;
         }
@@ -3313,7 +3384,7 @@ pub fn recover_pending_orders(
                     _ => false,
                 };
                 if settled {
-                    finalize_order_assets(conn, &order_no)?;
+                    let _ = finalize_order_assets(conn, &order_no)?;
                 } else {
                     let _ = gw.cancel(&otn);
                     conn.execute(
@@ -3927,6 +3998,7 @@ pub fn run() {
             renew_license,
             login,
             logout,
+            current_session,
             lookup_product,
             member_prices,
             parse_weigh_barcode,

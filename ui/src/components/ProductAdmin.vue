@@ -241,7 +241,7 @@ onMounted(reload)
 
     <div class="toolbar">
       <input v-model="keyword" class="input" placeholder="搜索商品名 / 条码" @keyup.enter="reload" />
-      <button class="btn" @click="reload"><Icon name="refresh" :size="ICON_SIZE.md" />查询</button>
+      <button class="btn" @click="reload"><Icon name="search" :size="ICON_SIZE.md" />查询</button>
       <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />新增商品</button>
     </div>
 
@@ -316,8 +316,8 @@ onMounted(reload)
             <td class="row-actions-cell">
               <div class="row-actions">
                 <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
-                <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="box" :size="ICON_SIZE.sm" />库存</button>
-                <button class="btn btn-sm" @click="startImage(p)"><Icon name="box" :size="ICON_SIZE.sm" />图片</button>
+                <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="package" :size="ICON_SIZE.sm" />库存</button>
+                <button class="btn btn-sm" @click="startImage(p)"><Icon name="image" :size="ICON_SIZE.sm" />图片</button>
                 <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
               </div>
             </td>

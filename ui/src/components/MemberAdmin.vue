@@ -163,7 +163,7 @@ onMounted(() => {
     <template v-if="tab === 'member'">
       <div class="toolbar">
         <input v-model="memberKw" class="input" placeholder="搜索手机号 / 会员名 / 会员号" @keyup.enter="reloadMembers" />
-        <button class="btn" @click="reloadMembers"><Icon name="refresh" :size="ICON_SIZE.md" />查询</button>
+        <button class="btn" @click="reloadMembers"><Icon name="search" :size="ICON_SIZE.md" />查询</button>
         <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />新增会员</button>
       </div>
 

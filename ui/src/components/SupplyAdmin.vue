@@ -283,7 +283,7 @@ onMounted(() => {
     <!-- 采购入库 -->
     <template v-if="tab === 'purchase'">
       <div class="toolbar">
-        <button class="btn" @click="showSupplier = !showSupplier"><Icon name="users" :size="ICON_SIZE.md" />供应商</button>
+        <button class="btn" @click="showSupplier = !showSupplier"><Icon name="truck" :size="ICON_SIZE.md" />供应商</button>
         <button class="btn primary" @click="showCreatePo = !showCreatePo"><Icon name="plus" :size="ICON_SIZE.md" />新建采购单</button>
       </div>
 
@@ -312,7 +312,7 @@ onMounted(() => {
         </div>
         <div class="form-row mb-2">
           <input v-model="poSearch" class="input" placeholder="搜索商品加入采购单" @keyup.enter="searchForPo" />
-          <button class="btn" @click="searchForPo"><Icon name="scan" :size="ICON_SIZE.md" />搜索</button>
+          <button class="btn" @click="searchForPo"><Icon name="search" :size="ICON_SIZE.md" />搜索</button>
         </div>
         <div v-for="p in poCandidates" :key="p.sku_id" class="candidate" @click="addPoLine(p)">
           {{ p.name }}（库存 {{ p.qty }}）
@@ -386,7 +386,7 @@ onMounted(() => {
         <h3>新建盘点任务</h3>
         <div class="form-row mb-2">
           <input v-model="stSearch" class="input" placeholder="搜索商品加入盘点" @keyup.enter="searchForSt" />
-          <button class="btn" @click="searchForSt"><Icon name="scan" :size="ICON_SIZE.md" />搜索</button>
+          <button class="btn" @click="searchForSt"><Icon name="search" :size="ICON_SIZE.md" />搜索</button>
         </div>
         <div v-for="p in stCandidates" :key="p.sku_id" class="candidate" @click="addStLine(p)">
           {{ p.name }}（账面 {{ p.qty }}）
