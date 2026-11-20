@@ -575,6 +575,1253 @@ fn discount_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
     })
 }
 
+// ==================== 商品域（4 张）====================
+
+fn product_ranking(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT s.spu_id, COALESCE(p.spu_name,'SKU#'||s.sku_id), SUM(i.qty-i.returned_qty),
+                SUM(i.line_total_cents-i.discount_cents)
+         FROM sales_order_item i
+         JOIN sales_order o ON o.order_no=i.order_no
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY s.spu_id, p.spu_name ORDER BY SUM(i.line_total_cents-i.discount_cents) DESC LIMIT 100",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut sales = 0i64;
+    for row in &raw {
+        sales += row.3;
+    }
+    let rows = raw
+        .iter()
+        .enumerate()
+        .map(|(idx, (_, name, q, a))| {
+            vec![n((idx + 1) as i64), name.clone(), n(*q), money(*a)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "product_ranking".into(),
+        title: "商品销售排行".into(),
+        description: "按商品（SPU）实销金额降序排列，取前 100 名。".into(),
+        columns: cols(&[
+            ("rank", "排名", "qty"),
+            ("name", "商品名称", "text"),
+            ("qty", "销量", "qty"),
+            ("sales", "销售额", "money"),
+        ]),
+        rows,
+        metrics: vec![m("入榜商品数", n(raw.len() as i64)), m("入榜销售额", money(sales))],
+    })
+}
+
+fn category_share(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(c.name,'未分类'), SUM(i.line_total_cents-i.discount_cents)
+         FROM sales_order_item i
+         JOIN sales_order o ON o.order_no=i.order_no
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         LEFT JOIN category c ON c.category_id=p.category_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY COALESCE(c.name,'未分类') ORDER BY SUM(i.line_total_cents-i.discount_cents) DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut total = 0i64;
+    for row in &raw {
+        total += row.1;
+    }
+    let rows = raw
+        .iter()
+        .map(|(name, a)| {
+            let pct = if total > 0 { *a * 10000 / total } else { 0 };
+            vec![name.clone(), money(*a), format!("{}.{:02}%", pct / 100, pct % 100)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "category_share".into(),
+        title: "品类销售占比".into(),
+        description: "按一级品类汇总销售额及占比，未归类商品计入「未分类」。".into(),
+        columns: cols(&[
+            ("category", "品类", "text"),
+            ("sales", "销售额", "money"),
+            ("share", "占比", "percent"),
+        ]),
+        rows,
+        metrics: vec![m("品类总数", n(raw.len() as i64)), m("销售合计", money(total))],
+    })
+}
+
+fn product_margin(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(p.spu_name,'SKU#'||s.sku_id),
+                SUM(i.qty-i.returned_qty),
+                SUM(i.line_total_cents-i.discount_cents),
+                COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0)
+         FROM sales_order_item i
+         JOIN sales_order o ON o.order_no=i.order_no
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY s.sku_id, p.spu_name ORDER BY (SUM(i.line_total_cents-i.discount_cents)-SUM((i.qty-i.returned_qty)*s.cost_price_cents)) DESC LIMIT 100",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (mut sales, mut cost) = (0i64, 0i64);
+    let rows = raw
+        .iter()
+        .map(|(name, q, s, c)| {
+            sales += s;
+            cost += c;
+            let profit = s - c;
+            let rate = if *s > 0 { profit * 10000 / *s } else { 0 };
+            vec![
+                name.clone(),
+                n(*q),
+                money(*s),
+                money(*c),
+                money(profit),
+                format!("{}.{:02}%", rate / 100, rate % 100),
+            ]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "product_margin".into(),
+        title: "商品毛利报表".into(),
+        description: "毛利=实销额−销售数量×成本价；成本取当前 SKU 进价快照。".into(),
+        columns: cols(&[
+            ("name", "商品名称", "text"),
+            ("qty", "销量", "qty"),
+            ("sales", "销售额", "money"),
+            ("cost", "成本", "money"),
+            ("profit", "毛利", "money"),
+            ("rate", "毛利率", "percent"),
+        ]),
+        rows,
+        metrics: vec![
+            m("毛利合计", money(sales - cost)),
+            m("销售额", money(sales)),
+            m("成本合计", money(cost)),
+        ],
+    })
+}
+
+fn product_turnover(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(p.spu_name,'SKU#'||s.sku_id), SUM(i.qty-i.returned_qty),
+                COUNT(DISTINCT o.business_date), COALESCE(st.qty,0), s.alert_qty
+         FROM sales_order_item i
+         JOIN sales_order o ON o.order_no=i.order_no
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         LEFT JOIN inv_stock st ON st.sku_id=s.sku_id AND st.warehouse_type='STORE'
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY s.sku_id, p.spu_name, st.qty, s.alert_qty
+         ORDER BY SUM(i.qty-i.returned_qty) DESC LIMIT 100",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut active = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(name, q, days, stock, alert)| {
+            if *q > 0 {
+                active += 1;
+            }
+            vec![
+                name.clone(),
+                n(*q),
+                n(*days),
+                n(*stock),
+                n(*alert),
+                if *stock <= *alert && *alert > 0 {
+                    "需补货".into()
+                } else {
+                    "正常".into()
+                },
+            ]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "product_turnover".into(),
+        title: "商品动销报表".into(),
+        description: "统计区间内有销售的 SKU、动销天数与当前库存，低于预警线标注需补货。".into(),
+        columns: cols(&[
+            ("name", "商品名称", "text"),
+            ("qty", "销量", "qty"),
+            ("days", "动销天数", "qty"),
+            ("stock", "当前库存", "qty"),
+            ("alert", "预警线", "qty"),
+            ("flag", "状态", "text"),
+        ]),
+        rows,
+        metrics: vec![m("动销商品数", n(active)), m("在售商品数", n(raw.len() as i64))],
+    })
+}
+
+// ==================== 库存域（6 张）====================
+
+fn inventory_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(p.spu_name,'SKU#'||t.sku_id),
+                COALESCE(SUM(CASE WHEN t.trans_type='PURCHASE_IN' THEN t.change_qty ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN t.trans_type='SALE' THEN -t.change_qty ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN t.trans_type IN ('RETURN','VOID') THEN t.change_qty ELSE 0 END),0),
+                COALESCE(SUM(t.change_qty),0)
+         FROM inv_trans t
+         JOIN sku s ON s.sku_id=t.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE substr(t.created_at,1,10) BETWEEN ?1 AND ?2
+         GROUP BY t.sku_id, p.spu_name ORDER BY COALESCE(SUM(t.change_qty),0) DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let rows = raw
+        .iter()
+        .map(|(name, inq, outq, ret, net)| {
+            vec![name.clone(), n(*inq), n(*outq), n(*ret), n(*net)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "inventory_summary".into(),
+        title: "进销存汇总".into(),
+        description: "按商品汇总区间内入库、销售、退换与净变动，取数自库存事件。".into(),
+        columns: cols(&[
+            ("name", "商品名称", "text"),
+            ("in", "入库量", "qty"),
+            ("out", "销售出库", "qty"),
+            ("return", "退换入库", "qty"),
+            ("net", "净变动", "qty"),
+        ]),
+        rows,
+        metrics: vec![m("商品数", n(raw.len() as i64))],
+    })
+}
+
+fn inventory_balance(conn: &Connection, _from: &str, _to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(p.spu_name,'SKU#'||s.sku_id), st.warehouse_type, st.qty,
+                st.locked_qty, s.cost_price_cents, st.qty*s.cost_price_cents
+         FROM inv_stock st
+         JOIN sku s ON s.sku_id=st.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE st.qty<>0 OR st.locked_qty<>0
+         ORDER BY st.qty*s.cost_price_cents DESC",
+    )?;
+    let raw = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut total_value = 0i64;
+    let mut total_qty = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(name, wh, q, lq, cost, val)| {
+            total_value += val;
+            total_qty += q;
+            vec![
+                name.clone(),
+                wh.clone(),
+                n(*q),
+                n(*lq),
+                money(*cost),
+                money(*val),
+            ]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "inventory_balance".into(),
+        title: "库存余额报表".into(),
+        description: "当前各仓库存数量与成本金额快照，成本取 SKU 进价。".into(),
+        columns: cols(&[
+            ("name", "商品名称", "text"),
+            ("warehouse", "仓库", "text"),
+            ("qty", "库存量", "qty"),
+            ("locked", "锁定量", "qty"),
+            ("cost", "单价成本", "money"),
+            ("value", "库存金额", "money"),
+        ]),
+        rows,
+        metrics: vec![
+            m("库存金额合计", money(total_value)),
+            m("库存数量合计", n(total_qty)),
+        ],
+    })
+}
+
+fn inventory_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT substr(t.created_at,1,19), COALESCE(p.spu_name,'SKU#'||t.sku_id),
+                t.trans_type, t.change_qty, COALESCE(t.ref_order_no,''), COALESCE(u.username,'系统')
+         FROM inv_trans t
+         JOIN sku s ON s.sku_id=t.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         LEFT JOIN user_account u ON u.user_id=t.operator_id
+         WHERE substr(t.created_at,1,10) BETWEEN ?1 AND ?2
+         ORDER BY t.created_at DESC LIMIT 500",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let rows = raw
+        .iter()
+        .map(|(t, name, typ, q, refno, op)| {
+            vec![t.clone(), name.clone(), typ.clone(), n(*q), refno.clone(), op.clone()]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "inventory_flow".into(),
+        title: "库存流水报表".into(),
+        description: "逐笔库存事件，含出入库、销售、退货、调账与报损；最多 500 笔。".into(),
+        columns: cols(&[
+            ("time", "时间", "text"),
+            ("name", "商品名称", "text"),
+            ("type", "事件类型", "text"),
+            ("qty", "变动量", "qty"),
+            ("ref", "关联单号", "text"),
+            ("operator", "操作人", "text"),
+        ]),
+        rows,
+        metrics: vec![m("流水笔数", n(raw.len() as i64))],
+    })
+}
+
+fn inventory_alert(conn: &Connection, _from: &str, _to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(p.spu_name,'SKU#'||s.sku_id), COALESCE(st.qty,0), s.alert_qty,
+                s.allow_negative_stock
+         FROM sku s
+         JOIN spu p ON p.spu_id=s.spu_id
+         LEFT JOIN inv_stock st ON st.sku_id=s.sku_id AND st.warehouse_type='STORE'
+         WHERE s.alert_qty>0 AND COALESCE(st.qty,0)<=s.alert_qty
+         ORDER BY (COALESCE(st.qty,0)-s.alert_qty), p.spu_name",
+    )?;
+    let raw = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut critical = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(name, q, alert, allow_neg)| {
+            let gap = alert - q;
+            if *q <= 0 {
+                critical += 1;
+            }
+            vec![
+                name.clone(),
+                n(*q),
+                n(*alert),
+                n(gap),
+                if *q <= 0 { "缺货".into() } else { "低库存".into() },
+                if *allow_neg == 1 { "允许负库存".into() } else { "禁止负库存".into() },
+            ]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "inventory_alert".into(),
+        title: "库存预警报表".into(),
+        description: "当前库存低于预警线的商品，库存≤0 标记缺货。".into(),
+        columns: cols(&[
+            ("name", "商品名称", "text"),
+            ("qty", "当前库存", "qty"),
+            ("alert", "预警线", "qty"),
+            ("gap", "补货缺口", "qty"),
+            ("level", "预警级别", "text"),
+            ("policy", "负库存策略", "text"),
+        ]),
+        rows,
+        metrics: vec![m("预警商品数", n(raw.len() as i64)), m("缺货商品数", n(critical))],
+    })
+}
+
+fn stocktake_diff(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT st.task_no, COALESCE(p.spu_name,'SKU#'||si.sku_id), si.book_qty,
+                COALESCE(si.counted_qty,si.book_qty), COALESCE(si.diff_qty,0),
+                COALESCE(si.reason,''), st.status, COALESCE(substr(st.finished_at,1,19),'')
+         FROM stocktake_item si
+         JOIN stocktake st ON st.stocktake_id=si.stocktake_id
+         JOIN sku s ON s.sku_id=si.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE substr(st.created_at,1,10) BETWEEN ?1 AND ?2
+         ORDER BY st.created_at DESC LIMIT 500",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, String>(7)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut diff_abs = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(task, name, book, counted, diff, reason, status, fin)| {
+            diff_abs += diff.abs();
+            vec![
+                task.clone(),
+                name.clone(),
+                n(*book),
+                n(*counted),
+                n(*diff),
+                reason.clone(),
+                status.clone(),
+                fin.clone(),
+            ]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "stocktake_diff".into(),
+        title: "盘点差异报表".into(),
+        description: "逐项展示账面数、实盘数与差异量，差异绝对值合计用于衡量盘点质量。".into(),
+        columns: cols(&[
+            ("task", "盘点单号", "text"),
+            ("name", "商品名称", "text"),
+            ("book", "账面数", "qty"),
+            ("counted", "实盘数", "qty"),
+            ("diff", "差异量", "qty"),
+            ("reason", "原因", "text"),
+            ("status", "状态", "text"),
+            ("finished", "完成时间", "text"),
+        ]),
+        rows,
+        metrics: vec![m("差异绝对值合计", n(diff_abs)), m("盘点项数", n(raw.len() as i64))],
+    })
+}
+
+fn scrap_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT substr(t.created_at,1,19), COALESCE(p.spu_name,'SKU#'||t.sku_id),
+                -t.change_qty, COALESCE(t.ref_order_no,''), COALESCE(u.username,'系统')
+         FROM inv_trans t
+         JOIN sku s ON s.sku_id=t.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         LEFT JOIN user_account u ON u.user_id=t.operator_id
+         WHERE t.trans_type='LOSS' AND substr(t.created_at,1,10) BETWEEN ?1 AND ?2
+         ORDER BY t.created_at DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut loss_qty = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(t, name, q, refno, op)| {
+            loss_qty += q;
+            vec![t.clone(), name.clone(), n(*q), refno.clone(), op.clone()]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "scrap".into(),
+        title: "报损报表".into(),
+        description: "库存事件中的报损（LOSS）记录，数量为带符号事件取绝对值。".into(),
+        columns: cols(&[
+            ("time", "报损时间", "text"),
+            ("name", "商品名称", "text"),
+            ("qty", "报损数量", "qty"),
+            ("ref", "关联单号", "text"),
+            ("operator", "操作人", "text"),
+        ]),
+        rows,
+        metrics: vec![m("报损数量合计", n(loss_qty)), m("报损笔数", n(raw.len() as i64))],
+    })
+}
+
+// ==================== 会员域（6 张）====================
+
+fn member_consumption(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT m.member_id, COALESCE(m.name,COALESCE(m.phone,'会员#'||m.member_id)),
+                COUNT(DISTINCT o.order_no), COALESCE(SUM(o.pay_cents),0),
+                MAX(o.business_date)
+         FROM sales_order o JOIN member m ON m.member_id=o.member_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY m.member_id, m.name, m.phone ORDER BY SUM(o.pay_cents) DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut total = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(id, name, c, amt, last)| {
+            total += amt;
+            let avg = if *c > 0 { *amt / *c } else { 0 };
+            vec![n(*id), name.clone(), n(*c), money(*amt), money(avg), last.clone()]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "member_consumption".into(),
+        title: "会员消费报表".into(),
+        description: "按会员汇总区间内消费次数、金额与客单价，按消费额降序。".into(),
+        columns: cols(&[
+            ("id", "会员ID", "qty"),
+            ("name", "会员", "text"),
+            ("count", "消费次数", "qty"),
+            ("amount", "消费金额", "money"),
+            ("avg", "客单价", "money"),
+            ("last", "最近消费", "date"),
+        ]),
+        rows,
+        metrics: vec![m("消费会员数", n(raw.len() as i64)), m("会员消费合计", money(total))],
+    })
+}
+
+fn member_repurchase(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT m.member_id, COALESCE(m.name,COALESCE(m.phone,'会员#'||m.member_id)),
+                COUNT(DISTINCT o.order_no) AS visits,
+                COUNT(DISTINCT o.business_date) AS days,
+                MIN(o.business_date), MAX(o.business_date)
+         FROM sales_order o JOIN member m ON m.member_id=o.member_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY m.member_id, m.name, m.phone ORDER BY visits DESC, days DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut repeat = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(id, name, visits, days, first, last)| {
+            if *visits >= 2 {
+                repeat += 1;
+            }
+            let gap = if *days > 1 { (*days - 1) / (*visits - 1).max(1) } else { 0 };
+            vec![
+                n(*id),
+                name.clone(),
+                n(*visits),
+                n(*days),
+                n(gap),
+                first.clone(),
+                last.clone(),
+            ]
+        })
+        .collect();
+    let rate = if raw.is_empty() { 0 } else { repeat * 10000 / raw.len() as i64 };
+    Ok(ReportResult {
+        id: "member_repurchase".into(),
+        title: "会员复购报表".into(),
+        description: "统计会员消费次数与平均复购间隔（天），消费≥2 次计为复购会员。".into(),
+        columns: cols(&[
+            ("id", "会员ID", "qty"),
+            ("name", "会员", "text"),
+            ("visits", "消费次数", "qty"),
+            ("days", "消费天数", "qty"),
+            ("gap", "平均间隔(天)", "qty"),
+            ("first", "首次消费", "date"),
+            ("last", "最近消费", "date"),
+        ]),
+        rows,
+        metrics: vec![
+            m("复购会员数", n(repeat)),
+            m("复购率", format!("{}.{:02}%", rate / 100, rate % 100)),
+        ],
+    })
+}
+
+fn member_growth(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    // member 表无 created_at 列，以首次资产流水日作为会员首次活跃日统计增长。
+    let mut stmt = conn.prepare(
+        "SELECT d, COUNT(*) FROM (
+                SELECT member_id, MIN(substr(created_at,1,10)) AS d
+                FROM member_asset_log GROUP BY member_id
+             ) WHERE d BETWEEN ?1 AND ?2 GROUP BY d ORDER BY d",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut cum = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(d, c)| {
+            cum += c;
+            vec![d.clone(), n(*c), n(cum)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "member_growth".into(),
+        title: "会员增长报表".into(),
+        description: "按首次资产流水日统计新增会员数与累计会员数。".into(),
+        columns: cols(&[
+            ("date", "日期", "date"),
+            ("new", "新增会员", "qty"),
+            ("cumulative", "累计会员", "qty"),
+        ]),
+        rows,
+        metrics: vec![m("区间新增", n(cum)), m("增长天数", n(raw.len() as i64))],
+    })
+}
+
+fn stored_value(conn: &Connection, _from: &str, _to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT m.member_id, COALESCE(m.name,COALESCE(m.phone,'会员#'||m.member_id)),
+                COALESCE(SUM(CASE WHEN a.asset_type='PRINCIPAL' THEN a.balance ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN a.asset_type='BONUS' THEN a.balance ELSE 0 END),0)
+         FROM member m LEFT JOIN member_asset a ON a.member_id=m.member_id
+         WHERE m.status=1
+         GROUP BY m.member_id, m.name, m.phone
+         ORDER BY (COALESCE(SUM(a.balance),0)) DESC",
+    )?;
+    let raw = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (mut principal, mut bonus) = (0i64, 0i64);
+    let rows = raw
+        .iter()
+        .map(|(id, name, p, b)| {
+            principal += p;
+            bonus += b;
+            vec![n(*id), name.clone(), money(*p), money(*b), money(p + b)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "stored_value".into(),
+        title: "储值报表".into(),
+        description: "会员储值余额快照，本金与赠金分列，合计为可用储值。".into(),
+        columns: cols(&[
+            ("id", "会员ID", "qty"),
+            ("name", "会员", "text"),
+            ("principal", "本金余额", "money"),
+            ("bonus", "赠金余额", "money"),
+            ("total", "可用合计", "money"),
+        ]),
+        rows,
+        metrics: vec![
+            m("本金合计", money(principal)),
+            m("赠金合计", money(bonus)),
+            m("储值总额", money(principal + bonus)),
+        ],
+    })
+}
+
+fn stored_value_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT substr(l.created_at,1,19), COALESCE(m.name,COALESCE(m.phone,'会员#'||l.member_id)),
+                l.asset_type, l.change_amount, l.balance_after, l.reason,
+                COALESCE(l.ref_order_no,'')
+         FROM member_asset_log l LEFT JOIN member m ON m.member_id=l.member_id
+         WHERE l.asset_type IN ('PRINCIPAL','BONUS') AND substr(l.created_at,1,10) BETWEEN ?1 AND ?2
+         ORDER BY l.created_at DESC LIMIT 500",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, String>(6)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut recharge = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(t, name, typ, chg, bal, reason, refno)| {
+            if *chg > 0 {
+                recharge += chg;
+            }
+            vec![
+                t.clone(),
+                name.clone(),
+                typ.clone(),
+                money(*chg),
+                money(*bal),
+                reason.clone(),
+                refno.clone(),
+            ]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "stored_value_flow".into(),
+        title: "储值流水报表".into(),
+        description: "会员本金/赠金变动流水，含充值、消费与退款回补；最多 500 笔。".into(),
+        columns: cols(&[
+            ("time", "时间", "text"),
+            ("name", "会员", "text"),
+            ("type", "资产类型", "text"),
+            ("change", "变动额", "money"),
+            ("balance", "变动后余额", "money"),
+            ("reason", "原因", "text"),
+            ("ref", "关联单号", "text"),
+        ]),
+        rows,
+        metrics: vec![m("充值合计", money(recharge)), m("流水笔数", n(raw.len() as i64))],
+    })
+}
+
+fn points_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(m.name,COALESCE(m.phone,'会员#'||l.member_id)),
+                l.reason, COUNT(*), SUM(l.change_amount)
+         FROM member_asset_log l LEFT JOIN member m ON m.member_id=l.member_id
+         WHERE l.asset_type='POINTS' AND substr(l.created_at,1,10) BETWEEN ?1 AND ?2
+         GROUP BY l.member_id, m.name, m.phone, l.reason
+         ORDER BY SUM(l.change_amount) DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut earned = 0i64;
+    let mut used = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(name, reason, c, amt)| {
+            if *amt > 0 {
+                earned += amt;
+            } else {
+                used += amt;
+            }
+            vec![name.clone(), reason.clone(), n(*c), n(*amt)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "points".into(),
+        title: "积分报表".into(),
+        description: "按会员与原因汇总积分增减，正数获取、负数使用或冲正。".into(),
+        columns: cols(&[
+            ("name", "会员", "text"),
+            ("reason", "原因", "text"),
+            ("count", "笔数", "qty"),
+            ("points", "积分变动", "qty"),
+        ]),
+        rows,
+        metrics: vec![m("发放积分", n(earned)), m("使用/冲正", n(used)), m("净积分", n(earned + used))],
+    })
+}
+
+// ==================== 运营域（9 张）====================
+
+fn cashier_performance(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT o.cashier_id, COALESCE(u.username,'收银员#'||o.cashier_id),
+                COUNT(DISTINCT o.order_no), COALESCE(SUM(o.pay_cents),0),
+                COALESCE(SUM(o.discount_cents),0)
+         FROM sales_order o LEFT JOIN user_account u ON u.user_id=o.cashier_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY o.cashier_id, u.username ORDER BY SUM(o.pay_cents) DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (mut sales, mut orders) = (0i64, 0i64);
+    let rows = raw
+        .iter()
+        .map(|(id, name, c, amt, disc)| {
+            sales += amt;
+            orders += c;
+            let avg = if *c > 0 { *amt / *c } else { 0 };
+            vec![n(*id), name.clone(), n(*c), money(*amt), money(avg), money(*disc)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "cashier_performance".into(),
+        title: "收银员业绩报表".into(),
+        description: "按收银员汇总订单数、实收额与客单价，按实收降序。".into(),
+        columns: cols(&[
+            ("id", "收银员ID", "qty"),
+            ("name", "收银员", "text"),
+            ("orders", "订单数", "qty"),
+            ("sales", "实收额", "money"),
+            ("avg", "客单价", "money"),
+            ("discount", "优惠额", "money"),
+        ]),
+        rows,
+        metrics: vec![m("实收合计", money(sales)), m("订单合计", n(orders))],
+    })
+}
+
+fn shift_handover(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT s.shift_id, COALESCE(substr(s.opened_at,1,19),''),
+                s.opening_float_cents, COALESCE(s.expected_cash_cents,0),
+                COALESCE(s.actual_cash_cents,0), COALESCE(s.difference_cents,0),
+                s.status, COALESCE(s.difference_reason,'')
+         FROM shift s
+         WHERE substr(s.opened_at,1,10) BETWEEN ?1 AND ?2
+         ORDER BY s.opened_at DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, String>(7)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut diff_abs = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(id, t, fl, exp, act, diff, st, reason)| {
+            diff_abs += diff.abs();
+            vec![
+                n(*id),
+                t.clone(),
+                money(*fl),
+                money(*exp),
+                money(*act),
+                money(*diff),
+                st.clone(),
+                reason.clone(),
+            ]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "shift_handover".into(),
+        title: "交接班报表".into(),
+        description: "逐班次列示备用金、应收/实收现金与差额，差额绝对值合计衡量现金管理。".into(),
+        columns: cols(&[
+            ("id", "班次ID", "qty"),
+            ("opened", "开班时间", "text"),
+            ("float", "备用金", "money"),
+            ("expected", "应收现金", "money"),
+            ("actual", "实收现金", "money"),
+            ("diff", "差额", "money"),
+            ("status", "状态", "text"),
+            ("reason", "差额原因", "text"),
+        ]),
+        rows,
+        metrics: vec![m("班次数量", n(raw.len() as i64)), m("差额绝对合计", money(diff_abs))],
+    })
+}
+
+fn operation_audit(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT substr(a.created_at,1,19), a.command,
+                COALESCE(u.username,'系统'), COALESCE(au.username,'—'),
+                COALESCE(a.detail_json,'')
+         FROM operation_audit a
+         LEFT JOIN user_account u ON u.user_id=a.operator_id
+         LEFT JOIN user_account au ON au.user_id=a.approver_id
+         WHERE substr(a.created_at,1,10) BETWEEN ?1 AND ?2
+         ORDER BY a.created_at DESC LIMIT 500",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let rows = raw
+        .iter()
+        .map(|(t, cmd, op, appr, detail)| {
+            vec![t.clone(), cmd.clone(), op.clone(), appr.clone(), detail.clone()]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "operation_audit".into(),
+        title: "操作审计报表".into(),
+        description: "记录敏感操作的时间、命令、操作人与审批人；最多 500 笔。".into(),
+        columns: cols(&[
+            ("time", "时间", "text"),
+            ("command", "操作命令", "text"),
+            ("operator", "操作人", "text"),
+            ("approver", "审批人", "text"),
+            ("detail", "详情", "text"),
+        ]),
+        rows,
+        metrics: vec![m("审计记录数", n(raw.len() as i64))],
+    })
+}
+
+fn store_comparison(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    // 单机单店：按营业日对比核心经营指标，用于日间横向比较。
+    let mut stmt = conn.prepare(
+        "SELECT business_date, COUNT(DISTINCT order_no), COALESCE(SUM(pay_cents),0),
+                COALESCE(SUM(discount_cents),0),
+                COALESCE(SUM(CASE WHEN status='REFUNDED' THEN pay_cents ELSE 0 END),0)
+         FROM sales_order
+         WHERE status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED') AND business_date BETWEEN ?1 AND ?2
+         GROUP BY business_date ORDER BY business_date",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (mut sales, mut orders) = (0i64, 0i64);
+    let rows = raw
+        .iter()
+        .map(|(d, o, s, disc, rf)| {
+            sales += s;
+            orders += o;
+            let net = s - rf;
+            vec![d.clone(), n(*o), money(*s), money(*disc), money(*rf), money(net)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "store_comparison".into(),
+        title: "门店经营对比报表".into(),
+        description: "单机单店口径，按营业日对比订单、销售、优惠与退款；多店版按门店 ID 聚合。".into(),
+        columns: cols(&[
+            ("date", "营业日期", "date"),
+            ("orders", "订单数", "qty"),
+            ("sales", "销售额", "money"),
+            ("discount", "优惠额", "money"),
+            ("refund", "退款额", "money"),
+            ("net", "净收入", "money"),
+        ]),
+        rows,
+        metrics: vec![m("累计销售", money(sales)), m("累计订单", n(orders))],
+    })
+}
+
+fn daily_settlement(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT business_date, order_count, total_sales_cents, refund_cents, discount_cents,
+                generated_at
+         FROM daily_summary WHERE business_date BETWEEN ?1 AND ?2 ORDER BY business_date",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (mut sales, mut orders) = (0i64, 0i64);
+    let rows = raw
+        .iter()
+        .map(|(d, o, s, rf, disc, gen)| {
+            sales += s;
+            orders += o;
+            vec![d.clone(), n(*o), money(*s), money(*rf), money(*disc), money(s - rf), gen.clone()]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "daily_settlement".into(),
+        title: "日结报表".into(),
+        description: "读取日结快照表，幂等不可变；如需刷新先在日结卡重新生成。".into(),
+        columns: cols(&[
+            ("date", "营业日期", "date"),
+            ("orders", "订单数", "qty"),
+            ("sales", "销售额", "money"),
+            ("refund", "退款额", "money"),
+            ("discount", "优惠额", "money"),
+            ("net", "净收入", "money"),
+            ("generated", "生成时间", "text"),
+        ]),
+        rows,
+        metrics: vec![m("结存天数", n(raw.len() as i64)), m("销售额合计", money(sales)), m("订单合计", n(orders))],
+    })
+}
+
+fn abnormal_transaction(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT '作废单' AS kind, o.order_no, o.pay_cents, o.business_date
+         FROM sales_order o WHERE o.status='VOIDED' AND o.business_date BETWEEN ?1 AND ?2
+         UNION ALL
+         SELECT '全额退款', o.order_no, o.pay_cents, o.business_date
+         FROM sales_order o WHERE o.status='REFUNDED' AND o.business_date BETWEEN ?1 AND ?2
+         UNION ALL
+         SELECT '对账差异', COALESCE(r.order_no,'—'), ABS(r.local_amount_cents-r.channel_amount_cents), r.recon_date
+         FROM reconcile_record r
+         WHERE r.local_amount_cents<>r.channel_amount_cents AND r.recon_date BETWEEN ?1 AND ?2
+         ORDER BY 4 DESC LIMIT 500",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to, from, to, from, to], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut amount = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(kind, no, amt, d)| {
+            amount += amt;
+            vec![kind.clone(), no.clone(), money(*amt), d.clone()]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "abnormal_transaction".into(),
+        title: "异常交易报表".into(),
+        description: "汇总作废单、全额退款与对账差异三类异常，金额取绝对值。".into(),
+        columns: cols(&[
+            ("kind", "异常类型", "text"),
+            ("order_no", "关联单号", "text"),
+            ("amount", "涉及金额", "money"),
+            ("date", "发生日期", "date"),
+        ]),
+        rows,
+        metrics: vec![m("异常笔数", n(raw.len() as i64)), m("涉及金额", money(amount))],
+    })
+}
+
+fn cash_difference(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT s.shift_id, COALESCE(substr(s.opened_at,1,19),''),
+                COALESCE(s.expected_cash_cents,0), COALESCE(s.actual_cash_cents,0),
+                COALESCE(s.difference_cents,0), COALESCE(s.difference_reason,'')
+         FROM shift s
+         WHERE s.closed_at IS NOT NULL AND substr(s.opened_at,1,10) BETWEEN ?1 AND ?2
+         ORDER BY s.opened_at DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut diff_sum = 0i64;
+    let mut mismatch = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(id, t, exp, act, diff, reason)| {
+            diff_sum += diff;
+            if *diff != 0 {
+                mismatch += 1;
+            }
+            vec![n(*id), t.clone(), money(*exp), money(*act), money(*diff), reason.clone()]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "cash_difference".into(),
+        title: "现金差异报表".into(),
+        description: "仅含已关班班次，现金差额=实收−应收，非零班次单独计数。".into(),
+        columns: cols(&[
+            ("id", "班次ID", "qty"),
+            ("opened", "开班时间", "text"),
+            ("expected", "应收现金", "money"),
+            ("actual", "实收现金", "money"),
+            ("diff", "差额", "money"),
+            ("reason", "原因", "text"),
+        ]),
+        rows,
+        metrics: vec![m("净差额", money(diff_sum)), m("不符班次数", n(mismatch))],
+    })
+}
+
+fn promotion_effect(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(p.name,'促销#'||op.promotion_id), p.promo_type,
+                COUNT(DISTINCT op.order_no), COALESCE(SUM(op.discount_cents),0)
+         FROM order_promotion op
+         JOIN sales_order o ON o.order_no=op.order_no
+         LEFT JOIN promotion p ON p.promotion_id=op.promotion_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
+         GROUP BY op.promotion_id, p.name, p.promo_type
+         ORDER BY SUM(op.discount_cents) DESC",
+    )?;
+    let raw = stmt
+        .query_map(params![from, to], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut discount = 0i64;
+    let mut orders = 0i64;
+    let rows = raw
+        .iter()
+        .map(|(name, typ, c, amt)| {
+            discount += amt;
+            orders += c;
+            let avg = if *c > 0 { *amt / *c } else { 0 };
+            vec![name.clone(), typ.clone(), n(*c), money(*amt), money(avg)]
+        })
+        .collect();
+    Ok(ReportResult {
+        id: "promotion_effect".into(),
+        title: "促销效果报表".into(),
+        description: "按促销活动汇总使用订单数、让利总额与单均让利。".into(),
+        columns: cols(&[
+            ("name", "促销活动", "text"),
+            ("type", "促销类型", "text"),
+            ("orders", "使用订单", "qty"),
+            ("discount", "让利总额", "money"),
+            ("avg", "单均让利", "money"),
+        ]),
+        rows,
+        metrics: vec![m("让利合计", money(discount)), m("促销订单", n(orders))],
+    })
+}
+
+fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(SUM(i.line_total_cents-i.discount_cents),0),
+                COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0),
+                COALESCE(SUM(i.discount_cents),0), COUNT(DISTINCT o.order_no)
+         FROM sales_order_item i
+         JOIN sales_order o ON o.order_no=i.order_no
+         JOIN sku s ON s.sku_id=i.sku_id
+         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2",
+    )?;
+    let (sales, cost, disc, orders): (i64, i64, i64, i64) = stmt.query_row(params![from, to], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+    })?;
+    let profit = sales - cost;
+    let rate = if sales > 0 { profit * 10000 / sales } else { 0 };
+    let rows = vec![
+        vec!["销售额".into(), money(sales)],
+        vec!["成本额".into(), money(cost)],
+        vec!["毛利额".into(), money(profit)],
+        vec!["优惠额".into(), money(disc)],
+        vec!["毛利率".into(), format!("{}.{:02}%", rate / 100, rate % 100)],
+        vec!["订单数".into(), n(orders)],
+    ];
+    Ok(ReportResult {
+        id: "margin_summary".into(),
+        title: "毛利汇总报表".into(),
+        description: "区间整体毛利：销售额−成本额，成本取 SKU 当前进价快照。".into(),
+        columns: cols(&[("item", "指标", "text"), ("value", "数值", "text")]),
+        rows,
+        metrics: vec![
+            m("毛利额", money(profit)),
+            m("毛利率", format!("{}.{:02}%", rate / 100, rate % 100)),
+            m("销售额", money(sales)),
+        ],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,5 +1876,22 @@ mod tests {
     fn unknown_report_is_rejected() {
         let c = setup();
         assert!(run_report(&c, "not_exist", "2026-11-17", "2026-11-17").is_err());
+    }
+
+    /// 全部 33 张报表在空库上必须可执行（SQL 列名/语法正确）且列数=行数宽度。
+    #[test]
+    fn every_report_executes_with_valid_shape() {
+        let c = setup();
+        let list = report_catalog();
+        for meta in &list {
+            let r = run_report(&c, &meta.id, "2026-11-17", "2026-11-17")
+                .unwrap_or_else(|e| panic!("报表 {} 执行失败: {e}", meta.id));
+            assert_eq!(r.id, meta.id, "报表 ID 应回显");
+            assert!(!r.title.is_empty(), "{} 缺标题", meta.id);
+            assert!(!r.columns.is_empty(), "{} 缺列定义", meta.id);
+            for row in &r.rows {
+                assert_eq!(row.len(), r.columns.len(), "{} 行列数不匹配", meta.id);
+            }
+        }
     }
 }
