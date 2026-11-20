@@ -313,11 +313,13 @@ onMounted(reload)
               {{ p.qty }} {{ p.unit }}<span v-if="p.qty <= p.alert_qty" class="muted small">（低于预警 {{ p.alert_qty }}）</span>
             </td>
             <td>{{ p.status === 1 ? '在售' : '停用' }}</td>
-            <td class="actions">
-              <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
-              <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="box" :size="ICON_SIZE.sm" />库存</button>
-              <button class="btn btn-sm" @click="startImage(p)"><Icon name="box" :size="ICON_SIZE.sm" />图片</button>
-              <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
+            <td class="row-actions-cell">
+              <div class="row-actions">
+                <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
+                <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="box" :size="ICON_SIZE.sm" />库存</button>
+                <button class="btn btn-sm" @click="startImage(p)"><Icon name="box" :size="ICON_SIZE.sm" />图片</button>
+                <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
+              </div>
             </td>
           </tr>
           <tr v-if="products.length === 0">
@@ -355,9 +357,11 @@ onMounted(reload)
 
 <style scoped>
 /* 组件特有样式；通用类（page-head/toolbar/tbl/form-grid/chip 等）已上移全局 styles.css */
-/* 表格操作列：区别于全局 .actions（POS 支付双列网格），此处为行内按钮组 */
-.actions { display: flex; gap: var(--space-2); }
-.edit-row { display: inline-flex; gap: var(--space-1); align-items: center; }
+/* 表格操作列：td 保持 table-cell 以维持表格对齐，按钮组放在内层 div。
+   不复用全局 .actions（那是 POS 支付区双列 grid），避免覆盖导致表头与内容错位。 */
+.row-actions-cell { white-space: nowrap; }
+.row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.edit-row { display: inline-flex; gap: var(--space-1); align-items: center; flex-wrap: wrap; }
 /* 商品缩略图：固定方形，缺图不撑表格 */
 .thumb {
   width: var(--control-thumb-size); height: var(--control-thumb-size);

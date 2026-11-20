@@ -249,6 +249,9 @@ pub struct ProductHit {
     /// 会员价：识别会员后按此价展示（结算时由后端与促销取优）。
     pub member_price_cents: Option<i64>,
     pub is_weighed: bool,
+    /// 商品图片：本地绝对路径（前端 convertFileSrc）或在线地址。
+    pub image_path: Option<String>,
+    pub image_url: Option<String>,
 }
 
 /// 商品识别（F-01）：条码精确匹配，模糊搜索兜底。停用商品不参与识别。
@@ -261,7 +264,7 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed,
-                s.member_price_cents
+                s.member_price_cents, s.image_path, s.image_url
          FROM sku s JOIN spu p ON p.spu_id=s.spu_id
          WHERE p.status=1 AND (s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1)
          ORDER BY (s.barcode = ?2) DESC LIMIT 20",
@@ -275,11 +278,20 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
             price_cents: r.get(3)?,
             is_weighed: r.get::<_, i64>(4)? != 0,
             member_price_cents: r.get(5)?,
+            image_path: r.get(6)?,
+            image_url: r.get(7)?,
         })
     })?;
+    // 本地图片库内可能存文件名，统一解析为绝对路径供前端 convertFileSrc 展示。
+    let img_dir = state.data_dir.join("images");
     let mut out = Vec::new();
     for row in rows {
-        out.push(row?);
+        let mut hit = row?;
+        hit.image_path = hit
+            .image_path
+            .as_ref()
+            .map(|f| img_dir.join(f).to_string_lossy().to_string());
+        out.push(hit);
     }
     Ok(out)
 }

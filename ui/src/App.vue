@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   api,
   formatMoney,
@@ -724,6 +725,13 @@ async function search() {
   }
 }
 
+/** 商品图片展示地址：本地图片走 Tauri 资产协议，在线图片直接用；均无则返回 null。 */
+function productImageSrc(p: { image_path?: string | null; image_url?: string | null }): string | null {
+  if (p.image_path) return convertFileSrc(p.image_path)
+  if (p.image_url) return p.image_url
+  return null
+}
+
 function addToCart(p: ProductHit) {
   const existing = cart.value.find((l) => l.sku_id === p.sku_id)
   if (existing) existing.qty += 1
@@ -734,6 +742,8 @@ function addToCart(p: ProductHit) {
       unit_price_cents: p.price_cents,
       member_price_cents: memberPriceOf(p),
       name: p.spu_name,
+      image_path: p.image_path,
+      image_url: p.image_url,
     })
   keyword.value = ''
   products.value = []
@@ -1581,7 +1591,9 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           </div>
           <div class="product-list">
             <div v-for="p in products" :key="p.sku_id" class="product-item" @click="addToCart(p)">
-              <div>
+              <img v-if="productImageSrc(p)" :src="productImageSrc(p)!" class="product-thumb" alt="" />
+              <span v-else class="product-thumb product-thumb-empty"></span>
+              <div class="product-info">
                 <strong>{{ p.spu_name }}</strong>
                 <span class="muted small"> {{ p.barcode }}</span>
               </div>
@@ -1598,6 +1610,8 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           <h3>购物车 <span class="badge">{{ cart.length }}</span></h3>
           <div class="cart-list">
             <div v-for="(l, i) in cart" :key="`${l.sku_id}-${i}`" class="cart-line">
+              <img v-if="productImageSrc(l)" :src="productImageSrc(l)!" class="cart-thumb" alt="" />
+              <span v-else class="cart-thumb cart-thumb-empty"></span>
               <div class="line-name">
                 {{ l.name || `SKU ${l.sku_id}` }}
                 <span v-if="l.member_price_cents" class="tag">会员价</span>

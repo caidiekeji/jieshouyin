@@ -263,8 +263,8 @@ fn sales_trend(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> 
 
 fn sales_hourly(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     let mut stmt = conn.prepare(
-        "SELECT substr(created_at,12,2) AS hh, COUNT(DISTINCT order_no),
-                COALESCE(SUM(pay_cents),0)
+        "SELECT strftime('%H', datetime(created_at,'+8 hours')) AS hh,
+                COUNT(DISTINCT order_no), COALESCE(SUM(pay_cents),0)
          FROM sales_order
          WHERE status IN ('COMPLETED','PARTIAL_REFUND') AND business_date BETWEEN ?1 AND ?2
          GROUP BY hh ORDER BY hh",
@@ -289,7 +289,7 @@ fn sales_hourly(conn: &Connection, from: &str, to: &str) -> Result<ReportResult>
     Ok(ReportResult {
         id: "sales_hourly".into(),
         title: "时段销售报表".into(),
-        description: "按成交小时聚合，识别一天中的客流高峰时段。".into(),
+        description: "按北京时间成交小时聚合，识别一天中的客流高峰时段。".into(),
         columns: cols(&[
             ("hour", "时段", "text"),
             ("orders", "订单数", "qty"),
@@ -475,10 +475,11 @@ fn payment_reconcile(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
 
 fn refund_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     let mut stmt = conn.prepare(
-        "SELECT refund_no, order_no, amount_cents, reason, status, created_at,
+        "SELECT refund_no, order_no, amount_cents, reason, status,
+                datetime(created_at,'+8 hours') AS created_at,
                 COALESCE(channel_refund_no,'')
          FROM refund_record
-         WHERE substr(created_at,1,10) BETWEEN ?1 AND ?2
+         WHERE date(created_at,'+8 hours') BETWEEN ?1 AND ?2
          ORDER BY created_at DESC",
     )?;
     let raw = stmt
@@ -513,7 +514,7 @@ fn refund_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
     Ok(ReportResult {
         id: "refund".into(),
         title: "退款报表".into(),
-        description: "资金退款流水，含处理中与已完成状态；退款额按原渠道回退。".into(),
+        description: "资金退款流水（北京时间），含处理中与已完成状态；退款额按原渠道回退。".into(),
         columns: cols(&[
             ("refund_no", "退款单号", "text"),
             ("order_no", "原订单号", "text"),
@@ -1271,7 +1272,7 @@ fn member_growth(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
     // member 表无 created_at 列，以首次资产流水日作为会员首次活跃日统计增长。
     let mut stmt = conn.prepare(
         "SELECT d, COUNT(*) FROM (
-                SELECT member_id, MIN(substr(created_at,1,10)) AS d
+                SELECT member_id, MIN(date(created_at,'+8 hours')) AS d
                 FROM member_asset_log GROUP BY member_id
              ) WHERE d BETWEEN ?1 AND ?2 GROUP BY d ORDER BY d",
     )?;
@@ -1291,7 +1292,7 @@ fn member_growth(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
     Ok(ReportResult {
         id: "member_growth".into(),
         title: "会员增长报表".into(),
-        description: "按首次资产流水日统计新增会员数与累计会员数。".into(),
+        description: "按北京时间首次资产流水日统计新增会员数与累计会员数。".into(),
         columns: cols(&[
             ("date", "日期", "date"),
             ("new", "新增会员", "qty"),
@@ -1994,6 +1995,29 @@ mod tests {
     fn unknown_report_is_rejected() {
         let c = setup();
         assert!(run_report(&c, "not_exist", "2026-11-17", "2026-11-17").is_err());
+    }
+
+    /// 时区口径：created_at 存 UTC（如 20:30Z），报表须按北京时间（次日 04:30）归属。
+    #[test]
+    fn hourly_report_uses_beijing_time() {
+        let c = setup();
+        c.execute(
+            "INSERT INTO sales_order(order_no,device_id,cashier_id,shift_id,total_cents,discount_cents,pay_cents,status,business_date,created_at)
+             VALUES ('O2','D',1,1,5000,0,5000,'COMPLETED','2026-11-18','2026-11-17T20:30:00Z')",
+            [],
+        )
+        .unwrap();
+        let r = run_report(&c, "sales_hourly", "2026-11-18", "2026-11-18").unwrap();
+        // UTC 20:30 → 北京时间次日 04:30，应落在 04:00 时段，而非 UTC 的 20:00。
+        assert!(
+            r.rows.iter().any(|row| row.first().map(String::as_str) == Some("04:00")),
+            "应含北京时段 04:00，实际: {:?}",
+            r.rows
+        );
+        assert!(
+            !r.rows.iter().any(|row| row.first().map(String::as_str) == Some("20:00")),
+            "不应出现 UTC 时段 20:00"
+        );
     }
 
     /// 全部 33 张报表在空库上必须可执行（SQL 列名/语法正确）且列数=行数宽度。

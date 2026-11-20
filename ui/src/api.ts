@@ -22,6 +22,8 @@ export interface ProductHit {
   price_cents: number
   member_price_cents: number | null
   is_weighed: boolean
+  image_path: string | null
+  image_url: string | null
 }
 
 export interface CartLine {
@@ -31,6 +33,8 @@ export interface CartLine {
   /** 会员价：识别会员后由前端刷新并展示，后端结算仍按会员价取优 */
   member_price_cents?: number | null
   name?: string
+  image_path?: string | null
+  image_url?: string | null
 }
 
 /** 收银台报价：后端口径的应收金额（原价 − 促销 − 券） */
