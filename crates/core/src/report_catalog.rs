@@ -253,7 +253,11 @@ fn sales_trend(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> 
             ("avg", "客单价", "money"),
         ]),
         rows,
-        metrics: vec![m("累计实收", money(sales)), m("累计订单", n(orders)), m("日均实收", money(avg_day))],
+        metrics: vec![
+            m("累计实收", money(sales)),
+            m("累计订单", n(orders)),
+            m("日均实收", money(avg_day)),
+        ],
     })
 }
 
@@ -267,7 +271,11 @@ fn sales_hourly(conn: &Connection, from: &str, to: &str) -> Result<ReportResult>
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut sales = 0i64;
@@ -288,7 +296,10 @@ fn sales_hourly(conn: &Connection, from: &str, to: &str) -> Result<ReportResult>
             ("sales", "销售额", "money"),
         ]),
         rows,
-        metrics: vec![m("销售额合计", money(sales)), m("统计时段数", n(raw.len() as i64))],
+        metrics: vec![
+            m("销售额合计", money(sales)),
+            m("统计时段数", n(raw.len() as i64)),
+        ],
     })
 }
 
@@ -318,7 +329,15 @@ fn order_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
         .map(|(no, t, c, g, d, p, s)| {
             orders += 1;
             sales += p;
-            vec![no.clone(), t.clone(), n(*c), money(*g), money(*d), money(*p), s.clone()]
+            vec![
+                no.clone(),
+                t.clone(),
+                n(*c),
+                money(*g),
+                money(*d),
+                money(*p),
+                s.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -389,7 +408,10 @@ fn payment_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
             ("change", "找零", "money"),
         ]),
         rows,
-        metrics: vec![m("收款合计", money(total)), m("渠道数", n(raw.len() as i64))],
+        metrics: vec![
+            m("收款合计", money(total)),
+            m("渠道数", n(raw.len() as i64)),
+        ],
     })
 }
 
@@ -422,7 +444,15 @@ fn payment_reconcile(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
             if *df != 0 {
                 abnormal += 1;
             }
-            vec![d.clone(), ch.clone(), money(*la), money(*ca), money(*df), typ.clone(), no.clone()]
+            vec![
+                d.clone(),
+                ch.clone(),
+                money(*la),
+                money(*ca),
+                money(*df),
+                typ.clone(),
+                no.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -469,7 +499,15 @@ fn refund_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
         .iter()
         .map(|(no, o, a, reason, s, t, ch)| {
             total += a;
-            vec![no.clone(), o.clone(), money(*a), reason.clone(), s.clone(), t.clone(), ch.clone()]
+            vec![
+                no.clone(),
+                o.clone(),
+                money(*a),
+                reason.clone(),
+                s.clone(),
+                t.clone(),
+                ch.clone(),
+            ]
         })
         .collect();
     Ok(ReportResult {
@@ -486,7 +524,10 @@ fn refund_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
             ("channel_no", "渠道退款单", "text"),
         ]),
         rows,
-        metrics: vec![m("退款合计", money(total)), m("退款笔数", n(raw.len() as i64))],
+        metrics: vec![
+            m("退款合计", money(total)),
+            m("退款笔数", n(raw.len() as i64)),
+        ],
     })
 }
 
@@ -502,7 +543,11 @@ fn discount_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut total = 0i64;
@@ -523,7 +568,10 @@ fn discount_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
             ("discount", "优惠金额", "money"),
         ]),
         rows,
-        metrics: vec![m("优惠合计", money(total)), m("活动数", n(raw.len() as i64))],
+        metrics: vec![
+            m("优惠合计", money(total)),
+            m("活动数", n(raw.len() as i64)),
+        ],
     })
 }
 

@@ -2589,7 +2589,9 @@ pub fn cashier_report(
 
 /// 报表清单：按分组返回全部报表元数据，前端据此渲染左侧导航。
 #[tauri::command]
-pub fn report_catalog(state: State<'_, AppState>) -> Result<Vec<checkout_core::report_catalog::ReportMeta>> {
+pub fn report_catalog(
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::report_catalog::ReportMeta>> {
     let (_op, _conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     Ok(checkout_core::report_catalog::report_catalog())
 }
