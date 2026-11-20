@@ -506,6 +506,7 @@ async function submitActivate() {
       : await api.activate(activateToken.value)
     if (license.value.status !== 'UNACTIVATED') {
       view.value = 'login'
+      needAdmin.value = !(await api.hasUsers())
       showToast('激活成功')
     }
   } catch (e) {
@@ -514,31 +515,27 @@ async function submitActivate() {
 }
 
 async function submitAdmin() {
+  loginError.value = ''
   try {
     await api.initAdmin(adminUser.value, adminPass.value)
+    await api.login(adminUser.value, adminPass.value)
+    currentUser.value = adminUser.value
     needAdmin.value = false
+    view.value = 'pos'
     showToast('管理员已创建')
   } catch (e) {
-    activateError.value = String(e)
+    loginError.value = String(e)
   }
 }
 
 async function submitLogin() {
   loginError.value = ''
   try {
-    const s = await api.login(loginUser.value, loginPass.value)
+    await api.login(loginUser.value, loginPass.value)
     currentUser.value = loginUser.value
-    if (s.role_name === 'ADMIN' || s.role_name === 'MANAGER') {
-      // 管理员/店长可进后台，此处统一进入收银
-    }
     view.value = 'pos'
   } catch (e) {
-    const msg = String(e)
-    loginError.value = msg
-    if (msg.includes('密码') || msg.includes('argon')) {
-      // 首次初始化引导
-      needAdmin.value = true
-    }
+    loginError.value = String(e)
   }
 }
 
@@ -1285,34 +1282,31 @@ function doLogout() { api.logout(); view.value = 'login'; currentUser.value = ''
           {{ renewMode ? '返回激活' : '已有授权，导入续期码' }}
         </button>
         <button v-else class="btn ghost" @click="renewMode = false">返回激活</button>
-
-        <div v-if="needAdmin" class="inline-form">
-          <h3>初始化管理员</h3>
-          <input v-model="adminUser" class="input" placeholder="用户名" />
-          <input v-model="adminPass" type="password" class="input" placeholder="密码（≥8位，含字母数字）" />
-          <button class="btn" @click="submitAdmin">创建管理员</button>
-        </div>
       </div>
     </div>
 
-    <!-- 登录 -->
+    <!-- 登录：首次仅显示「设置账号和密码」，之后仅显示登录表单 -->
     <div v-else-if="view === 'login'" class="center-screen">
       <div class="card auth-card">
         <div class="brand">
           <div class="brand-mark"><Icon name="user" :size="ICON_SIZE.xxl" /></div>
-          <div><h1>登录</h1><p class="muted">输入账号密码开始收银</p></div>
+          <div>
+            <h1>{{ needAdmin ? '设置账号和密码' : '登录' }}</h1>
+            <p class="muted">{{ needAdmin ? '首次使用，请设置管理员账号和密码' : '输入账号密码开始收银' }}</p>
+          </div>
         </div>
-        <input v-model="loginUser" class="input" placeholder="用户名" />
-        <input v-model="loginPass" type="password" class="input" placeholder="密码" @keyup.enter="submitLogin" />
-        <p v-if="loginError" class="error">{{ loginError }}</p>
-        <button class="btn primary" @click="submitLogin">登录</button>
-        <div v-if="needAdmin" class="inline-form">
-          <h3>初始化管理员</h3>
-          <p class="muted small">首次使用需创建管理员账号，用户名默认 admin</p>
-          <input v-model="adminUser" class="input" placeholder="管理员用户名" />
-          <input v-model="adminPass" type="password" class="input" placeholder="管理员密码（≥8位，含字母数字）" />
-          <button class="btn" @click="submitAdmin">创建管理员</button>
-        </div>
+        <template v-if="needAdmin">
+          <input v-model="adminUser" class="input" placeholder="用户名（默认 admin）" />
+          <input v-model="adminPass" type="password" class="input" placeholder="密码（≥8位，含字母数字）" @keyup.enter="submitAdmin" />
+          <p v-if="loginError" class="error">{{ loginError }}</p>
+          <button class="btn primary" @click="submitAdmin">创建并进入收银</button>
+        </template>
+        <template v-else>
+          <input v-model="loginUser" class="input" placeholder="用户名" />
+          <input v-model="loginPass" type="password" class="input" placeholder="密码" @keyup.enter="submitLogin" />
+          <p v-if="loginError" class="error">{{ loginError }}</p>
+          <button class="btn primary" @click="submitLogin">登录</button>
+        </template>
       </div>
     </div>
 
