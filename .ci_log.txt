@@ -1,0 +1,568 @@
+﻿2026-11-20T07:18:00.0199894Z Current runner version: '2.338.2'
+2026-11-20T07:18:00.0469020Z ##[group]Runner Image Provisioner
+2026-11-20T07:18:00.0470525Z Hosted Compute Agent
+2026-11-20T07:18:00.0471280Z Version: 20261103.629
+2026-11-20T07:18:00.0472131Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-20T07:18:00.0473154Z Build Date: 2026-11-03T17:26:59Z
+2026-11-20T07:18:00.0474041Z Worker ID: {d344b11a-fcc3-437f-b7a9-8c8c0e0d6ad3}
+2026-11-20T07:18:00.0475343Z Region: eastus
+2026-11-20T07:18:00.0476233Z Cloud: Azure
+2026-11-20T07:18:00.0476835Z ##[endgroup]
+2026-11-20T07:18:00.0478452Z ##[group]Operating System
+2026-11-20T07:18:00.0479220Z Microsoft Windows Server 2025
+2026-11-20T07:18:00.0479930Z 10.0.26100
+2026-11-20T07:18:00.0480551Z Datacenter
+2026-11-20T07:18:00.0481171Z ##[endgroup]
+2026-11-20T07:18:00.0481833Z ##[group]Runner Image
+2026-11-20T07:18:00.0482513Z Image: windows-2025-vs2026
+2026-11-20T07:18:00.0483198Z Version: 20261103.298.1
+2026-11-20T07:18:00.0485135Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20261103.298/images/windows/Windows2025-VS2026-Readme.md
+2026-11-20T07:18:00.0487212Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20261103.298
+2026-11-20T07:18:00.0488370Z ##[endgroup]
+2026-11-20T07:18:00.0489772Z ##[group]GITHUB_TOKEN Permissions
+2026-11-20T07:18:00.0491984Z Contents: read
+2026-11-20T07:18:00.0492615Z Metadata: read
+2026-11-20T07:18:00.0493286Z Packages: read
+2026-11-20T07:18:00.0493954Z ##[endgroup]
+2026-11-20T07:18:00.0496904Z Secret source: Actions
+2026-11-20T07:18:00.0497926Z Cache mode: write
+2026-11-20T07:18:00.0498701Z Prepare workflow directory
+2026-11-20T07:18:00.1523779Z Prepare all required actions
+2026-11-20T07:18:00.1581998Z Getting action download info
+2026-11-20T07:18:00.3357496Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-20T07:18:00.5306689Z Download action repository 'dtolnay/rust-toolchain@stable' (SHA:39008827e6b4319a349e9a42dfc90579dd25f1ca)
+2026-11-20T07:18:00.6749851Z Download action repository 'Swatinem/rust-cache@v2' (SHA:d1527c8f67ef9af357290475d4af4b0fab8f12e0)
+2026-11-20T07:18:01.4291973Z Complete job name: Rust fmt / clippy / test
+2026-11-20T07:18:02.1784733Z ##[group]Run actions/checkout@v4
+2026-11-20T07:18:02.1786281Z with:
+2026-11-20T07:18:02.1786890Z   repository: caidiekeji/jieshouyin
+2026-11-20T07:18:02.1793418Z   token: ***
+2026-11-20T07:18:02.1793934Z   ssh-strict: true
+2026-11-20T07:18:02.1794449Z   ssh-user: git
+2026-11-20T07:18:02.1794976Z   persist-credentials: true
+2026-11-20T07:18:02.1795578Z   clean: true
+2026-11-20T07:18:02.1796068Z   sparse-checkout-cone-mode: true
+2026-11-20T07:18:02.1796652Z   fetch-depth: 1
+2026-11-20T07:18:02.1797125Z   fetch-tags: false
+2026-11-20T07:18:02.1797617Z   show-progress: true
+2026-11-20T07:18:02.1798105Z   lfs: false
+2026-11-20T07:18:02.1798549Z   submodules: false
+2026-11-20T07:18:02.1799044Z   set-safe-directory: true
+2026-11-20T07:18:02.1799643Z   allow-unsafe-pr-checkout: false
+2026-11-20T07:18:02.1800504Z ##[endgroup]
+2026-11-20T07:18:02.4012866Z Syncing repository: caidiekeji/jieshouyin
+2026-11-20T07:18:02.4014720Z ##[group]Getting Git version info
+2026-11-20T07:18:02.4015452Z Working directory is 'D:\a\jieshouyin\jieshouyin'
+2026-11-20T07:18:02.4932776Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-11-20T07:18:02.8019264Z git version 2.56.0.windows.4
+2026-11-20T07:18:02.8074473Z ##[endgroup]
+2026-11-20T07:18:02.8095448Z Temporarily overriding HOME='D:\a\_temp\f641d718-3a98-49b3-9ea6-8fdc4c90b446' before making global git config changes
+2026-11-20T07:18:02.8098239Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-20T07:18:02.8106932Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\jieshouyin\jieshouyin
+2026-11-20T07:18:02.8777963Z Deleting the contents of 'D:\a\jieshouyin\jieshouyin'
+2026-11-20T07:18:02.8785210Z ##[group]Initializing the repository
+2026-11-20T07:18:02.8794335Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\jieshouyin\jieshouyin
+2026-11-20T07:18:02.9609413Z Initialized empty Git repository in D:/a/jieshouyin/jieshouyin/.git/
+2026-11-20T07:18:02.9668067Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/caidiekeji/jieshouyin
+2026-11-20T07:18:03.2210041Z ##[endgroup]
+2026-11-20T07:18:03.2210798Z ##[group]Disabling automatic garbage collection
+2026-11-20T07:18:03.2220434Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-11-20T07:18:03.2647168Z ##[endgroup]
+2026-11-20T07:18:03.2647994Z ##[group]Setting up auth
+2026-11-20T07:18:03.2660516Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-11-20T07:18:03.3098585Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-11-20T07:18:05.3711424Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-20T07:18:05.4178427Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-11-20T07:18:06.0053943Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-20T07:18:06.0459072Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-11-20T07:18:06.5968154Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-11-20T07:18:06.6400904Z ##[endgroup]
+2026-11-20T07:18:06.6402325Z ##[group]Fetching the repository
+2026-11-20T07:18:06.6423067Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +00cc93ebf0502050005ec8a1ffe03f33efc8d761:refs/remotes/origin/main
+2026-11-20T07:18:07.5898908Z From https://github.com/caidiekeji/jieshouyin
+2026-11-20T07:18:07.5900582Z  * [new ref]         00cc93ebf0502050005ec8a1ffe03f33efc8d761 -> origin/main
+2026-11-20T07:18:07.5947147Z ##[endgroup]
+2026-11-20T07:18:07.5947771Z ##[group]Determining the checkout info
+2026-11-20T07:18:07.5950617Z ##[endgroup]
+2026-11-20T07:18:07.5967153Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-11-20T07:18:07.6558601Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-11-20T07:18:07.7022803Z ##[group]Checking out the ref
+2026-11-20T07:18:07.7036713Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+2026-11-20T07:18:07.8290281Z Switched to a new branch 'main'
+2026-11-20T07:18:07.8383331Z branch 'main' set up to track 'origin/main'.
+2026-11-20T07:18:07.8449334Z ##[endgroup]
+2026-11-20T07:18:07.9009698Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-11-20T07:18:07.9366763Z 00cc93ebf0502050005ec8a1ffe03f33efc8d761
+2026-11-20T07:18:08.0036750Z ##[group]Run dtolnay/rust-toolchain@stable
+2026-11-20T07:18:08.0037218Z with:
+2026-11-20T07:18:08.0106687Z   components: rustfmt, clippy
+2026-11-20T07:18:08.0107325Z   toolchain: stable
+2026-11-20T07:18:08.0107656Z ##[endgroup]
+2026-11-20T07:18:08.0182832Z ##[start-action display=Parse toolchain version;id=__dtolnay_rust-toolchain.parse]
+2026-11-20T07:18:08.0375234Z ##[group]Run if [[ -z $toolchain ]]; then
+2026-11-20T07:18:08.0375713Z [36;1mif [[ -z $toolchain ]]; then[0m
+2026-11-20T07:18:08.0376386Z [36;1m  # GitHub does not enforce `required: true` inputs itself. https://github.com/actions/runner/issues/1070[0m
+2026-11-20T07:18:08.0377077Z [36;1m  echo "'toolchain' is a required input" >&2[0m
+2026-11-20T07:18:08.0378277Z [36;1m  exit 1[0m
+2026-11-20T07:18:08.0378671Z [36;1melif [[ $toolchain =~ ^stable' '[0-9]+' '(year|month|week|day)s?' 'ago$ ]]; then[0m
+2026-11-20T07:18:08.0379180Z [36;1m  if [[ Windows == macOS ]]; then[0m
+2026-11-20T07:18:08.0379858Z [36;1m    echo "toolchain=1.$((($(date -v-$(sed 's/stable \([0-9]*\) \(.\).*/\1\2/' <<< $toolchain) +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+2026-11-20T07:18:08.0380486Z [36;1m  else[0m
+2026-11-20T07:18:08.0380955Z [36;1m    echo "toolchain=1.$((($(date --date "${toolchain#stable }" +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+2026-11-20T07:18:08.0381507Z [36;1m  fi[0m
+2026-11-20T07:18:08.0381840Z [36;1melif [[ $toolchain =~ ^stable' 'minus' '[0-9]+' 'releases?$ ]]; then[0m
+2026-11-20T07:18:08.0382493Z [36;1m  echo "toolchain=1.$((($(date +%s)/60/60/24-16569)/7/6-${toolchain//[^0-9]/}))" >> $GITHUB_OUTPUT[0m
+2026-11-20T07:18:08.0383048Z [36;1melif [[ $toolchain =~ ^1\.[0-9]+$ ]]; then[0m
+2026-11-20T07:18:08.0383698Z [36;1m  echo "toolchain=1.$((i=${toolchain#1.}, c=($(date +%s)/60/60/24-16569)/7/6, i+9*i*(10*i<=c)+90*i*(100*i<=c)))" >> $GITHUB_OUTPUT[0m
+2026-11-20T07:18:08.0384331Z [36;1melse[0m
+2026-11-20T07:18:08.0384581Z [36;1m  delimiter=EOF[0m
+2026-11-20T07:18:08.0384939Z [36;1m  while [[ $toolchain == *$delimiter* ]]; do delimiter+=_; done[0m
+2026-11-20T07:18:08.0385563Z [36;1m  printf 'toolchain<<%s\n%s\n%s\n' "$delimiter" "$toolchain" "$delimiter" >> $GITHUB_OUTPUT[0m
+2026-11-20T07:18:08.0386070Z [36;1mfi[0m
+2026-11-20T07:18:08.0407301Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:08.0407788Z env:
+2026-11-20T07:18:08.0407988Z   toolchain: stable
+2026-11-20T07:18:08.0408207Z ##[endgroup]
+2026-11-20T07:18:08.2107557Z ##[end-action id=__dtolnay_rust-toolchain.parse;outcome=success;conclusion=success;duration_ms=192]
+2026-11-20T07:18:08.2112835Z ##[start-action display=Set $CARGO_HOME;id=__dtolnay_rust-toolchain.__run]
+2026-11-20T07:18:08.2277198Z ##[group]Run echo CARGO_HOME=${CARGO_HOME:-"$USERPROFILE\.cargo"} >> $GITHUB_ENV
+2026-11-20T07:18:08.2277864Z [36;1mecho CARGO_HOME=${CARGO_HOME:-"$USERPROFILE\.cargo"} >> $GITHUB_ENV[0m
+2026-11-20T07:18:08.2294376Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:08.2294866Z ##[endgroup]
+2026-11-20T07:18:08.2713100Z ##[end-action id=__dtolnay_rust-toolchain.__run;outcome=success;conclusion=success;duration_ms=59]
+2026-11-20T07:18:08.2716129Z ##[start-action display=Install rustup if needed;id=__dtolnay_rust-toolchain.__run_2]
+2026-11-20T07:18:08.2728481Z ##[end-action id=__dtolnay_rust-toolchain.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-11-20T07:18:08.2731582Z ##[start-action display=Install rustup if needed on windows;id=__dtolnay_rust-toolchain.__run_3]
+2026-11-20T07:18:08.2874198Z ##[group]Run if ! command -v rustup &>/dev/null; then
+2026-11-20T07:18:08.2874620Z [36;1mif ! command -v rustup &>/dev/null; then[0m
+2026-11-20T07:18:08.2875605Z [36;1m  curl --proto '=https' --tlsv1.2 --retry 10 --retry-connrefused --location --silent --show-error --fail https://win.rustup.rs/x86_64 --output 'D:\a\_temp\rustup-init.exe'[0m
+2026-11-20T07:18:08.2879006Z [36;1m  'D:\a\_temp\rustup-init.exe' --default-toolchain none --no-modify-path -y[0m
+2026-11-20T07:18:08.2879617Z [36;1m  echo "$CARGO_HOME\bin" >> $GITHUB_PATH[0m
+2026-11-20T07:18:08.2879942Z [36;1mfi[0m
+2026-11-20T07:18:08.2896549Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:08.2896985Z env:
+2026-11-20T07:18:08.2897197Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:08.2897485Z ##[endgroup]
+2026-11-20T07:18:08.3393366Z ##[end-action id=__dtolnay_rust-toolchain.__run_3;outcome=success;conclusion=success;duration_ms=66]
+2026-11-20T07:18:08.3412738Z ##[start-action display=rustup toolchain install stable;id=__dtolnay_rust-toolchain.__run_4]
+2026-11-20T07:18:08.3557337Z ##[group]Run set -f  # split targets and components on commas and whitespace, without glob expansion
+2026-11-20T07:18:08.3558197Z [36;1mset -f  # split targets and components on commas and whitespace, without glob expansion[0m
+2026-11-20T07:18:08.3558735Z [36;1mflags=()[0m
+2026-11-20T07:18:08.3559058Z [36;1mfor t in ${targets//,/ }; do flags+=(--target "$t"); done[0m
+2026-11-20T07:18:08.3559566Z [36;1mfor c in ${components//,/ }; do flags+=(--component "$c"); done[0m
+2026-11-20T07:18:08.3560378Z [36;1mif [[ $toolchain == nightly && -n $components ]]; then flags+=(--allow-downgrade); fi[0m
+2026-11-20T07:18:08.3560915Z [36;1mlog=$(mktemp)[0m
+2026-11-20T07:18:08.3561173Z [36;1mtrap 'rm -f "$log"' EXIT[0m
+2026-11-20T07:18:08.3561454Z [36;1mfor attempt in 1 2 3 4 5; do[0m
+2026-11-20T07:18:08.3562137Z [36;1m  if rustup toolchain install "$toolchain" "${flags[@]}" --profile minimal --no-self-update --force-non-host 2>&1 | tee "$log"; then[0m
+2026-11-20T07:18:08.3562838Z [36;1m    break[0m
+2026-11-20T07:18:08.3563066Z [36;1m  else[0m
+2026-11-20T07:18:08.3563272Z [36;1m    status=$?[0m
+2026-11-20T07:18:08.3563500Z [36;1m  fi[0m
+2026-11-20T07:18:08.3563817Z [36;1m  if [[ $attempt == 5 ]] || ! grep -Fq 'checksum failed for ' "$log" \[0m
+2026-11-20T07:18:08.3564483Z [36;1m      || ! grep -Fq 'this is likely due to an ongoing update of the official release server' "$log"; then[0m
+2026-11-20T07:18:08.3565252Z [36;1m    exit "$status"[0m
+2026-11-20T07:18:08.3565497Z [36;1m  fi[0m
+2026-11-20T07:18:08.3565900Z [36;1m  echo "Retrying rustup toolchain install in 30 seconds (retry $attempt of 4)" >&2[0m
+2026-11-20T07:18:08.3566415Z [36;1m  sleep 30[0m
+2026-11-20T07:18:08.3566632Z [36;1mdone[0m
+2026-11-20T07:18:08.3583736Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:08.3584178Z env:
+2026-11-20T07:18:08.3584393Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:08.3584683Z   toolchain: stable
+2026-11-20T07:18:08.3584906Z   targets: 
+2026-11-20T07:18:08.3585378Z   components: rustfmt, clippy
+2026-11-20T07:18:08.3585648Z   RUSTUP_PERMIT_COPY_RENAME: 1
+2026-11-20T07:18:08.3585891Z ##[endgroup]
+2026-11-20T07:18:11.7638461Z info: syncing channel updates for stable-x86_64-pc-windows-msvc
+2026-11-20T07:18:12.2546119Z info: latest update on 2026-11-12 for version 1.100.0 (0ef1bc386 2026-11-09)
+2026-11-20T07:18:12.2860202Z info: removing previous version of component rustfmt
+2026-11-20T07:18:12.3019133Z info: removing previous version of component clippy
+2026-11-20T07:18:12.3329957Z info: removing previous version of component rust-std for target x86_64-pc-windows-gnu
+2026-11-20T07:18:12.4597828Z info: removing previous version of component rust-std for target i686-pc-windows-msvc
+2026-11-20T07:18:12.5706092Z info: removing previous version of component cargo
+2026-11-20T07:18:12.6656109Z info: removing previous version of component rust-std
+2026-11-20T07:18:12.7602684Z info: removing previous version of component rustc
+2026-11-20T07:18:12.8553545Z info: downloading 7 components
+2026-11-20T07:18:27.4398530Z 
+2026-11-20T07:18:27.4735854Z   stable-x86_64-pc-windows-msvc updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))
+2026-11-20T07:18:27.4736995Z 
+2026-11-20T07:18:27.5166833Z ##[end-action id=__dtolnay_rust-toolchain.__run_4;outcome=success;conclusion=success;duration_ms=19174]
+2026-11-20T07:18:27.5177691Z ##[start-action display=rustup default stable;id=__dtolnay_rust-toolchain.__run_5]
+2026-11-20T07:18:27.5355619Z ##[group]Run rustup default "$toolchain" --force-non-host
+2026-11-20T07:18:27.5356237Z [36;1mrustup default "$toolchain" --force-non-host[0m
+2026-11-20T07:18:27.5374036Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:27.5374555Z env:
+2026-11-20T07:18:27.5374798Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:27.5375155Z   toolchain: stable
+2026-11-20T07:18:27.5375392Z ##[endgroup]
+2026-11-20T07:18:27.6218171Z info: using existing install for stable-x86_64-pc-windows-msvc
+2026-11-20T07:18:27.6292516Z info: default toolchain set to stable-x86_64-pc-windows-msvc
+2026-11-20T07:18:27.6293357Z 
+2026-11-20T07:18:27.6538514Z   stable-x86_64-pc-windows-msvc unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)
+2026-11-20T07:18:27.6539282Z 
+2026-11-20T07:18:27.6643328Z ##[end-action id=__dtolnay_rust-toolchain.__run_5;outcome=success;conclusion=success;duration_ms=146]
+2026-11-20T07:18:27.6648501Z ##[start-action display=Create cachekey;id=__dtolnay_rust-toolchain.rustc-version]
+2026-11-20T07:18:27.6803774Z ##[group]Run DATE=$(rustc +"$toolchain" --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')
+2026-11-20T07:18:27.6805040Z [36;1mDATE=$(rustc +"$toolchain" --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')[0m
+2026-11-20T07:18:27.6806044Z [36;1mHASH=$(rustc +"$toolchain" --version --verbose | sed -ne 's/^commit-hash: //p')[0m
+2026-11-20T07:18:27.6806797Z [36;1mecho "cachekey=$(echo $DATE$HASH | head -c12)" >> $GITHUB_OUTPUT[0m
+2026-11-20T07:18:27.6824561Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:27.6825086Z env:
+2026-11-20T07:18:27.6825343Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:27.6825673Z   toolchain: stable
+2026-11-20T07:18:27.6825905Z ##[endgroup]
+2026-11-20T07:18:28.3957521Z ##[end-action id=__dtolnay_rust-toolchain.rustc-version;outcome=success;conclusion=success;duration_ms=730]
+2026-11-20T07:18:28.3960883Z ##[start-action display=Disable incremental compilation;id=__dtolnay_rust-toolchain.__run_6]
+2026-11-20T07:18:28.4109895Z ##[group]Run if [ -z "${CARGO_INCREMENTAL+set}" ]; then
+2026-11-20T07:18:28.4110425Z [36;1mif [ -z "${CARGO_INCREMENTAL+set}" ]; then[0m
+2026-11-20T07:18:28.4110901Z [36;1m  echo CARGO_INCREMENTAL=0 >> $GITHUB_ENV[0m
+2026-11-20T07:18:28.4111283Z [36;1mfi[0m
+2026-11-20T07:18:28.4127439Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:28.4128003Z env:
+2026-11-20T07:18:28.4128286Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:28.4128649Z ##[endgroup]
+2026-11-20T07:18:28.4594042Z ##[end-action id=__dtolnay_rust-toolchain.__run_6;outcome=success;conclusion=success;duration_ms=63]
+2026-11-20T07:18:28.4598289Z ##[start-action display=Enable colors in Cargo output;id=__dtolnay_rust-toolchain.__run_7]
+2026-11-20T07:18:28.4753848Z ##[group]Run if [ -z "${CARGO_TERM_COLOR+set}" ]; then
+2026-11-20T07:18:28.4754323Z [36;1mif [ -z "${CARGO_TERM_COLOR+set}" ]; then[0m
+2026-11-20T07:18:28.4754738Z [36;1m  echo CARGO_TERM_COLOR=always >> $GITHUB_ENV[0m
+2026-11-20T07:18:28.4755102Z [36;1mfi[0m
+2026-11-20T07:18:28.4773070Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:28.4773586Z env:
+2026-11-20T07:18:28.4773835Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:28.4774192Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:18:28.4774436Z ##[endgroup]
+2026-11-20T07:18:28.5230352Z ##[end-action id=__dtolnay_rust-toolchain.__run_7;outcome=success;conclusion=success;duration_ms=63]
+2026-11-20T07:18:28.5238171Z ##[start-action display=Enable Cargo sparse registry;id=__dtolnay_rust-toolchain.__run_8]
+2026-11-20T07:18:28.5392220Z ##[group]Run # implemented in 1.66, stabilized in 1.68, made default in 1.70
+2026-11-20T07:18:28.5392952Z [36;1m# implemented in 1.66, stabilized in 1.68, made default in 1.70[0m
+2026-11-20T07:18:28.5393904Z [36;1mif [ -z "${CARGO_REGISTRIES_CRATES_IO_PROTOCOL+set}" -o -f "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol ]; then[0m
+2026-11-20T07:18:28.5394919Z [36;1m  if rustc +"$toolchain" --version --verbose | grep -q '^release: 1\.6[89]\.'; then[0m
+2026-11-20T07:18:28.5395782Z [36;1m    touch "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+2026-11-20T07:18:28.5396536Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse >> $GITHUB_ENV[0m
+2026-11-20T07:18:28.5398215Z [36;1m  elif rustc +"$toolchain" --version --verbose | grep -q '^release: 1\.6[67]\.'; then[0m
+2026-11-20T07:18:28.5399471Z [36;1m    touch "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+2026-11-20T07:18:28.5400240Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=git >> $GITHUB_ENV[0m
+2026-11-20T07:18:28.5400728Z [36;1m  fi[0m
+2026-11-20T07:18:28.5400961Z [36;1mfi[0m
+2026-11-20T07:18:28.5417490Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:28.5417996Z env:
+2026-11-20T07:18:28.5418246Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:28.5418777Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:18:28.5419088Z   CARGO_TERM_COLOR: always
+2026-11-20T07:18:28.5419556Z   toolchain: stable
+2026-11-20T07:18:28.5419788Z ##[endgroup]
+2026-11-20T07:18:28.7648825Z ##[end-action id=__dtolnay_rust-toolchain.__run_8;outcome=success;conclusion=success;duration_ms=240]
+2026-11-20T07:18:28.7654764Z ##[start-action display=Work around spurious network errors in curl 8.0;id=__dtolnay_rust-toolchain.__run_9]
+2026-11-20T07:18:28.7805782Z ##[group]Run # https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation
+2026-11-20T07:18:28.7806860Z [36;1m# https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation[0m
+2026-11-20T07:18:28.7807769Z [36;1mif rustc +"$toolchain" --version --verbose | grep -q '^release: 1\.7[01]\.'; then[0m
+2026-11-20T07:18:28.7808382Z [36;1m  echo CARGO_HTTP_MULTIPLEXING=false >> $GITHUB_ENV[0m
+2026-11-20T07:18:28.7808768Z [36;1mfi[0m
+2026-11-20T07:18:28.7824641Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:28.7825196Z env:
+2026-11-20T07:18:28.7825461Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:28.7825797Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:18:28.7826058Z   CARGO_TERM_COLOR: always
+2026-11-20T07:18:28.7826338Z   toolchain: stable
+2026-11-20T07:18:28.7826576Z ##[endgroup]
+2026-11-20T07:18:28.8954799Z ##[end-action id=__dtolnay_rust-toolchain.__run_9;outcome=success;conclusion=success;duration_ms=129]
+2026-11-20T07:18:28.8962018Z ##[start-action display=rustc +stable --version --verbose;id=__dtolnay_rust-toolchain.__run_10]
+2026-11-20T07:18:28.9109799Z ##[group]Run rustc +"$toolchain" --version --verbose
+2026-11-20T07:18:28.9110292Z [36;1mrustc +"$toolchain" --version --verbose[0m
+2026-11-20T07:18:28.9126469Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-11-20T07:18:28.9126985Z env:
+2026-11-20T07:18:28.9127232Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:28.9127570Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:18:28.9127831Z   CARGO_TERM_COLOR: always
+2026-11-20T07:18:28.9128261Z   toolchain: stable
+2026-11-20T07:18:28.9128502Z ##[endgroup]
+2026-11-20T07:18:29.0032890Z rustc 1.100.0 (0ef1bc386 2026-11-09)
+2026-11-20T07:18:29.0033623Z binary: rustc
+2026-11-20T07:18:29.0034218Z commit-hash: 0ef1bc386059596dada8fb65b50425aab2ea637a
+2026-11-20T07:18:29.0034956Z commit-date: 2026-11-09
+2026-11-20T07:18:29.0035453Z host: x86_64-pc-windows-msvc
+2026-11-20T07:18:29.0036004Z release: 1.100.0
+2026-11-20T07:18:29.0036770Z LLVM version: 23.1.5
+2026-11-20T07:18:29.0191992Z ##[end-action id=__dtolnay_rust-toolchain.__run_10;outcome=success;conclusion=success;duration_ms=122]
+2026-11-20T07:18:29.0471225Z ##[group]Run Swatinem/rust-cache@v2
+2026-11-20T07:18:29.0471674Z with:
+2026-11-20T07:18:29.0471945Z   prefix-key: v0-rust
+2026-11-20T07:18:29.0472264Z   add-job-id-key: true
+2026-11-20T07:18:29.0472613Z   add-rust-environment-hash-key: true
+2026-11-20T07:18:29.0473010Z   cache-targets: true
+2026-11-20T07:18:29.0473318Z   cache-all-crates: false
+2026-11-20T07:18:29.0473660Z   cache-workspace-crates: false
+2026-11-20T07:18:29.0474005Z   save-if: true
+2026-11-20T07:18:29.0474295Z   cache-provider: github
+2026-11-20T07:18:29.0474619Z   cache-bin: true
+2026-11-20T07:18:29.0475132Z   lookup-only: false
+2026-11-20T07:18:29.0475425Z   cmd-format: {0}
+2026-11-20T07:18:29.0475687Z env:
+2026-11-20T07:18:29.0475963Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:29.0476362Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:18:29.0476672Z   CARGO_TERM_COLOR: always
+2026-11-20T07:18:29.0476982Z ##[endgroup]
+2026-11-20T07:18:30.3755340Z ##[group]Cache Configuration
+2026-11-20T07:18:30.3756108Z Cache Provider:
+2026-11-20T07:18:30.3757461Z     github
+2026-11-20T07:18:30.3892092Z Workspaces:
+2026-11-20T07:18:30.3898104Z     D:\a\jieshouyin\jieshouyin
+2026-11-20T07:18:30.3899264Z Cache Paths:
+2026-11-20T07:18:30.3900274Z     C:\Users\runneradmin\.cargo\bin
+2026-11-20T07:18:30.3901429Z     C:\Users\runneradmin\.cargo\.crates.toml
+2026-11-20T07:18:30.3904723Z     C:\Users\runneradmin\.cargo\.crates2.json
+2026-11-20T07:18:30.3906069Z     C:\Users\runneradmin\.cargo\registry
+2026-11-20T07:18:30.3907280Z     C:\Users\runneradmin\.cargo\git
+2026-11-20T07:18:30.3908131Z     D:\a\jieshouyin\jieshouyin\target
+2026-11-20T07:18:30.3908565Z Restore Key:
+2026-11-20T07:18:30.3908941Z     v0-rust-core-quality-Windows_NT-x64-ea627442
+2026-11-20T07:18:30.3909466Z Cache Key:
+2026-11-20T07:18:30.3909868Z     v0-rust-core-quality-Windows_NT-x64-ea627442-51b3b98d
+2026-11-20T07:18:30.3910399Z .. Prefix:
+2026-11-20T07:18:30.3910725Z   - v0-rust-core-quality-Windows_NT-x64
+2026-11-20T07:18:30.3911161Z .. Environment considered:
+2026-11-20T07:18:30.3911497Z   - Rust Versions:
+2026-11-20T07:18:30.3911989Z     - 1.100.0 x86_64-pc-windows-msvc 0ef1bc386059596dada8fb65b50425aab2ea637a
+2026-11-20T07:18:30.3914067Z   - CARGO_HOME
+2026-11-20T07:18:30.3914630Z   - CARGO_INCREMENTAL
+2026-11-20T07:18:30.3915279Z   - CARGO_TERM_COLOR
+2026-11-20T07:18:30.3915903Z .. Lockfiles considered:
+2026-11-20T07:18:30.3917114Z   - D:\a\jieshouyin\jieshouyin\Cargo.lock
+2026-11-20T07:18:30.3917915Z   - D:\a\jieshouyin\jieshouyin\crates\app\Cargo.toml
+2026-11-20T07:18:30.3919854Z   - D:\a\jieshouyin\jieshouyin\crates\core\Cargo.toml
+2026-11-20T07:18:30.3921168Z   - D:\a\jieshouyin\jieshouyin\crates\license-issuance\Cargo.toml
+2026-11-20T07:18:30.3924369Z ##[endgroup]
+2026-11-20T07:18:30.3924598Z 
+2026-11-20T07:18:30.3924736Z ... Restoring cache ...
+2026-11-20T07:18:30.5688389Z Cache hit for: v0-rust-core-quality-Windows_NT-x64-ea627442-51b3b98d
+2026-11-20T07:18:31.6292549Z Received 134217728 of 472084272 (28.4%), 127.1 MBs/sec
+2026-11-20T07:18:32.6506215Z Received 331350016 of 472084272 (70.2%), 155.8 MBs/sec
+2026-11-20T07:18:33.5779276Z Received 472084272 of 472084272 (100.0%), 152.6 MBs/sec
+2026-11-20T07:18:33.5780363Z Cache Size: ~450 MB (472084272 B)
+2026-11-20T07:18:33.5782158Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/67b90e0f-b590-4e15-852c-968efade58aa/cache.tzst -P -C D:/a/jieshouyin/jieshouyin --force-local --use-compress-program "zstd -d"
+2026-11-20T07:18:52.7745120Z Cache restored successfully
+2026-11-20T07:18:52.8021031Z Restored from cache key "v0-rust-core-quality-Windows_NT-x64-ea627442-51b3b98d" full match: true.
+2026-11-20T07:18:52.8353237Z ##[group]Run cargo fmt --all -- --check
+2026-11-20T07:18:52.8353736Z [36;1mcargo fmt --all -- --check[0m
+2026-11-20T07:18:52.9111293Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-11-20T07:18:52.9111924Z env:
+2026-11-20T07:18:52.9112246Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:52.9114269Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:18:52.9116171Z   CARGO_TERM_COLOR: always
+2026-11-20T07:18:52.9117716Z   CACHE_ON_FAILURE: false
+2026-11-20T07:18:52.9118289Z ##[endgroup]
+2026-11-20T07:18:54.2672968Z ##[group]Run cargo clippy -p checkout-core -p license-issuance --all-targets -- -D warnings
+2026-11-20T07:18:54.2673779Z [36;1mcargo clippy -p checkout-core -p license-issuance --all-targets -- -D warnings[0m
+2026-11-20T07:18:54.2763950Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-11-20T07:18:54.2764444Z env:
+2026-11-20T07:18:54.2765300Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:18:54.2765774Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:18:54.2766071Z   CARGO_TERM_COLOR: always
+2026-11-20T07:18:54.2766383Z   CACHE_ON_FAILURE: false
+2026-11-20T07:18:54.2766731Z ##[endgroup]
+2026-11-20T07:18:55.2167801Z [1m[92m    Updating[0m crates.io index
+2026-11-20T07:19:07.4062532Z [1m[92m   Compiling[0m checkout-core v0.1.0 (D:\a\jieshouyin\jieshouyin\crates\core)
+2026-11-20T07:19:11.0466692Z [1m[92m    Checking[0m license-issuance v0.1.0 (D:\a\jieshouyin\jieshouyin\crates\license-issuance)
+2026-11-20T07:19:11.5379186Z [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 16.39s
+2026-11-20T07:19:11.7159374Z ##[group]Run cargo test -p checkout-core -p license-issuance --all-targets
+2026-11-20T07:19:11.7160165Z [36;1mcargo test -p checkout-core -p license-issuance --all-targets[0m
+2026-11-20T07:19:11.7234987Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-11-20T07:19:11.7235459Z env:
+2026-11-20T07:19:11.7235713Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-11-20T07:19:11.7236063Z   CARGO_INCREMENTAL: 0
+2026-11-20T07:19:11.7236346Z   CARGO_TERM_COLOR: always
+2026-11-20T07:19:11.7236625Z   CACHE_ON_FAILURE: false
+2026-11-20T07:19:11.7236899Z ##[endgroup]
+2026-11-20T07:19:12.5596417Z [1m[92m   Compiling[0m checkout-core v0.1.0 (D:\a\jieshouyin\jieshouyin\crates\core)
+2026-11-20T07:19:14.6111865Z [1m[92m   Compiling[0m license-issuance v0.1.0 (D:\a\jieshouyin\jieshouyin\crates\license-issuance)
+2026-11-20T07:19:19.7790980Z [1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 7.74s
+2026-11-20T07:19:19.8041624Z [1m[92m     Running[0m unittests src\lib.rs (target\debug\build\checkout-core/dce6dc562dfecb6d\out\checkout_core-dce6dc562dfecb6d.exe)
+2026-11-20T07:19:19.8185634Z 
+2026-11-20T07:19:19.8186079Z running 149 tests
+2026-11-20T07:19:19.8216970Z test bill::tests::yuan_to_cents_basic ... ok
+2026-11-20T07:19:19.8220550Z test bill::tests::csv_quoted_comma_field ... ok
+2026-11-20T07:19:19.8226026Z test bill::tests::wechat_bill_header_driven ... ok
+2026-11-20T07:19:19.8229675Z test bill::tests::alipay_bill_parses ... ok
+2026-11-20T07:19:19.8247417Z test bill::tests::yuan_to_cents_scientific_notation_trap ... ok
+2026-11-20T07:19:19.8251356Z test escpos::tests::barcode_has_code128_header ... ok
+2026-11-20T07:19:19.8252292Z test escpos::tests::gb18030_chinese_encodes ... ok
+2026-11-20T07:19:19.8321060Z test escpos::tests::qrcode_has_gs_v0 ... ok
+2026-11-20T07:19:19.8328729Z test escpos::tests::render_basic_receipt_contains_commands ... ok
+2026-11-20T07:19:19.8332846Z test escpos::tests::render_vars_substitutes ... ok
+2026-11-20T07:19:19.8459126Z test db::tests::migrations_are_idempotent ... ok
+2026-11-20T07:19:19.8460781Z test db::tests::fresh_db_applies_all_migrations ... ok
+2026-11-20T07:19:19.8465033Z test escpos::tests::unknown_variable_errors ... ok
+2026-11-20T07:19:19.8466121Z test gateway_alipay::tests::percent_encode_form ... ok
+2026-11-20T07:19:19.8491085Z test db::tests::all_spec_tables_exist ... ok
+2026-11-20T07:19:19.8569143Z test escpos::tests::retry_queue_persists ... ok
+2026-11-20T07:19:19.8708853Z test industry::tests::store_name_length_limited ... ok
+2026-11-20T07:19:19.8723576Z test industry::tests::profile_reflects_industry_and_name ... ok
+2026-11-20T07:19:19.8728807Z test industry::tests::apply_industry_writes_tree_and_is_idempotent ... ok
+2026-11-20T07:19:19.8787723Z test industry::tests::template_seeded_for_three_industries ... ok
+2026-11-20T07:19:19.8938682Z test industry::tests::unknown_industry_rejected ... ok
+2026-11-20T07:19:19.8945751Z test inventory::tests::negative_stock_allowed_by_default ... ok
+2026-11-20T07:19:19.8951845Z test inventory::tests::negative_stock_blocked_when_disallowed ... ok
+2026-11-20T07:19:19.9014221Z test inventory::tests::purchase_in_creates_stock ... ok
+2026-11-20T07:19:19.9171153Z test inventory::tests::return_void_restore ... ok
+2026-11-20T07:19:19.9176674Z test inventory::tests::sale_decrements_via_event ... ok
+2026-11-20T07:19:19.9178736Z test license::audit::tests::token_hash_is_prefix_only ... ok
+2026-11-20T07:19:19.9183573Z test license::audit::tests::audit_appends_only ... ok
+2026-11-20T07:19:19.9184476Z test license::fingerprint::tests::digest_is_stable_and_short ... ok
+2026-11-20T07:19:19.9185719Z test license::fingerprint::tests::unbound_has_digest ... ok
+2026-11-20T07:19:19.9187432Z test license::fingerprint::tests::fingerprint_call_never_panics ... ok
+2026-11-20T07:19:19.9188853Z test license::online::tests::empty_endpoint_rejected ... ok
+2026-11-20T07:19:19.9190884Z test license::online::tests::endpoint_normalized ... ok
+2026-11-20T07:19:19.9197016Z test license::payload::tests::display_groups_64 ... ok
+2026-11-20T07:19:19.9202287Z test license::payload::tests::malformed_and_oversize_rejected ... ok
+2026-11-20T07:19:19.9220708Z test license::audit::tests::export_is_readonly ... ok
+2026-11-20T07:19:19.9327282Z test license::payload::tests::valid_license_roundtrip ... ok
+2026-11-20T07:19:19.9331295Z test license::payload::tests::tampered_payload_rejected ... ok
+2026-11-20T07:19:19.9334759Z test license::payload::tests::wrong_public_key_rejected ... ok
+2026-11-20T07:19:19.9528268Z test license::service::tests::activation_consumes_trial ... ok
+2026-11-20T07:19:19.9655490Z test license::service::tests::degraded_pos_core_never_blocked ... ok
+2026-11-20T07:19:19.9665081Z test license::service::tests::entitlement_denied_distinct_from_permission ... ok
+2026-11-20T07:19:19.9698377Z test license::service::tests::first_launch_starts_trial ... ok
+2026-11-20T07:19:19.9795163Z test license::service::tests::activation_then_restart_active ... ok
+2026-11-20T07:19:19.9833520Z test license::service::tests::invalid_signature_writes_audit ... ok
+2026-11-20T07:19:19.9990794Z test license::service::tests::offline_activation_has_no_activation_key ... ok
+2026-11-20T07:19:20.0020631Z test license::service::tests::online_activation_records_activation_key ... ok
+2026-11-20T07:19:20.0106282Z test license::service::tests::refresh_without_activation_key_rejected ... ok
+2026-11-20T07:19:20.0257794Z test license::service::tests::renew_keeps_activation_key ... ok
+2026-11-20T07:19:20.0265987Z test license::service::tests::trial_expires_after_15_days ... ok
+2026-11-20T07:19:20.0319797Z test license::service::tests::revoked_marks_degraded_but_keeps_pos_core ... ok
+2026-11-20T07:19:20.0431893Z test license::service::tests::renew_restores_active ... ok
+2026-11-20T07:19:20.0435487Z test license::state::tests::active_before_expiry ... ok
+2026-11-20T07:19:20.0439645Z test license::state::tests::degraded_after_grace ... ok
+2026-11-20T07:19:20.0443432Z test license::state::tests::degraded_blocks_admin_only ... ok
+2026-11-20T07:19:20.0446710Z test license::service::tests::trial_within_15_days_still_active ... ok
+2026-11-20T07:19:20.0448041Z test license::service::tests::trial_persists_across_restart ... ok
+2026-11-20T07:19:20.0448801Z test license::state::tests::different_grace_periods ... ok
+2026-11-20T07:19:20.0452699Z test license::state::tests::grace_within_7_days ... ok
+2026-11-20T07:19:20.0454233Z test license::state::tests::perpetual_never_degrades ... ok
+2026-11-20T07:19:20.0457483Z test license::state::tests::pos_core_allowed_in_all_but_unactivated ... ok
+2026-11-20T07:19:20.0459018Z test license::state::tests::trial_allows_full_features ... ok
+2026-11-20T07:19:20.0487875Z test license::storage::tests::encrypted_file_roundtrip ... ok
+2026-11-20T07:19:20.0492296Z test license::storage::tests::encrypted_file_rejects_corruption ... ok
+2026-11-20T07:19:20.0544923Z test license::service::tests::unactivated_on_fresh_start ... ok
+2026-11-20T07:19:20.0690802Z test license::storage::tests::mirror_to_db_upserts ... ok
+2026-11-20T07:19:20.0694874Z test member::tests::json_detail_compiles ... ok
+2026-11-20T07:19:20.0714822Z test member::tests::coupon_illegal_transition_rejected ... ok
+2026-11-20T07:19:20.0718208Z test member::tests::deduct_overflow_to_principal ... ok
+2026-11-20T07:19:20.0766743Z test member::tests::idempotency_prevents_double_deduct ... ok
+2026-11-20T07:19:20.0936064Z test member::tests::lazy_expire ... ok
+2026-11-20T07:19:20.0952683Z test member::tests::mirror_refund_rejects_over_refund ... ok
+2026-11-20T07:19:20.0953804Z test member::tests::mirror_refund_prevents_money_laundering ... ok
+2026-11-20T07:19:20.0957545Z test money::tests::allocate_exact ... ok
+2026-11-20T07:19:20.0958522Z test money::tests::allocate_largest_remainder ... ok
+2026-11-20T07:19:20.0961880Z test money::tests::allocate_never_touches_zero_remaining ... ok
+2026-11-20T07:19:20.0962644Z test money::tests::allocate_no_negative ... ok
+2026-11-20T07:19:20.0967824Z test money::tests::allocate_stacked_no_penetration ... ok
+2026-11-20T07:19:20.0968646Z test money::tests::allocate_truncates_to_base ... ok
+2026-11-20T07:19:20.0971021Z test money::tests::cents_to_yuan_five_cases ... ok
+2026-11-20T07:19:20.0971726Z test money::tests::refund_allocation_sums_exact ... ok
+2026-11-20T07:19:20.0976516Z test order::tests::business_date_cutoff ... ok
+2026-11-20T07:19:20.0989299Z test member::tests::points_allow_negative ... ok
+2026-11-20T07:19:20.1158763Z test member::tests::recharge_then_deduct_bonus_first ... ok
+2026-11-20T07:19:20.1190993Z test order::tests::cancel_is_terminal ... ok
+2026-11-20T07:19:20.1195480Z test order::tests::park_resume_roundtrip ... ok
+2026-11-20T07:19:20.1216549Z test order::tests::return_updates_returned_qty_and_stock ... ok
+2026-11-20T07:19:20.1388907Z test order::tests::scan_paid_order_cannot_void ... ok
+2026-11-20T07:19:20.1423473Z test order::tests::tx_a_then_tx_b_stock_only_after_commit ... ok
+2026-11-20T07:19:20.1426823Z test order::tests::void_restores_stock ... ok
+2026-11-20T07:19:20.1430177Z test paycreds::tests::alipay_cred_loads_when_complete ... ok
+2026-11-20T07:19:20.1432605Z test paycreds::tests::delete_then_load_is_none ... ok
+2026-11-20T07:19:20.1433973Z test paycreds::tests::wechat_cred_requires_all_required_fields ... ok
+2026-11-20T07:19:20.1437741Z test paycreds::tests::whitelist_covers_all_fields ... ok
+2026-11-20T07:19:20.1438796Z test payment::mock::tests::refund_is_idempotent ... ok
+2026-11-20T07:19:20.1441327Z test payment::tests::backticks_stripped ... ok
+2026-11-20T07:19:20.1445222Z test payment::tests::diff_types ... ok
+2026-11-20T07:19:20.1446163Z test orderview::tests::detail_contains_items_and_payments ... ok
+2026-11-20T07:19:20.1451111Z test payment::tests::local_gateway_rejects_missing_auth_code ... ok
+2026-11-20T07:19:20.1452932Z test payment::tests::micropay_success_immediate ... ok
+2026-11-20T07:19:20.1456812Z test payment::tests::cancel_already_paid_triggers_refund ... ok
+2026-11-20T07:19:20.1458456Z test payment::tests::micropay_userpaying_polls_to_success ... ok
+2026-11-20T07:19:20.1463995Z test payment::tests::mixed_refund_routes_exact ... ok
+2026-11-20T07:19:20.1465375Z test payment::tests::out_trade_no_attempts ... ok
+2026-11-20T07:19:20.1469212Z test printer::tests::empty_host_rejected ... ok
+2026-11-20T07:19:20.1470113Z test payment::tests::micropay_timeout_cancel ... ok
+2026-11-20T07:19:20.1480664Z test payment::tests::payment_code_detected_by_length ... FAILED
+2026-11-20T07:19:20.1618735Z test orderview::tests::list_orders_filters_by_date_and_keyword ... ok
+2026-11-20T07:19:20.1690065Z test product::tests::adjust_stock_audited ... ok
+2026-11-20T07:19:20.1697866Z test product::tests::create_and_list_product ... ok
+2026-11-20T07:19:20.1708486Z test product::tests::default_category_exists ... ok
+2026-11-20T07:19:20.1712986Z test promo::tests::exclusive_only_highest_priority ... ok
+2026-11-20T07:19:20.1717111Z test promo::tests::gift_line_never_discounted ... ok
+2026-11-20T07:19:20.1721633Z test promo::tests::member_price_vs_single_promo_prefer_better ... ok
+2026-11-20T07:19:20.1725508Z test promo::tests::refund_line_partial_then_clear ... ok
+2026-11-20T07:19:20.1730215Z test promo::tests::single_promo_applies ... ok
+2026-11-20T07:19:20.1734064Z test promo::tests::stack_limit_caps_discount ... ok
+2026-11-20T07:19:20.1738674Z test promo::tests::stacked_allocations_sum_exact ... ok
+2026-11-20T07:19:20.1857824Z test product::tests::invalid_inputs_rejected ... ok
+2026-11-20T07:19:20.1912248Z test product::tests::update_price_and_status ... ok
+2026-11-20T07:19:20.1921182Z test product::tests::weighed_product_no_barcode_ok ... ok
+2026-11-20T07:19:20.1956490Z test purchase::tests::double_receive_rejected ... ok
+2026-11-20T07:19:20.2052837Z test purchase::tests::purchase_creates_stock_only_on_receive ... ok
+2026-11-20T07:19:20.2103567Z test purchase::tests::receipt_diff_recorded ... ok
+2026-11-20T07:19:20.2104460Z test purchase::tests::stocktake_adjust_via_event ... ok
+2026-11-20T07:19:21.1071295Z test rbac::tests::cashier_refund_limit ... ok
+2026-11-20T07:19:21.1263563Z test rbac::tests::guard_amount_limit ... ok
+2026-11-20T07:19:21.1268232Z test rbac::tests::json_macro_used ... ok
+2026-11-20T07:19:22.0277337Z test rbac::tests::guard_order_entitlement_first ... ok
+2026-11-20T07:19:22.8997394Z test rbac::tests::argon2_hash_verifies ... ok
+2026-11-20T07:19:22.9001843Z test rbac::tests::password_policy ... ok
+2026-11-20T07:19:22.9152763Z test report::tests::channel_sum_matches_order_sum ... ok
+2026-11-20T07:19:22.9300971Z test report::tests::daily_summary_is_idempotent ... ok
+2026-11-20T07:19:22.9446745Z test report::tests::reconcile_csv_negative_amount ... ok
+2026-11-20T07:19:22.9450798Z test scanner::tests::bad_checksum_rejected ... ok
+2026-11-20T07:19:22.9454970Z test scanner::tests::detect_fast_scan ... ok
+2026-11-20T07:19:22.9458517Z test scanner::tests::gap_range ... ok
+2026-11-20T07:19:22.9462024Z test scanner::tests::no_enter_is_not_scan ... ok
+2026-11-20T07:19:22.9465721Z test scanner::tests::non_instore_prefix_rejected ... ok
+2026-11-20T07:19:22.9469436Z test scanner::tests::prefix_suffix_stripped ... ok
+2026-11-20T07:19:22.9473504Z test scanner::tests::slow_input_is_not_scan ... ok
+2026-11-20T07:19:22.9477224Z test scanner::tests::weighed_amount_mode ... ok
+2026-11-20T07:19:22.9480926Z test scanner::tests::weighed_weight_mode_rounds_up ... ok
+2026-11-20T07:19:22.9484760Z test time::tests::monotonic_advances_on_normal_time ... ok
+2026-11-20T07:19:22.9488536Z test time::tests::monotonic_blocks_rollback ... ok
+2026-11-20T07:19:22.9491767Z test time::tests::small_rollback_within_24h_not_flagged ... ok
+2026-11-20T07:19:23.6807514Z test rbac::tests::guard_sensitive_nonce_replay_rejected ... ok
+2026-11-20T07:19:24.2814215Z test rbac::tests::login_success_and_failure ... ok
+2026-11-20T07:19:25.3933596Z test rbac::tests::lock_after_five_failures ... ok
+2026-11-20T07:19:25.3934123Z 
+2026-11-20T07:19:25.3934263Z failures:
+2026-11-20T07:19:25.3934444Z 
+2026-11-20T07:19:25.3935076Z ---- payment::tests::payment_code_detected_by_length stdout ----
+2026-11-20T07:19:25.3935494Z 
+2026-11-20T07:19:25.3936059Z thread 'payment::tests::payment_code_detected_by_length' (3760) panicked at crates\core\src\payment.rs:588:9:
+2026-11-20T07:19:25.3936881Z assertion `left == right` failed
+2026-11-20T07:19:25.3937285Z   left: None
+2026-11-20T07:19:25.3937549Z  right: Some(ALIPAY)
+2026-11-20T07:19:25.3938096Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+2026-11-20T07:19:25.3938474Z 
+2026-11-20T07:19:25.3938478Z 
+2026-11-20T07:19:25.3938555Z failures:
+2026-11-20T07:19:25.3938829Z     payment::tests::payment_code_detected_by_length
+2026-11-20T07:19:25.3939087Z 
+2026-11-20T07:19:25.3939422Z test result: FAILED. 148 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.57s
+2026-11-20T07:19:25.3939872Z 
+2026-11-20T07:19:25.3966113Z [1m[91merror[0m: test failed, to rerun pass `-p checkout-core --lib`
+2026-11-20T07:19:25.5131049Z ##[error]Process completed with exit code 1.
+2026-11-20T07:19:25.5423084Z Post job cleanup.
+2026-11-20T07:19:25.7428383Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-11-20T07:19:25.7805212Z git version 2.56.0.windows.4
+2026-11-20T07:19:25.7886569Z Temporarily overriding HOME='D:\a\_temp\3ef252b4-15a1-4004-8614-4feec2b636e4' before making global git config changes
+2026-11-20T07:19:25.7887982Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-20T07:19:25.7898486Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\jieshouyin\jieshouyin
+2026-11-20T07:19:25.8336182Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-11-20T07:19:25.8791005Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-11-20T07:19:26.5073751Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-20T07:19:26.5427881Z http.https://github.com/.extraheader
+2026-11-20T07:19:26.5479269Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2026-11-20T07:19:26.5893075Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-11-20T07:19:27.1755224Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-20T07:19:27.2164028Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-11-20T07:19:27.8201670Z Cleaning up orphan processes
+2026-11-20T07:19:27.8847415Z Terminate orphan process: pid (8424) (vctip)
+2026-11-20T07:19:27.8931387Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

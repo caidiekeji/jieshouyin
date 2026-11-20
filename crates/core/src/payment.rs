@@ -586,7 +586,7 @@ mod tests {
             Some(Channel::WECHAT)
         );
         assert_eq!(
-            detect_payment_code("2812345678901234567890123"),
+            detect_payment_code("28123456789012345678901234567"),
             Some(Channel::ALIPAY)
         );
         // 商品条码不是付款码
