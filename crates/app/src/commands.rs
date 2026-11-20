@@ -6,15 +6,13 @@ use checkout_core::constants::{
     CFG_ACTIVATION_ENDPOINT, CFG_ALLOW_NEGATIVE_STOCK, CFG_BUSINESS_DAY_CUTOFF,
     CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
     CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_PER_YUAN,
-    CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT, CFG_SCAN_GAP_MS, CFG_STORE_NAME,
-    COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
-    DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_PER_YUAN,
-    DEFAULT_PRINT_PORT,
-    ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY,
-    PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT,
-    PERM_INVENTORY_ADJUST, PERM_POS_REFUND, PERM_POS_VOID, PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT,
-    PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE, PERM_SYSTEM_CONFIG, PERM_USER_MANAGE, ROLE_ADMIN,
-    ROLE_CASHIER, ROLE_MANAGER,
+    CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT, CFG_SCAN_GAP_MS, CFG_STORE_NAME, COUPON_UNUSED,
+    DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S,
+    DEFAULT_POINTS_PER_YUAN, DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE,
+    ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY,
+    PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_POS_REFUND,
+    PERM_POS_VOID, PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT, PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE,
+    PERM_SYSTEM_CONFIG, PERM_USER_MANAGE, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER,
 };
 use checkout_core::error::{CoreError, Result};
 use checkout_core::industry::{IndustryOption, StoreProfile};
@@ -500,7 +498,10 @@ fn plan_amounts(
         cart_lines.push(cl);
     }
     // 2. 促销计算（§8）
-    let level = member_id.map(|mid| member_level(conn, mid)).transpose()?.flatten();
+    let level = member_id
+        .map(|mid| member_level(conn, mid))
+        .transpose()?
+        .flatten();
     let promos = load_active_promotions(conn, now)?;
     let max_ratio = cfg_f64(conn, CFG_MAX_DISCOUNT_RATIO, DEFAULT_MAX_DISCOUNT_RATIO);
     let promo_result =
@@ -572,13 +573,7 @@ pub fn quote_order(
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    let plan = plan_amounts(
-        &conn,
-        &lines,
-        member_id,
-        coupon_code.as_deref(),
-        &now_str(),
-    )?;
+    let plan = plan_amounts(&conn, &lines, member_id, coupon_code.as_deref(), &now_str())?;
     Ok(OrderQuote {
         total_cents: plan.total,
         discount_cents: plan.discount,
@@ -648,7 +643,11 @@ pub fn checkout(
         let is_scan_channel = p.channel == PAY_WECHAT || p.channel == PAY_ALIPAY;
         if is_scan_channel
             && p.mode.as_deref() != Some(PAY_MODE_NATIVE)
-            && p.auth_code.as_deref().map(str::trim).unwrap_or("").is_empty()
+            && p.auth_code
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
         {
             return Err(CoreError::Validation(
                 "扫码支付需要顾客付款码：请用扫码枪扫描顾客付款码".into(),
@@ -1049,7 +1048,10 @@ fn auto_print_receipt(conn: &Connection, order_no: &str) {
         return;
     }
     // 未配置打印机地址：不做自动打印，也不污染重打队列
-    let host = cfg_get(conn, CFG_PRINT_HOST).ok().flatten().unwrap_or_default();
+    let host = cfg_get(conn, CFG_PRINT_HOST)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     if host.trim().is_empty() {
         return;
     }
@@ -3588,9 +3590,8 @@ fn resolve_activation_endpoint(conn: &Connection) -> Result<String> {
         .flatten()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty());
-    let endpoint = configured.unwrap_or_else(|| {
-        checkout_core::default_activation_endpoint().to_string()
-    });
+    let endpoint =
+        configured.unwrap_or_else(|| checkout_core::default_activation_endpoint().to_string());
     if endpoint.trim().is_empty() {
         return Err(CoreError::Validation(
             "未配置在线激活服务地址：请在「设置 → 系统配置 → 在线激活服务」填写官网根地址".into(),

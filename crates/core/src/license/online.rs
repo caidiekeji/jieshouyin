@@ -85,18 +85,16 @@ pub fn request_activation(
             // 服务端错误体形如 {"error":"激活码不存在"}：取出可读文案直接呈现
             let detail = serde_json::from_str::<serde_json::Value>(&t)
                 .ok()
-                .and_then(|v| {
-                    v.get("error")
-                        .and_then(|e| e.as_str())
-                        .map(str::to_string)
-                })
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
                 .unwrap_or_else(|| t.trim().to_string());
             // 4xx 是服务端的明确裁决（撤销/过期/设备超限/码不存在）：以服务端为准。
             // 5xx 属服务端故障，与网络不可达同义：调用方应保留本地缓存继续工作。
             if (400..500).contains(&code) {
                 Err(CoreError::License(LicenseError::OnlineRejected(detail)))
             } else {
-                Err(CoreError::Other(format!("激活服务返回错误({code}): {detail}")))
+                Err(CoreError::Other(format!(
+                    "激活服务返回错误({code}): {detail}"
+                )))
             }
         }
         Err(e) => Err(CoreError::Other(format!("激活服务不可达: {e}"))),
@@ -139,8 +137,14 @@ mod tests {
 
     #[test]
     fn endpoint_normalized() {
-        assert_eq!(normalize_endpoint("https://a.workers.dev/").unwrap(), "https://a.workers.dev");
-        assert_eq!(normalize_endpoint("  https://a.workers.dev//  ").unwrap(), "https://a.workers.dev");
+        assert_eq!(
+            normalize_endpoint("https://a.workers.dev/").unwrap(),
+            "https://a.workers.dev"
+        );
+        assert_eq!(
+            normalize_endpoint("  https://a.workers.dev//  ").unwrap(),
+            "https://a.workers.dev"
+        );
         assert!(normalize_endpoint("").is_err());
         assert!(normalize_endpoint("workers.dev").is_err());
     }

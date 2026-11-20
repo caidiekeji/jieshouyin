@@ -581,7 +581,10 @@ mod tests {
     #[test]
     fn payment_code_detected_by_length() {
         // 微信 18 位、支付宝 28 位
-        assert_eq!(detect_payment_code("134567890123456789"), Some(Channel::WECHAT));
+        assert_eq!(
+            detect_payment_code("134567890123456789"),
+            Some(Channel::WECHAT)
+        );
         assert_eq!(
             detect_payment_code("2812345678901234567890123"),
             Some(Channel::ALIPAY)
