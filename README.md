@@ -20,7 +20,7 @@
 ```
 crates/
   core/              核心领域库（纯 Rust，可独立测试）
-    src/db/          迁移 0001–0015（完整 v1 schema + 种子 + 权限/索引/状态约束/场景桌台）
+    src/db/          迁移 0001–0016（完整 v1 schema + 种子 + 权限/索引/状态约束/场景桌台）
     src/license/     授权：载荷/验签/指纹/状态机/审计/安全存储/启动序列
     src/rbac.rs      argon2id、门禁顺序、会话锁定、二次授权、限额
     src/promo.rs     促销引擎（取优/互斥/叠加/最大余数分摊/退单还原）
@@ -43,7 +43,7 @@ ui/                  Vue 3 + TypeScript + Vite + Pinia 前端
 
 | 模块 | 任务 | 说明 |
 | --- | --- | --- |
-| Migration | MIG-01~03 | 0001–0015 完整 schema、幂等迁移、表存在性测试 |
+| Migration | MIG-01~03 | 0001–0016 完整 schema、幂等迁移、表存在性测试 |
 | 金额 | RPT-04 | 整数运算、cents_to_yuan 五用例、负数带符号 |
 | 促销分摊 | PRO-01~04 | 最大余数法、三条不变式单元测试、退单精确还原 |
 | 授权 | LIC-01~08/10/11 | Ed25519 验签、单调水位、状态机、审计、三级存储降级、门禁 |
@@ -97,3 +97,4 @@ CHECKOUT_PRIVATE_KEY=<hex> cargo run -p license-issuance -- issue \
 - 金额全程整数分运算，禁止浮点
 - 许可证与金额路径禁止 `unwrap`/`expect`
 - 商户密钥不落 SQLite、不进备份、不进日志
+

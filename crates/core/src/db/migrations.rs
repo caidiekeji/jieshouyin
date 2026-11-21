@@ -720,6 +720,11 @@ INSERT INTO category_template(industry,path,sort_no) VALUES
  ('WELLNESS','养生产品/艾条',19);
 "#;
 
+/// M0016：服务类 SKU 不计库存。房费、推拿等按次售卖的项目不进库存台账。
+const M0016: &str = r#"
+ALTER TABLE sku ADD COLUMN is_service INTEGER NOT NULL DEFAULT 0;
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -796,6 +801,11 @@ pub fn all() -> Vec<Migration> {
             version: 15,
             name: "service_tables_industry_templates",
             up: M0015,
+        },
+        Migration {
+            version: 16,
+            name: "sku_service_flag",
+            up: M0016,
         },
     ]
 }

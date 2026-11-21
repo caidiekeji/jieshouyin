@@ -92,6 +92,7 @@ export interface ProductRow {
   member_price_cents: number | null
   instore_code: string | null
   is_weighed: boolean
+  is_service: boolean
   status: number
   qty: number
   alert_qty: number
@@ -418,6 +419,7 @@ export const api = {
     costPriceCents: number
     memberPriceCents: number | null
     isWeighed: boolean
+    isService: boolean
     initialQty: number
     alertQty: number
   }) => invoke<number>('create_product', p),

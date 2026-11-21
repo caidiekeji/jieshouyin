@@ -128,8 +128,12 @@ pub fn commit_order(tx: &Connection, order_no: &str, cashier_id: i64) -> Result<
         )));
     }
     let items: Vec<(i64, i64)> = {
-        let mut stmt =
-            tx.prepare("SELECT sku_id, qty FROM sales_order_item WHERE order_no=?1 AND is_gift=0")?;
+        // 服务类 SKU 不计库存，销售提交时跳过库存事件。
+        let mut stmt = tx.prepare(
+            "SELECT i.sku_id, i.qty FROM sales_order_item i
+             JOIN sku s ON s.sku_id=i.sku_id
+             WHERE i.order_no=?1 AND i.is_gift=0 AND s.is_service=0",
+        )?;
         let rows = stmt.query_map([order_no], |r| Ok((r.get(0)?, r.get(1)?)))?;
         let mut v = Vec::new();
         for row in rows {
@@ -319,15 +323,22 @@ pub fn create_return(
             "UPDATE sales_order_item SET returned_qty=?1 WHERE item_id=?2",
             params![already + qty, item_id],
         )?;
-        apply_event(
-            tx,
-            *sku_id,
-            *qty,
-            TransType::RETURN,
-            Some(order_no),
-            Some(operator_id),
-            true,
+        let is_service: i64 = tx.query_row(
+            "SELECT is_service FROM sku WHERE sku_id=?1",
+            [*sku_id],
+            |r| r.get(0),
         )?;
+        if is_service == 0 {
+            apply_event(
+                tx,
+                *sku_id,
+                *qty,
+                TransType::RETURN,
+                Some(order_no),
+                Some(operator_id),
+                true,
+            )?;
+        }
     }
     // 订单状态更新
     let total_items: i64 = tx.query_row(

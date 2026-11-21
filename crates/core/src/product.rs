@@ -27,6 +27,8 @@ pub struct ProductRow {
     pub member_price_cents: Option<i64>,
     pub instore_code: Option<String>,
     pub is_weighed: bool,
+    /// 服务类商品：按次售卖，不建库存台账、销售与退货都不动库存。
+    pub is_service: bool,
     pub status: i64,
     pub qty: i64,
     pub alert_qty: i64,
@@ -201,6 +203,7 @@ pub fn create_product(
         sale_price_cents,
         cost_price_cents,
         is_weighed,
+        false,
         initial_qty,
         alert_qty,
         operator_id,
@@ -220,6 +223,7 @@ fn create_product_in(
     sale_price_cents: i64,
     cost_price_cents: i64,
     is_weighed: bool,
+    is_service: bool,
     initial_qty: i64,
     alert_qty: i64,
     operator_id: Option<i64>,
@@ -238,6 +242,16 @@ fn create_product_in(
     }
     if cost_price_cents < 0 || initial_qty < 0 || alert_qty < 0 {
         return Err(CoreError::Validation("成本/库存/预警值不能为负".into()));
+    }
+    if is_service && is_weighed {
+        return Err(CoreError::Validation(
+            "服务类商品不能同时按重量计价".into(),
+        ));
+    }
+    if is_service && initial_qty > 0 {
+        return Err(CoreError::Validation(
+            "服务类商品不计库存，期初库存必须为 0".into(),
+        ));
     }
     let cat_exists: Option<i64> = tx
         .query_row(
@@ -270,34 +284,38 @@ fn create_product_in(
     )?;
     let spu_id = tx.last_insert_rowid();
     tx.execute(
-        "INSERT INTO sku(spu_id,barcode,sale_price_cents,cost_price_cents,is_weighed,alert_qty)
-         VALUES (?1,?2,?3,?4,?5,?6)",
+        "INSERT INTO sku(spu_id,barcode,sale_price_cents,cost_price_cents,is_weighed,is_service,alert_qty)
+         VALUES (?1,?2,?3,?4,?5,?6,?7)",
         params![
             spu_id,
             barcode.map(str::trim).filter(|b| !b.is_empty()),
             sale_price_cents,
             cost_price_cents,
             is_weighed as i64,
+            is_service as i64,
             alert_qty
         ],
     )?;
     let sku_id = tx.last_insert_rowid();
-    if initial_qty > 0 {
-        crate::inventory::apply_event(
-            tx,
-            sku_id,
-            initial_qty,
-            crate::inventory::TransType::PURCHASE_IN,
-            Some(TRANS_INITIAL),
-            operator_id,
-            false,
-        )?;
-    } else {
-        // 零库存也建立台账行，便于预警与盘点
-        tx.execute(
-            "INSERT INTO inv_stock(sku_id,warehouse_type,qty,version) VALUES (?1,'STORE',0,1)",
-            [sku_id],
-        )?;
+    // 服务类商品只按次售卖，不建库存台账。
+    if !is_service {
+        if initial_qty > 0 {
+            crate::inventory::apply_event(
+                tx,
+                sku_id,
+                initial_qty,
+                crate::inventory::TransType::PURCHASE_IN,
+                Some(TRANS_INITIAL),
+                operator_id,
+                false,
+            )?;
+        } else {
+            // 零库存也建立台账行，便于预警与盘点
+            tx.execute(
+                "INSERT INTO inv_stock(sku_id,warehouse_type,qty,version) VALUES (?1,'STORE',0,1)",
+                [sku_id],
+            )?;
+        }
     }
     Ok(sku_id)
 }
@@ -315,7 +333,7 @@ pub fn list_products(
         "SELECT s.sku_id, p.spu_id, p.spu_name, s.barcode, p.category_id, COALESCE(c.name,'未分类'),
                 p.unit, s.sale_price_cents, s.cost_price_cents, s.is_weighed, p.status,
                 COALESCE(i.qty,0), s.alert_qty, s.member_price_cents, s.instore_code,
-                s.image_path, s.image_url
+                s.image_path, s.image_url, s.is_service
          FROM sku s
          JOIN spu p ON p.spu_id = s.spu_id
          LEFT JOIN category c ON c.category_id = p.category_id
@@ -345,6 +363,7 @@ pub fn list_products(
                 instore_code: r.get(14)?,
                 image_path: r.get(15)?,
                 image_url: r.get(16)?,
+                is_service: r.get::<_, i64>(17)? != 0,
             })
         },
     )?;
@@ -368,6 +387,7 @@ pub fn create_product_full(
     cost_price_cents: i64,
     member_price_cents: Option<i64>,
     is_weighed: bool,
+    is_service: bool,
     initial_qty: i64,
     alert_qty: i64,
     operator_id: Option<i64>,
@@ -399,6 +419,7 @@ pub fn create_product_full(
         sale_price_cents,
         cost_price_cents,
         is_weighed,
+        is_service,
         initial_qty,
         alert_qty,
         operator_id,
@@ -602,6 +623,36 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn service_product_has_no_stock_ledger() {
+        let c = setup();
+        let sku = create_product_full(
+            &c,
+            1,
+            "中式推拿",
+            None,
+            None,
+            "次",
+            16800,
+            0,
+            None,
+            false,
+            true,
+            0,
+            0,
+            None,
+        )
+        .unwrap();
+        let stock_rows: i64 = c
+            .query_row("SELECT COUNT(*) FROM inv_stock WHERE sku_id=?1", [sku], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stock_rows, 0);
+        let rows = list_products(&c, "中式推拿", 10, true).unwrap();
+        assert!(rows[0].is_service);
     }
 
     #[test]

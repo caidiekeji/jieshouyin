@@ -32,6 +32,7 @@ const form = ref({
   costPrice: '',
   memberPrice: '',
   isWeighed: false,
+  isService: false,
   initialQty: 0,
   alertQty: 0,
   imageUrl: '',
@@ -54,7 +55,7 @@ const imageSku = ref<number | null>(null)
 const imageUrlDraft = ref('')
 
 const lowStockCount = computed(
-  () => products.value.filter((p) => p.status === 1 && p.qty <= p.alert_qty).length
+  () => products.value.filter((p) => p.status === 1 && !p.is_service && p.qty <= p.alert_qty).length
 )
 
 /** 读取文件为 base64 data URL（后端剥前缀后按文件头判定格式） */
@@ -150,6 +151,15 @@ function intOrZero(raw: string, label: string): number {
   return n
 }
 
+/** 服务项目不计库存：切换时清掉称重与库存字段，避免提交互斥组合。 */
+function toggleService() {
+  if (form.value.isService) {
+    form.value.isWeighed = false
+    form.value.initialQty = 0
+    form.value.alertQty = 0
+  }
+}
+
 async function createProduct() {
   try {
     if (!form.value.name.trim()) throw new Error('商品名不能为空')
@@ -170,7 +180,10 @@ async function createProduct() {
         ? yuanToCents(form.value.memberPrice, '会员价')
         : null,
       isWeighed: form.value.isWeighed,
-      initialQty: intOrZero(String(form.value.initialQty), '初始库存'),
+      isService: form.value.isService,
+      initialQty: form.value.isService
+        ? 0
+        : intOrZero(String(form.value.initialQty), '初始库存'),
       alertQty: intOrZero(String(form.value.alertQty), '预警值'),
     })
     // 图片：上传的本地文件优先，其次登记在线地址。
@@ -192,7 +205,7 @@ async function createProduct() {
     }
     showCreate.value = false
     createImageFile.value = null
-    form.value = { name: '', barcode: '', instoreCode: '', categoryId: 1, unit: '件', salePrice: '', costPrice: '', memberPrice: '', isWeighed: false, initialQty: 0, alertQty: 0, imageUrl: '' }
+    form.value = { name: '', barcode: '', instoreCode: '', categoryId: 1, unit: '件', salePrice: '', costPrice: '', memberPrice: '', isWeighed: false, isService: false, initialQty: 0, alertQty: 0, imageUrl: '' }
     done('商品已创建')
     await reload()
   } catch (e) {
@@ -293,14 +306,17 @@ onMounted(reload)
         <label>售价（元）<input v-model="form.salePrice" class="input" placeholder="如 3.50" /></label>
         <label>会员价（元）<input v-model="form.memberPrice" class="input" placeholder="可选" /></label>
         <label>成本（元）<input v-model="form.costPrice" class="input" placeholder="如 2.10" /></label>
-        <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" /></label>
-        <label>库存预警值<input v-model.number="form.alertQty" class="input" type="number" min="0" /></label>
+        <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" :disabled="form.isService" /></label>
+        <label>库存预警值<input v-model.number="form.alertQty" class="input" type="number" min="0" :disabled="form.isService" /></label>
         <label>商品图片（本地文件）
           <input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="pickCreateImage" />
         </label>
         <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
         <label class="checkbox-label">
-          <input v-model="form.isWeighed" type="checkbox" /> 称重商品（按克计价）
+          <input v-model="form.isService" type="checkbox" @change="toggleService" /> 服务项目（不计库存）
+        </label>
+        <label class="checkbox-label">
+          <input v-model="form.isWeighed" type="checkbox" :disabled="form.isService" /> 称重商品（按克计价）
         </label>
       </div>
       <button class="btn primary" @click="createProduct">创建商品</button>
