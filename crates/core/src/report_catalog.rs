@@ -2236,11 +2236,13 @@ mod tests {
     #[test]
     fn profit_report_nets_expenses() {
         let c = setup();
+        // M0011 迁移可能已种子这些费用键，用 upsert 强制覆盖为测试值
         c.execute(
             "INSERT INTO system_config(config_key, config_value, updated_at)
              VALUES ('expense_rent_yuan','2000',datetime('now')),
                     ('expense_utility_yuan','600',datetime('now')),
-                    ('expense_labor_yuan','400',datetime('now'))",
+                    ('expense_labor_yuan','400',datetime('now'))
+             ON CONFLICT(config_key) DO UPDATE SET config_value=excluded.config_value, updated_at=excluded.updated_at",
             [],
         )
         .unwrap();
