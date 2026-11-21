@@ -256,9 +256,7 @@ pub fn create_return(
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     if !matches!(status.as_str(), "COMPLETED" | "PARTIAL_REFUND") {
-        return Err(CoreError::Validation(format!(
-            "订单状态 {status} 不可退货"
-        )));
+        return Err(CoreError::Validation(format!("订单状态 {status} 不可退货")));
     }
     // 累计退款（含渠道处理中）不得超过订单实收，避免多次部分退货超退。
     let already: i64 = tx.query_row(
@@ -490,9 +488,11 @@ mod tests {
             tx.commit().unwrap();
         }
         let status: String = c
-            .query_row("SELECT status FROM sales_order WHERE order_no='O3'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT status FROM sales_order WHERE order_no='O3'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(status, "VOIDED");
     }
