@@ -3346,9 +3346,14 @@ pub fn issue_coupon(
     valid_until: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String> {
-    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    let (_op, conn) = admin_guard(&state, PERM_MEMBER_MANAGE)?;
     if discount_cents <= 0 || min_order_cents < 0 {
         return Err(CoreError::Validation("券额度/门槛非法".into()));
+    }
+    if discount_cents > min_order_cents && min_order_cents > 0 {
+        return Err(CoreError::Validation(
+            "券面额不能高于使用门槛（否则等于无条件大额折扣）".into(),
+        ));
     }
     let code = format!("CP{}", Utc::now().timestamp_millis());
     conn.execute(

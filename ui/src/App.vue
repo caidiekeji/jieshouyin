@@ -1319,7 +1319,10 @@ async function loadParked() {
 async function resume(parkId: number) {
   try {
     const json = await api.resumeCart(parkId)
-    cart.value = JSON.parse(json)
+    const parsed = JSON.parse(json) as Array<Record<string, unknown>>
+    // 挂单快照里的会员价是当时价格：取单后必须丢弃，由后端按当前会员等级重算。
+    for (const line of parsed) delete line.member_price_cents
+    cart.value = parsed as unknown as typeof cart.value
     parkDialogOpen.value = false
     view.value = 'pos'
     showToast('已取单，促销将现场重算')
@@ -1794,8 +1797,14 @@ const couponDialogInput = ref<HTMLInputElement | null>(null)
 watch(memberDialogOpen, (open) => { if (open) void nextTick(() => memberDialogInput.value?.focus()) })
 watch(couponDialogOpen, (open) => { if (open) void nextTick(() => couponDialogInput.value?.focus()) })
 function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadPaymentSettings(); loadIndustries(); loadStoreProfile() }
-function doLogout() {
-  api.logout()
+async function doLogout() {
+  // 先等后端会话注销：失败会留在当前页并提示，避免“界面已退、后端仍登录”。
+  try {
+    await api.logout()
+  } catch (e) {
+    showToast(`退出失败：${String(e)}`)
+    return
+  }
   view.value = 'login'
   currentUser.value = ''
   currentRole.value = 'CASHIER'
