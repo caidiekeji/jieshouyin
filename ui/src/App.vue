@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
@@ -32,6 +32,7 @@ import {
   ERROR_DURATION_MS,
   SCAN_GAP_MS_DEFAULT,
   SCAN_MIN_LENGTH,
+  SEARCH_DEBOUNCE_MS,
   CENTS_PER_YUAN,
   NATIVE_POLL_INTERVAL_MS,
   PAY_CHANNEL_LABEL,
@@ -151,6 +152,8 @@ const cart = ref<(CartLine & { name: string })[]>([])
 const cashTendered = ref('')
 const lastOrder = ref('')
 const toast = ref('')
+/** toast 错误态独立于文案：后端异常原文未必带「错误」前缀，靠前缀判断会漏标红 */
+const toastKind = ref<'info' | 'error'>('info')
 const parked = ref<unknown[]>([])
 /** 挂单弹窗：付款区按钮唤起，替代原独立挂单菜单 */
 const parkDialogOpen = ref(false)
@@ -269,6 +272,7 @@ function memberPriceOf(p: ProductHit): number | null {
 
 function showToast(msg: string, isError = false) {
   toast.value = msg
+  toastKind.value = isError ? 'error' : 'info'
   setTimeout(() => (toast.value = ''), isError ? ERROR_DURATION_MS : TOAST_DURATION_MS)
 }
 
@@ -310,13 +314,16 @@ function cancelSensitiveAuth() {
 }
 
 // ===== 会员识别（§13）=====
-async function findMember() {
+/** 弹窗内联错误：识别失败时用户就盯着弹窗，全局 toast 在遮罩下不显眼 */
+const memberFindError = ref('')
+async function findMember(): Promise<boolean> {
   const phone = memberPhone.value.trim()
   if (!phone) {
     memberId.value = null
     memberBalances.value = null
     for (const l of cart.value) l.member_price_cents = null
-    return
+    memberFindError.value = '请输入手机号或会员码'
+    return false
   }
   try {
     const list = await api.listMembers(phone, 10)
@@ -325,9 +332,10 @@ async function findMember() {
       memberId.value = null
       memberBalances.value = null
       for (const l of cart.value) l.member_price_cents = null
-      showToast('未找到会员', true)
-      return
+      memberFindError.value = `未找到会员「${phone}」，请核对后重试`
+      return false
     }
+    memberFindError.value = ''
     memberId.value = m.member_id
     memberBalances.value = {
       principal_cents: m.principal_cents,
@@ -336,8 +344,10 @@ async function findMember() {
     }
     await refreshCartMemberPrices()
     showToast(`会员已识别：${m.name ?? m.member_code}`)
+    return true
   } catch (e) {
-    showToast(String(e), true)
+    memberFindError.value = `识别失败：${String(e)}`
+    return false
   }
 }
 
@@ -793,8 +803,7 @@ async function search() {
   }
 }
 
-// ===== 自动联想：输入停顿 250ms 后自动查询，无需点击识别按钮 =====
-const SEARCH_DEBOUNCE_MS = 250
+// ===== 自动联想：输入停顿 SEARCH_DEBOUNCE_MS 后自动查询，无需点击识别按钮 =====
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 watch(keyword, (val) => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -855,6 +864,12 @@ async function submitCheckout() {
     return
   }
   if (paying.value) return
+  // 现金必须经弹窗确认，杜绝「取消弹窗 → 主收款按钮空实收直接成交」的账实断点
+  if (payMode.value === 'simple' && payChannel.value === 'CASH' && !cashDialogOpen.value) {
+    cashTendered.value = ''
+    cashDialogOpen.value = true
+    return
+  }
   paying.value = true
   try {
     let payments: Array<{
@@ -889,7 +904,7 @@ async function submitCheckout() {
           },
         ]
       } else if (ch === 'CASH') {
-        // 现金：实收未填视为刚好付清；找零 = 实收 − 应收，不得为负
+        // 现金实收由弹窗收集；找零 = 实收 − 应收，不得为负
         const t = Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN)
         if (t > 0 && t < amount) {
           showToast('实收现金不足应收金额', true)
@@ -997,7 +1012,7 @@ function startNativePolling(orderNo: string) {
       } else if (r.status === 'CLOSED' || r.status.startsWith('FAILED')) {
         stopNativePolling()
         closeNativeDialog()
-        showToast(`Native 支付未完成：${r.status}`, true)
+        showToast(`扫码支付未完成（${r.status === 'CLOSED' ? '订单已关闭' : '支付失败'}），订单可在「订单作废/退货」中处理`, true)
       }
     } catch (e) {
       // 查单异常保持轮询，网络恢复后收敛
@@ -1150,10 +1165,28 @@ function openCouponDialog() {
   couponDraft.value = couponCode.value
   couponDialogOpen.value = true
 }
-function applyCouponDialog() {
-  couponCode.value = couponDraft.value.trim()
+async function applyCouponDialog() {
+  const code = couponDraft.value.trim()
+  if (!code) {
+    showToast('请输入优惠券码', true)
+    return
+  }
+  couponCode.value = code
   couponDialogOpen.value = false
-  void refreshQuote()
+  // 显式校验券码：报价失败时回滚，避免显示「券已用」却按原价收款
+  const ok = await refreshQuote({ silent: true })
+  if (!ok) {
+    couponCode.value = ''
+    couponDraft.value = ''
+    showToast('优惠券校验失败，已取消使用', true)
+  } else if (quote.value?.coupon_note) {
+    // 后端返回券不可用提示：券码已提交但未生效，回滚并透出原因
+    const reason = quote.value.coupon_note
+    couponCode.value = ''
+    couponDraft.value = ''
+    void refreshQuote({ silent: true })
+    showToast(`优惠券未生效（${reason}），已取消使用`, true)
+  }
 }
 function clearCoupon() {
   couponCode.value = ''
@@ -1161,11 +1194,12 @@ function clearCoupon() {
   void refreshQuote()
 }
 
-/** 报价刷新：购物车/会员/券变化后向后端取权威应收金额。 */
-async function refreshQuote() {
+/** 报价刷新：购物车/会员变化后向后端取权威应收金额；券码变化由 applyCoupon/clearCoupon 显式触发，避免竞态。
+ *  返回是否成功，silent 用于显式校验场景（由调用方给出更准确的提示）。 */
+async function refreshQuote(opts: { silent?: boolean } = {}): Promise<boolean> {
   if (!cart.value.length) {
     quote.value = null
-    return
+    return false
   }
   try {
     quote.value = await api.quoteOrder(
@@ -1173,13 +1207,16 @@ async function refreshQuote() {
       memberId.value,
       couponCode.value.trim() || null
     )
-  } catch {
+    return true
+  } catch (e) {
     quote.value = null
+    if (!opts.silent) showToast(`应收金额计算失败：${String(e)}`, true)
+    return false
   }
 }
 
 watch(
-  [() => cart.value, memberId, couponCode],
+  [() => cart.value, memberId],
   () => {
     void refreshQuote()
   },
@@ -1197,7 +1234,7 @@ async function park() {
     showToast('已挂单')
     if (parkDialogOpen.value) await loadParked()
   } catch (e) {
-    showToast(String(e))
+    showToast(String(e), true)
   }
 }
 
@@ -1205,7 +1242,7 @@ async function loadParked() {
   try {
     parked.value = await api.listParked()
   } catch (e) {
-    showToast(String(e))
+    showToast(String(e), true)
   }
 }
 
@@ -1217,7 +1254,7 @@ async function resume(parkId: number) {
     view.value = 'pos'
     showToast('已取单，促销将现场重算')
   } catch (e) {
-    showToast(String(e))
+    showToast(String(e), true)
   }
 }
 
@@ -1401,21 +1438,24 @@ async function loadConfigs() {
     showToast(String(e), true)
   }
 }
-async function saveConfig(key: string) {
+async function saveConfig(key: string): Promise<boolean> {
   try {
     await api.setConfig(key, configDraft.value[key] ?? '')
     showToast('配置已保存')
     await loadConfigs()
+    return true
   } catch (e) {
     showToast(String(e), true)
+    return false
   }
 }
 
-/** 开关型配置：点击即翻转并保存（'1' 启用 / '0' 停用）。 */
+/** 开关型配置：点击即翻转并保存（'1' 启用 / '0' 停用）；失败回滚到旧值，避免界面与后端不一致。 */
 async function toggleConfigSwitch(key: string) {
-  const next = configDraft.value[key] === '1' ? '0' : '1'
+  const prev = configDraft.value[key]
+  const next = prev === '1' ? '0' : '1'
   configDraft.value[key] = next
-  await saveConfig(key)
+  if (!(await saveConfig(key))) configDraft.value[key] = prev
 }
 
 // ===== 打印重试队列（§7.6）=====
@@ -1498,7 +1538,7 @@ async function removeCredential(field: string) {
 
 const currentCredFields = computed(() => PAY_CRED_FIELDS[credChannel.value])
 
-// ===== 渠道账单对账（PAY-05/06）=====
+// ===== 渠道账单对账 =====
 const reconDate = ref(today())
 const reconText = ref('')
 const reconSummary = ref<{ matched: number; missing_remote: number; missing_local: number; amount_mismatch: number; status_mismatch: number } | null>(null)
@@ -1601,11 +1641,21 @@ async function loadCoupons() {
   }
 }
 async function addCoupon() {
+  const discount = Number(couponForm.value.discountYuan)
+  const minOrder = Number(couponForm.value.minOrderYuan || '0')
+  if (!Number.isFinite(discount) || discount <= 0) {
+    showToast('优惠金额须大于 0 元', true)
+    return
+  }
+  if (!Number.isFinite(minOrder) || minOrder < 0) {
+    showToast('用券门槛不能为负数', true)
+    return
+  }
   try {
     await api.issueCoupon(
       memberId.value,
-      Math.round(Number(couponForm.value.discountYuan || '0') * CENTS_PER_YUAN),
-      Math.round(Number(couponForm.value.minOrderYuan || '0') * CENTS_PER_YUAN),
+      Math.round(discount * CENTS_PER_YUAN),
+      Math.round(minOrder * CENTS_PER_YUAN),
       couponForm.value.validUntil.trim() || null
     )
     couponForm.value = { discountYuan: '', minOrderYuan: '', validUntil: '' }
@@ -1625,18 +1675,28 @@ async function loadUsers() {
   try {
     users.value = await api.listUsers()
   } catch (e) {
-    showToast(String(e))
+    showToast(String(e), true)
   }
 }
 
 async function addUser() {
+  const username = uForm.value.username.trim()
+  const password = uForm.value.password
+  if (!username) {
+    showToast('请输入员工用户名', true)
+    return
+  }
+  if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
+    showToast('密码至少 8 位，且同时包含字母与数字', true)
+    return
+  }
   try {
-    await api.createUser(uForm.value.username.trim(), uForm.value.password, uForm.value.roleName)
+    await api.createUser(username, password, uForm.value.roleName)
     uForm.value = { username: '', password: '', roleName: 'CASHIER' }
     showToast('员工账号已创建')
     await loadUsers()
   } catch (e) {
-    showToast(String(e))
+    showToast(String(e), true)
   }
 }
 
@@ -1654,10 +1714,24 @@ function applyTheme(t: 'light' | 'dark') {
   document.documentElement.dataset.theme = t
   localStorage.setItem('checkoutr-theme', t)
 }
+/** Esc 统一关闭最上层弹窗：收银场景键盘高频，必须能不摸鼠标退出。
+ *  授权 / Native 收款弹窗走各自 cancel* 函数，确保挂起的 Promise 与轮询定时器一并清理。 */
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  if (lockSetupOpen.value) { cancelLockSetup(); return }
+  if (memberDialogOpen.value) { memberDialogOpen.value = false; return }
+  if (couponDialogOpen.value) { couponDialogOpen.value = false; return }
+  if (cashDialogOpen.value) { cashDialogOpen.value = false; return }
+  if (parkDialogOpen.value) { parkDialogOpen.value = false; return }
+  if (authDialog.value) { cancelSensitiveAuth(); return }
+  if (nativeDialog.value) { cancelNative(); return }
+}
 onMounted(() => {
   const saved = localStorage.getItem('checkoutr-theme') as 'light' | 'dark' | null
   if (saved) applyTheme(saved)
+  window.addEventListener('keydown', onGlobalKeydown)
 })
+onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
 function goPOS() { view.value = 'pos'; focusScan(); loadPayChannels() }
 function goProducts() { goodsTab.value = 'list'; view.value = 'products' }
 function goReport() {
@@ -1673,13 +1747,18 @@ async function openParkDialog() {
 }
 /** 付款区「会员」按钮：打开识别弹窗 */
 function openMemberDialog() {
+  memberFindError.value = ''
   memberDialogOpen.value = true
 }
-/** 弹窗内识别会员：成功则关闭弹窗 */
+/** 弹窗内识别会员：成功则关闭弹窗，失败留在弹窗内展示内联错误 */
 async function confirmMemberDialog() {
-  await findMember()
-  if (memberId.value != null) memberDialogOpen.value = false
+  if (await findMember()) memberDialogOpen.value = false
 }
+/** 会员/券弹窗打开即聚焦输入框，键盘与扫码枪操作员无需额外点选 */
+const memberDialogInput = ref<HTMLInputElement | null>(null)
+const couponDialogInput = ref<HTMLInputElement | null>(null)
+watch(memberDialogOpen, (open) => { if (open) void nextTick(() => memberDialogInput.value?.focus()) })
+watch(couponDialogOpen, (open) => { if (open) void nextTick(() => couponDialogInput.value?.focus()) })
 function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadCoupons(); loadPaymentSettings(); loadIndustries(); loadStoreProfile() }
 function doLogout() {
   api.logout()
@@ -1727,10 +1806,10 @@ function doLogout() {
           店名
           <input v-model="storeNameDraft" class="input" placeholder="如 城南生活超市" maxlength="30" />
         </label>
-        <div class="actions">
+        <div class="toolbar">
           <button class="btn" @click="loadIndustries">刷新行业列表</button>
           <button class="btn" @click="confirmIndustry">仅应用行业分类</button>
-          <button class="btn primary" @click="finishIndustrySetup">完成设置并开始使用</button>
+          <button class="btn primary" style="margin-left: auto" @click="finishIndustrySetup">完成设置并开始使用</button>
         </div>
         <p class="muted small">行业分类可在设置页随时调整，切换只新增分类不删除已有商品。</p>
       </div>
@@ -1875,7 +1954,7 @@ function doLogout() {
               <img v-if="productImageSrc(l)" :src="productImageSrc(l)!" class="cart-thumb" alt="" />
               <span v-else class="cart-thumb cart-thumb-empty"></span>
               <div class="line-name">
-                {{ l.name || `SKU ${l.sku_id}` }}
+                {{ l.name || `商品 ${l.sku_id}` }}
                 <span v-if="l.member_price_cents" class="tag">会员价</span>
               </div>
               <div class="qty-ctrl">
@@ -1890,7 +1969,7 @@ function doLogout() {
           <div class="cart-foot">
             <div class="pay-quick-row">
               <button class="btn pay-quick" :class="{ active: memberId != null }" @click="openMemberDialog">
-                <Icon name="user" :size="ICON_SIZE.md" />{{ memberId != null ? `会员 #${memberId}` : '会员' }}
+                <Icon name="user" :size="ICON_SIZE.md" />{{ memberId != null ? '会员（已识别）' : '会员' }}
               </button>
               <button class="btn pay-quick" :class="{ active: !!couponCode }" @click="openCouponDialog">
                 <Icon name="ticket" :size="ICON_SIZE.md" />{{ couponCode ? `券 ${couponCode}` : '优惠券' }}
@@ -1976,7 +2055,7 @@ function doLogout() {
               </div>
               <label class="checkbox-label">
                 <input v-model="nativeMode" type="checkbox" />
-                Native 支付（顾客扫屏幕二维码，微信/支付宝）
+                顾客扫屏幕二维码支付（微信/支付宝）
               </label>
               <button class="btn ghost" @click="addPaySplit">+ 添加支付方式</button>
               <input
@@ -1991,7 +2070,7 @@ function doLogout() {
               </div>
               <button class="btn ghost" @click="payMode = 'simple'; payChannel = 'CASH'"><Icon name="undo" :size="ICON_SIZE.sm" />返回单笔支付</button>
             </div>
-            <div class="actions">
+            <div class="actions checkout-actions">
               <button class="btn" @click="openParkDialog"><Icon name="pause" :size="ICON_SIZE.md" />挂单</button>
               <button class="btn primary" :disabled="paying" @click="submitCheckout">
                 <span v-if="paying" class="btn-spinner" aria-label="处理中"></span>
@@ -2012,7 +2091,7 @@ function doLogout() {
       <!-- 商品与分类：页签与内容同处统一管理骨架，左对齐 -->
       <main v-else-if="view === 'products' || view === 'categories'" class="main-simple">
         <div class="page-head">
-          <h2>商品管理</h2>
+          <h2>{{ goodsTab === 'category' ? '分类管理' : '商品管理' }}</h2>
           <div class="seg" role="tablist">
             <button :class="['seg-btn', { active: goodsTab === 'list' }]" role="tab" :aria-selected="goodsTab === 'list'" @click="goodsTab = 'list'; view = 'products'">
               <Icon name="package" :size="ICON_SIZE.md" />商品列表
@@ -2110,14 +2189,14 @@ function doLogout() {
               <button class="btn" @click="loadShift">查询汇总</button>
             </div>
             <table v-if="shiftRows.length" class="tbl">
-              <thead><tr><th>收银员</th><th>订单数</th><th>应收</th><th>实收</th><th>现金净额</th></tr></thead>
+              <thead><tr><th>收银员</th><th class="num-cell">订单数</th><th class="num-cell">应收</th><th class="num-cell">实收</th><th class="num-cell">现金净额</th></tr></thead>
               <tbody>
                 <tr v-for="r in shiftRows" :key="r.cashier_id">
                   <td>{{ r.cashier_id }}</td>
-                  <td>{{ r.order_count }}</td>
-                  <td>{{ formatMoney(r.total_cents) }}</td>
-                  <td>{{ formatMoney(r.pay_cents) }}</td>
-                  <td>{{ formatMoney(r.cash_net_cents) }}</td>
+                  <td class="num-cell">{{ r.order_count }}</td>
+                  <td class="num-cell">{{ formatMoney(r.total_cents) }}</td>
+                  <td class="num-cell">{{ formatMoney(r.pay_cents) }}</td>
+                  <td class="num-cell">{{ formatMoney(r.cash_net_cents) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -2134,14 +2213,14 @@ function doLogout() {
               <button class="btn" @click="loadOrderItems">查询明细</button>
             </div>
             <table v-if="opItems.length" class="tbl">
-              <thead><tr><th>商品</th><th>数量</th><th>已退</th><th>单价</th><th>本次退货数</th></tr></thead>
+              <thead><tr><th>商品</th><th class="num-cell">数量</th><th class="num-cell">已退</th><th class="num-cell">单价</th><th class="num-cell">本次退货数</th></tr></thead>
               <tbody>
                 <tr v-for="r in opItems" :key="r.item_id">
                   <td>{{ r.product_name }}</td>
-                  <td>{{ r.qty }}</td>
-                  <td>{{ r.returned_qty }}</td>
-                  <td>{{ formatMoney(r.unit_price_cents) }}</td>
-                  <td><input v-model="opQty[r.item_id]" class="input input-sm" type="number" min="0" :max="r.qty - r.returned_qty" /></td>
+                  <td class="num-cell">{{ r.qty }}</td>
+                  <td class="num-cell">{{ r.returned_qty }}</td>
+                  <td class="num-cell">{{ formatMoney(r.unit_price_cents) }}</td>
+                  <td class="num-cell"><input v-model="opQty[r.item_id]" class="input input-sm" type="number" min="0" :max="r.qty - r.returned_qty" /></td>
                 </tr>
               </tbody>
             </table>
@@ -2369,7 +2448,7 @@ function doLogout() {
 
           <!-- 渠道对账 -->
           <div v-else-if="settingsTab === 'recon'" class="card wide">
-            <h3>渠道账单对账（PAY-05/06）</h3>
+            <h3>渠道账单对账</h3>
             <div class="search-row">
               <input v-model="reconDate" class="input" type="date" />
               <button class="btn" @click="loadReconDiffs">查询差异</button>
@@ -2388,14 +2467,14 @@ function doLogout() {
               <div class="stat"><span>状态不符</span><strong>{{ reconSummary.status_mismatch }}</strong></div>
             </div>
             <table v-if="reconDiffs.length" class="tbl">
-              <thead><tr><th>渠道</th><th>差异类型</th><th>订单号</th><th>本地</th><th>渠道</th><th>说明</th></tr></thead>
+              <thead><tr><th>渠道</th><th>差异类型</th><th>订单号</th><th class="num-cell">本地</th><th class="num-cell">渠道</th><th>说明</th></tr></thead>
               <tbody>
                 <tr v-for="d in reconDiffs" :key="d.recon_id">
                   <td>{{ d.channel }}</td>
                   <td>{{ d.diff_type }}</td>
                   <td class="mono">{{ d.order_no || '—' }}</td>
-                  <td>{{ formatMoney(d.local_amount_cents) }}</td>
-                  <td>{{ formatMoney(d.channel_amount_cents) }}</td>
+                  <td class="num-cell">{{ formatMoney(d.local_amount_cents) }}</td>
+                  <td class="num-cell">{{ formatMoney(d.channel_amount_cents) }}</td>
                   <td class="muted small">{{ d.detail }}</td>
                 </tr>
               </tbody>
@@ -2412,11 +2491,13 @@ function doLogout() {
               <button class="btn" @click="addCoupon">发券</button>
             </div>
             <table v-if="coupons.length" class="tbl">
-              <thead><tr><th>券码</th><th>优惠额</th><th>门槛</th><th>状态</th></tr></thead>
+              <thead><tr><th>券码</th><th class="num-cell">优惠额</th><th class="num-cell">门槛</th><th>状态</th></tr></thead>
               <tbody>
                 <tr v-for="c in coupons" :key="c.coupon_code">
-                  <td>{{ c.coupon_code }}</td><td>¥{{ formatMoney(c.discount_cents) }}</td>
-                  <td>¥{{ formatMoney(c.min_order_cents) }}</td><td>{{ c.status }}</td>
+                  <td class="mono">{{ c.coupon_code }}</td>
+                  <td class="num-cell">¥{{ formatMoney(c.discount_cents) }}</td>
+                  <td class="num-cell">¥{{ formatMoney(c.min_order_cents) }}</td>
+                  <td>{{ c.status }}</td>
                 </tr>
               </tbody>
             </table>
@@ -2438,7 +2519,7 @@ function doLogout() {
 
       <!-- 二次授权弹窗（§12.4） -->
       <div v-if="authDialog" class="modal-mask">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="二次授权">
           <h3>{{ authDialog?.title }}</h3>
           <p class="muted small">此项操作需店长或管理员二次授权</p>
           <input v-model="authUser" class="input" placeholder="授权人用户名" />
@@ -2453,7 +2534,7 @@ function doLogout() {
 
       <!-- Native 支付弹窗（§6.3）：二维码 + 轮询 + 本地确认兜底 -->
       <div v-if="nativeDialog" class="modal-mask">
-        <div class="modal native-modal">
+        <div class="modal native-modal" role="dialog" aria-modal="true" aria-label="顾客扫码支付">
           <h3>顾客扫码支付</h3>
           <p class="muted small">请顾客使用微信或支付宝扫一扫完成付款，收款后自动关闭</p>
           <div class="qr-box" v-html="nativeDialog.qrSvg"></div>
@@ -2467,12 +2548,12 @@ function doLogout() {
 
       <!-- 挂单弹窗：付款区「挂单」按钮唤起 -->
       <div v-if="parkDialogOpen" class="modal-mask" @click.self="parkDialogOpen = false">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="待取挂单">
           <h3>待取挂单</h3>
           <p class="muted small">点击「取单」将挂单商品放回购物车，促销与会员价现场重算。</p>
           <div class="park-dialog-list">
             <div v-for="p in parked" :key="String((p as any).park_id)" class="row-item">
-              <span>单号 #{{ (p as any).park_id }} · {{ (p as any).created_at }}</span>
+              <span>挂单 {{ (p as any).park_id }} · {{ (p as any).created_at }}</span>
               <button class="btn" @click="resume((p as any).park_id)">取单</button>
             </div>
             <div v-if="!parked.length" class="empty">暂无挂单</div>
@@ -2487,10 +2568,11 @@ function doLogout() {
       <!-- 会员识别弹窗：付款区「会员」按钮唤起 -->
       <!-- 优惠券弹窗：点击付款区「优惠券」图标按钮唤起 -->
       <div v-if="couponDialogOpen" class="modal-mask" @click.self="couponDialogOpen = false">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="使用优惠券">
           <h3>使用优惠券</h3>
           <p class="muted small">输入优惠券码，应用后按券规则计算优惠；不使用可清除。</p>
           <input
+            ref="couponDialogInput"
             v-model="couponDraft"
             class="input"
             placeholder="优惠券码"
@@ -2506,7 +2588,7 @@ function doLogout() {
 
       <!-- 现金收银弹窗：应收 / 快捷面额 / 实收 / 找零，确认后完成收款 -->
       <div v-if="cashDialogOpen" class="modal-mask" @click.self="cashDialogOpen = false">
-        <div class="modal cash-modal">
+        <div class="modal cash-modal" role="dialog" aria-modal="true" aria-label="现金收款">
           <h3>现金收款</h3>
           <div class="total">
             <span>应收</span>
@@ -2518,11 +2600,18 @@ function doLogout() {
             class="input input-lg"
             type="number"
             step="0.01"
-            placeholder="实收现金（元），留空视为刚好付清"
+            placeholder="实收现金（元），可直接点「刚好」按应收收款"
             @keyup.enter="submitCheckout"
           />
           <div class="quick-cash">
-            <button v-for="v in QUICK_CASH_YUAN" :key="v" class="btn ghost" :disabled="v * CENTS_PER_YUAN < payableAmount" @click="cashTendered = String(v)">¥{{ v }}</button>
+            <button
+              v-for="v in QUICK_CASH_YUAN"
+              :key="v"
+              class="btn ghost"
+              :disabled="v * CENTS_PER_YUAN < payableAmount"
+              :title="v * CENTS_PER_YUAN < payableAmount ? `小于应收 ¥${formatMoney(payableAmount)}` : `实收 ¥${v}`"
+              @click="cashTendered = String(v)"
+            >¥{{ v }}</button>
             <button class="btn ghost" @click="exactCash">刚好</button>
           </div>
           <div v-if="cashOverpaid" class="change-due">
@@ -2542,15 +2631,17 @@ function doLogout() {
       </div>
 
       <div v-if="memberDialogOpen" class="modal-mask" @click.self="memberDialogOpen = false">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="识别会员">
           <h3>识别会员</h3>
           <p class="muted small">输入会员手机号或会员码，识别后按会员价结算；本单收款完成后自动清除。</p>
           <input
+            ref="memberDialogInput"
             v-model="memberPhone"
             class="input"
             placeholder="会员手机号/会员码"
             @keyup.enter="confirmMemberDialog"
           />
+          <p v-if="memberFindError" class="form-error" role="alert"><Icon name="alert" :size="ICON_SIZE.sm" />{{ memberFindError }}</p>
           <div v-if="memberBalances" class="member-balance">
             本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
           </div>
@@ -2582,7 +2673,7 @@ function doLogout() {
 
       <!-- 锁机码设置：首次锁机尚未设码时由「锁机」按钮唤起 -->
       <div v-if="lockSetupOpen" class="modal-mask" @click.self="cancelLockSetup">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="设置锁机码">
           <h3>设置锁机码</h3>
           <p class="muted small">离岗锁屏、或关闭窗口隐藏到托盘后，输入此码解锁。仅保存在本机。</p>
           <input
@@ -2599,7 +2690,7 @@ function doLogout() {
         </div>
       </div>
 
-      <div v-if="toast" class="toast" :class="{ err: toast.startsWith('错误') }">{{ toast }}</div>
+      <div v-if="toast" class="toast" :class="{ err: toastKind === 'error' }" role="status" :aria-live="toastKind === 'error' ? 'assertive' : 'polite'">{{ toast }}</div>
     </div>
   </div>
 </template>

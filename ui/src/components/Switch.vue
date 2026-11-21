@@ -26,11 +26,18 @@ function toggle() {
     @click="toggle"
   >
     <span class="switch-track"><span class="switch-thumb" /></span>
-    <span v-if="label" class="switch-label">{{ modelValue ? '已启用' : '已停用' }}</span>
+    <!-- label 仅作 aria-label 供读屏；语义标签由调用方在左侧渲染，避免重复 -->
   </button>
 </template>
 
 <style scoped>
+/* 组件层尺度：从语义间距派生，改全站密度时随之调整 */
+.switch {
+  --sw-track-w: 40px;   /* 10 × 4px 基数，容纳 thumb + 两侧 3px 边距 + 滑动行程 */
+  --sw-track-h: 22px;   /* 拇指 16px + 上下各 3px 呼吸，触控仍可点 */
+  --sw-thumb: 16px;
+  --sw-pad: 3px;        /* 半步 2px 略紧，取 3px 让拇指与轨道留一圈描边感 */
+}
 .switch {
   display: inline-flex;
   align-items: center;
@@ -44,8 +51,8 @@ function toggle() {
 .switch.disabled { cursor: not-allowed; opacity: var(--opacity-disabled); }
 .switch-track {
   position: relative;
-  width: 40px;
-  height: 22px;
+  width: var(--sw-track-w);
+  height: var(--sw-track-h);
   border-radius: var(--radius-pill);
   background: var(--border-strong);
   transition: background var(--duration-fast) var(--ease-out);
@@ -53,16 +60,17 @@ function toggle() {
 }
 .switch-thumb {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
+  top: var(--sw-pad);
+  left: var(--sw-pad);
+  width: var(--sw-thumb);
+  height: var(--sw-thumb);
   border-radius: var(--radius-circle);
-  background: var(--p-ink-0);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  background: var(--on-chrome);
+  box-shadow: var(--shadow);
   transition: transform var(--duration-fast) var(--ease-out);
 }
 .switch.on .switch-track { background: var(--brand); }
-.switch.on .switch-thumb { transform: translateX(18px); }
-.switch-label { font-size: var(--font-xs); white-space: nowrap; }
+/* 位移 = 轨宽 − 拇指 − 两侧边距，改尺寸时自动跟随 */
+.switch.on .switch-thumb { transform: translateX(calc(var(--sw-track-w) - var(--sw-thumb) - var(--sw-pad) * 2)); }
+.switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 </style>

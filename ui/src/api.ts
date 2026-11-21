@@ -502,7 +502,7 @@ export const api = {
     invoke<{ cash: boolean; wechat: boolean; alipay: boolean; stored_value: boolean }>(
       'get_pay_channels'
     ),
-  // 渠道账单对账（PAY-05/06）
+  // 渠道账单对账
   importWechatBill: (reconDate: string, csvText: string) =>
     invoke<{ matched: number; missing_remote: number; missing_local: number; amount_mismatch: number; status_mismatch: number }>(
       'import_wechat_bill',

@@ -41,8 +41,8 @@ export const DISCOUNT_ZHE_FACTOR = 10
 export const SCAN_GAP_MS_DEFAULT = 50
 /** 扫码输入最小长度：短于此值视为人工输入，避免单字符误判为扫码 */
 export const SCAN_MIN_LENGTH = 4
-/** 收银员手动输入与扫码的区分等待窗口（ms）：输入停止后再联想 */
-export const SEARCH_DEBOUNCE_MS = 120
+/** 商品搜索联想防抖（ms）：输入停止 250ms 再请求，兼顾扫码枪连续楔入与手输体感 */
+export const SEARCH_DEBOUNCE_MS = 250
 /** 组织商品名用于小票/列表的截断长度 */
 export const PRODUCT_NAME_MAX = 40
 

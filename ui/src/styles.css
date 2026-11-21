@@ -130,11 +130,6 @@ h2 { font-size: var(--font-lg); }
   opacity: 0.85;
 }
 .error { color: var(--danger); margin: var(--space-0); font-size: var(--font-xs); }
-.inline-form {
-  border-top: var(--border-width) solid var(--border);
-  padding-top: var(--space-3);
-  display: flex; flex-direction: column; gap: var(--space-2);
-}
 
 .shell { height: 100%; display: flex; flex-direction: column; }
 .topbar {
@@ -180,6 +175,7 @@ h2 { font-size: var(--font-lg); }
   min-height: 0;
 }
 /* 通用搜索工具栏：管理页多控件并排（查询/新增等） */
+/* 工具行基类：横向控件组的共同骨架，具体语义类只声明差异 */
 .search-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 /* 收银页扫码搜索：输入框独占，加载/候选提示内嵌在输入框右侧，不放识别按钮 */
 .scan-search { position: relative; flex-wrap: nowrap; }
@@ -235,6 +231,13 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-0_5) var(--space-2);
   font-size: var(--font-xs);
 }
+/* 状态徽章：淡底深字，成功/停用两态；与计数 badge 的实心撞色拉开语义 */
+.badge-ok, .badge-off {
+  border-radius: var(--radius-pill); padding: var(--space-0_5) var(--space-2);
+  font-size: var(--font-xs); font-weight: 500;
+}
+.badge-ok { background: var(--success-subtle); color: var(--success-text); }
+.badge-off { background: var(--surface-subtle); color: var(--text-muted); }
 .cart-list { flex: 1; overflow-y: auto; margin: var(--space-2) var(--space-0); }
 .cart-line {
   display: grid; grid-template-columns: auto 1fr auto auto;
@@ -257,8 +260,9 @@ h2 { font-size: var(--font-lg); }
 }
 .total { display: flex; justify-content: space-between; align-items: center; font-size: var(--font-md); }
 .total strong { color: var(--brand); font-size: var(--font-2xl); }
-.pay-row { display: grid; grid-template-columns: var(--layout-pay-label-width) 1fr; gap: var(--space-2); }
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+/* 收银动作区：收款是唯一主行动，占满剩余宽度；挂单保持内容宽 */
+.checkout-actions .btn.primary { flex: 1; }
 
 /* 后台管理骨架：左栏贴左全高（报表中心 / 设置中心共用），右侧内容独立滚动 */
 .admin-shell {
@@ -362,7 +366,9 @@ h2 { font-size: var(--font-lg); }
 .report-toolbar { row-gap: var(--space-2); margin-bottom: var(--space-4); }
 .report-toolbar .input { flex: none; min-width: 0; }
 .report-table-wrap { max-height: 60vh; overflow: auto; }
-.report-table-wrap .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
+/* 数字列右对齐 + 等宽数字：所有后台表格的金额/数量/差异列共用，便于纵向扫读比对。
+   表头与数据用同一判断规则，确保逐列对齐。 */
+.tbl .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
 .page-head { display: flex; align-items: center; gap: var(--space-4); }
 .tab-row { display: flex; gap: var(--space-2); }
 /* 子页面内容流：父级 main-simple 提供骨架，此层只做纵向分组 */
@@ -382,6 +388,19 @@ h2 { font-size: var(--font-lg); }
 }
 .seg-btn:hover { color: var(--text); background: var(--panel); }
 .seg-btn.active { background: var(--chrome); color: var(--on-chrome); font-weight: 600; }
+/* 分段单选：互斥二选一场景，语义是 radio，视觉与页签 seg 同源但选项等宽 */
+.segmented {
+  display: inline-flex; gap: var(--space-1); padding: var(--space-1);
+  background: var(--surface-subtle); border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+.segmented button {
+  padding: var(--space-2) var(--space-4); border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted); cursor: pointer; font-size: var(--font-sm);
+}
+.segmented button:hover { color: var(--text); background: var(--panel); }
+.segmented button.active { background: var(--chrome); color: var(--on-chrome); font-weight: 600; }
+.segmented button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .toolbar .input { flex: 1; min-width: var(--control-search-min-width); }
 .search-row .input { flex: 1; min-width: 0; }
@@ -404,14 +423,59 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-1) var(--space-3); font-size: var(--font-xs);
 }
 .candidate {
+  display: block; width: 100%; text-align: left;
   padding: var(--space-1) var(--space-3);
+  border: none; background: transparent; color: var(--text);
   cursor: pointer; border-radius: var(--radius-sm);
   font-size: var(--font-sm);
 }
 .candidate:hover { background: var(--border); }
+.candidate:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
 .ok-msg { color: var(--success-text); font-size: var(--font-sm); margin: var(--space-0); }
-.warning-text { color: var(--danger); }
+/* 警示语义：低库存、盘点差异等「提醒」用金黄，与危险红拉开；暗色模式语义层已翻转文字色 */
+.warning-text { color: var(--warning-text); }
+/* 空态卡片：比整张空 card 轻量，图标 + 引导语居中，避免大片无效留白 */
+.empty-state-card {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
+  padding: var(--space-10) var(--space-4);
+  border: var(--border-width) dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-muted); font-size: var(--font-sm); text-align: center;
+}
+.empty-state-card p { margin: var(--space-0); }
+/* 视觉隐藏：仅给读屏器读，视觉上不占位（用于表头空的操作列等） */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+/* 危险语气：删除/停用等破坏性动作与中性操作拉开，但不滥用实心红 */
+.danger-text { color: var(--danger); }
+.danger-text:hover { background: var(--danger-subtle); }
+/* 退款应退金额：整卡焦点，避免用 4 列 stats 只占 1/4 造成视觉失衡 */
+.refund-total {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: var(--brand-subtle); border: var(--border-width) solid var(--brand-border);
+  border-radius: var(--radius-md);
+}
+.refund-total span { color: var(--text-muted); font-size: var(--font-sm); }
+.refund-total strong {
+  color: var(--brand); font-size: var(--font-2xl); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* 行内合计：金额是核心信息，用主色强调而非 muted 次要文字 */
+.total-inline { margin: var(--space-0); font-size: var(--font-sm); }
+.total-inline strong { color: var(--brand); font-size: var(--font-md); font-variant-numeric: tabular-nums; }
+/* 警示条：比纯文字多一层淡底和描边，让「提醒」自成一组又不像错误 */
+.notice-warning {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--warning-border);
+  border-radius: var(--radius-sm);
+  background: var(--warning-subtle); color: var(--warning-text);
+  font-size: var(--font-sm); margin: var(--space-0);
+}
 .row-disabled { opacity: var(--opacity-disabled); }
 .mb-2 { margin-bottom: var(--space-2); }
 .input-sm {
@@ -423,18 +487,8 @@ h2 { font-size: var(--font-lg); }
   display: flex; gap: var(--space-2); align-items: center;
   margin-top: var(--space-2); flex-wrap: wrap;
 }
-.user-mgmt {
-  margin-top: var(--space-3);
-  border-top: var(--border-width) solid var(--border);
-  padding-top: var(--space-3);
-}
 
 /* 会员识别 / 混合支付 / 二次授权 / 多维报表（v1 核心闭环接通） */
-.member-strip {
-  display: flex; gap: var(--space-2); align-items: center;
-  margin-top: var(--space-3); padding-top: var(--space-3);
-  border-top: var(--border-width) solid var(--border);
-}
 .member-balance {
   margin-top: var(--space-2); font-size: var(--font-sm);
   color: var(--success-text); background: var(--success-subtle);
@@ -530,6 +584,8 @@ h2 { font-size: var(--font-lg); }
   border-radius: var(--radius-xs);
 }
 .field-label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-sm); color: var(--muted); }
+/* 只读字段值：纯文本展示，不伪装成可编辑的输入框 */
+.field-value { font-size: var(--font-base); color: var(--text); padding: var(--space-1) var(--space-0); }
 .input-qty { width: var(--control-input-sm-width); }
 .modal-mask {
   position: fixed; inset: 0; z-index: var(--z-overlay);
@@ -545,7 +601,7 @@ h2 { font-size: var(--font-lg); }
 }
 .modal h3 { margin: 0; }
 /* 现金收银弹窗：横向加宽，容纳快捷面额一行铺开 */
-.cash-modal { width: var(--layout-auth-width); }
+.cash-modal { width: var(--layout-cash-modal-width); max-width: 92vw; }
 /* 购物车空闲态：空车时只留引导语，不显示任何金额与支付方式 */
 .cart-idle {
   display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
@@ -555,7 +611,7 @@ h2 { font-size: var(--font-lg); }
 }
 /* 锁机码锁屏：覆盖全屏（含顶栏与弹窗），输码后才能回到收银界面 */
 .lock-overlay {
-  position: fixed; inset: 0; z-index: calc(var(--z-overlay) + 10);
+  position: fixed; inset: 0; z-index: var(--z-lock);
   background: var(--overlay-scrim);
   backdrop-filter: blur(6px);
   display: flex; align-items: center; justify-content: center;

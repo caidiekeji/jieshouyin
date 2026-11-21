@@ -157,6 +157,7 @@
   --p-z-overlay: 100;
   --p-z-modal: 200;
   --p-z-toast: 300;
+  --p-z-lock: 400;
 
   /* 遮罩：模态框背后压暗层，用墨炭 900 半透明表达，禁止就地写 rgba */
   --p-overlay-scrim: rgba(21, 17, 14, 0.5);
@@ -206,9 +207,9 @@
   --warning-subtle: var(--p-warning-50);
   --warning-border: var(--p-warning-100);
 
-  /* 海拔 */
+  /* 海拔：卡片与浮层各用其阶，浮层阴影更深以表达悬浮 */
   --shadow: var(--p-shadow-card);
-  --shadow-float: var(--p-shadow-card);
+  --shadow-float: var(--p-shadow-float);
 
   /* 浮层专用反色底（亮色下深底白字，保证与卡片区分） */
   --toast-bg: var(--p-neutral-800);
@@ -271,6 +272,8 @@
 :root {
   --layout-topbar-height: 56px;
   --layout-auth-width: 460px;
+  /* 现金收银弹窗宽度：5 个快捷面额 + 「刚好」需一行铺开，比认证弹窗宽一档 */
+  --layout-cash-modal-width: 560px;
   --layout-content-width: 900px;
   --layout-cart-width: 400px;
   /* 管理页内容上限：1280 收银屏减两侧 24px 页边距可用 1232px，取 1200 留呼吸边；
@@ -348,6 +351,7 @@
   --z-overlay: var(--p-z-overlay);
   --z-modal: var(--p-z-modal);
   --z-toast: var(--p-z-toast);
+  --z-lock: var(--p-z-lock);
   --overlay-scrim: var(--p-overlay-scrim);
 
   /* 兼容旧组件中使用的短名 */

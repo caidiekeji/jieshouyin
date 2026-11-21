@@ -232,14 +232,17 @@ onMounted(reload)
 
 <template>
   <div class="page-body">
-    <p v-if="lowStockCount > 0" class="muted small warning-text">
-      <Icon name="alert" :size="ICON_SIZE.sm" /> {{ lowStockCount }} 个商品库存低于预警值
+    <p v-if="lowStockCount > 0" class="notice-warning">
+      <Icon name="alert" :size="ICON_SIZE.sm" /> 有 {{ lowStockCount }} 个商品库存低于预警值，建议及时补货（下表以警示色标出）
     </p>
 
     <div class="toolbar">
       <input v-model="keyword" class="input" placeholder="搜索商品名 / 条码" @keyup.enter="reload" />
-      <button class="btn" @click="reload"><Icon name="search" :size="ICON_SIZE.md" />查询</button>
-      <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />新增商品</button>
+      <button class="btn" :disabled="loading" @click="reload">
+        <span v-if="loading" class="btn-spinner" aria-label="查询中"></span>
+        <Icon v-else name="search" :size="ICON_SIZE.md" />{{ loading ? '查询中…' : '查询' }}
+      </button>
+      <button class="btn primary" :aria-expanded="showCreate" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />{{ showCreate ? '收起表单' : '新增商品' }}</button>
     </div>
 
     <p v-if="err" class="error">{{ err }}</p>
@@ -281,8 +284,8 @@ onMounted(reload)
             <th>名称</th>
             <th>条码</th>
             <th>分类</th>
-            <th>售价</th>
-            <th>库存</th>
+            <th class="num-cell">售价</th>
+            <th class="num-cell">库存</th>
             <th>状态</th>
             <th>操作</th>
           </tr>
@@ -296,17 +299,17 @@ onMounted(reload)
             <td>{{ p.name }}<span v-if="p.is_weighed" class="muted small">（称重/{{ p.unit }}）</span></td>
             <td class="mono">{{ p.barcode || '—' }}</td>
             <td>{{ p.category_name }}</td>
-            <td>
+            <td class="num-cell">
               <span v-if="editSku !== p.sku_id">{{ formatMoney(p.sale_price_cents) }}</span>
               <span v-else class="edit-row">
-                <input v-model="editPrice" class="input input-sm" />
-                <input v-model="editMemberPrice" class="input input-sm" placeholder="会员价" />
-                <input v-model="editInstore" class="input input-sm" placeholder="店内码" />
-                <input v-model="editAlert" class="input input-sm" placeholder="预警" />
-                <button class="btn btn-sm" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" /></button>
+                <input v-model="editPrice" class="input input-sm" aria-label="售价（元）" />
+                <input v-model="editMemberPrice" class="input input-sm" placeholder="会员价" aria-label="会员价（元）" />
+                <input v-model="editInstore" class="input input-sm" placeholder="店内码" aria-label="店内码" />
+                <input v-model="editAlert" class="input input-sm" placeholder="预警" aria-label="库存预警值" />
+                <button class="btn btn-sm" aria-label="保存修改" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" /></button>
               </span>
             </td>
-            <td :class="{ 'warning-text': p.qty <= p.alert_qty }">
+            <td class="num-cell" :class="{ 'warning-text': p.qty <= p.alert_qty }">
               {{ p.qty }} {{ p.unit }}<span v-if="p.qty <= p.alert_qty" class="muted small">（低于预警 {{ p.alert_qty }}）</span>
             </td>
             <td>{{ p.status === 1 ? '在售' : '停用' }}</td>
@@ -320,7 +323,7 @@ onMounted(reload)
             </td>
           </tr>
           <tr v-if="products.length === 0">
-            <td colspan="8" class="muted">暂无商品，点击右上角"新增商品"创建第一个商品</td>
+            <td colspan="8" class="empty">暂无商品，点击上方「新增商品」创建第一个商品</td>
           </tr>
         </tbody>
       </table>

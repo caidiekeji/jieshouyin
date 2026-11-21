@@ -67,11 +67,21 @@ function openRecharge(m: MemberRow) {
 
 async function submitRecharge() {
   if (rechargeMemberId.value == null) return
+  const principalYuan = parseFloat(principal.value || '0')
+  const bonusYuan = parseFloat(bonus.value || '0')
+  if (!Number.isFinite(principalYuan) || principalYuan <= 0) {
+    fail('实充金额须大于 0 元')
+    return
+  }
+  if (!Number.isFinite(bonusYuan) || bonusYuan < 0) {
+    fail('赠送金额不能为负数')
+    return
+  }
   try {
     await api.rechargeMember(
       rechargeMemberId.value,
-      Math.round(parseFloat(principal.value || '0') * CENTS_PER_YUAN),
-      Math.round(parseFloat(bonus.value || '0') * CENTS_PER_YUAN)
+      Math.round(principalYuan * CENTS_PER_YUAN),
+      Math.round(bonusYuan * CENTS_PER_YUAN)
     )
     rechargeMemberId.value = null
     done('充值成功')
@@ -179,27 +189,27 @@ onMounted(() => {
       <div class="card">
         <table class="tbl">
           <thead>
-            <tr><th>会员</th><th>手机号</th><th>会员号</th><th>储值本金</th><th>赠送金</th><th>积分</th><th>成长值</th><th>操作</th></tr>
+            <tr><th>会员</th><th>手机号</th><th>会员号</th><th class="num-cell">储值本金</th><th class="num-cell">赠送金</th><th class="num-cell">积分</th><th class="num-cell">成长值</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="m in members" :key="m.member_id">
               <td>{{ m.name || '—' }}</td>
               <td class="mono">{{ m.phone || '—' }}</td>
               <td class="mono">{{ m.member_code }}</td>
-              <td>{{ formatMoney(m.principal_cents) }}</td>
-              <td>{{ formatMoney(m.bonus_cents) }}</td>
-              <td>{{ m.points }}</td>
-              <td>{{ m.growth }}</td>
+              <td class="num-cell">{{ formatMoney(m.principal_cents) }}</td>
+              <td class="num-cell">{{ formatMoney(m.bonus_cents) }}</td>
+              <td class="num-cell">{{ m.points }}</td>
+              <td class="num-cell">{{ m.growth }}</td>
               <td><button class="btn btn-sm" @click="openRecharge(m)">充值</button></td>
             </tr>
-            <tr v-if="!members.length"><td colspan="8" class="muted">暂无会员</td></tr>
+            <tr v-if="!members.length"><td colspan="8" class="empty">暂无会员，可先在前台收银时识别或到设置页新增</td></tr>
           </tbody>
         </table>
       </div>
 
       <div v-if="rechargeMemberId != null" class="card">
         <h3>会员充值：{{ rechargeName }}</h3>
-        <p class="muted small">实充进入本金，赠送额进入赠送金账户（§13.3，不可提现）</p>
+        <p class="muted small">实充金额进入本金，赠送金额进入赠送金账户；赠送金不可提现、不可找零。</p>
         <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
           <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
@@ -235,18 +245,23 @@ onMounted(() => {
             </select>
           </label>
           <label v-if="pForm.mode === 'DISCOUNT'">折扣率<input v-model="pForm.discountRate" class="input" placeholder="0.85 = 85折" /></label>
-          <label v-else>满减金额（分）<input v-model="pForm.discountAmount" class="input" placeholder="如 500 = 5 元" /></label>
-          <label class="checkbox-label"><input v-model="pForm.exclusive" type="checkbox" /> 互斥（不可叠加）</label>
-          <label class="checkbox-label"><input v-model="pForm.stackable" type="checkbox" /> 可叠加</label>
+          <label v-else>满减金额（元）<input v-model="pForm.discountAmount" class="input" type="number" step="0.01" placeholder="如 5 = 减 5 元" /></label>
+          <div class="field">
+            <span class="field-label">叠加方式</span>
+            <div class="segmented" role="radiogroup" aria-label="叠加方式">
+              <button type="button" role="radio" :aria-checked="!pForm.stackable" :class="{ active: !pForm.stackable }" @click="pForm.stackable = false; pForm.exclusive = true">互斥，不可叠加</button>
+              <button type="button" role="radio" :aria-checked="pForm.stackable" :class="{ active: pForm.stackable }" @click="pForm.stackable = true; pForm.exclusive = false">可与其他规则叠加</button>
+            </div>
+          </div>
         </div>
-        <p class="muted small">当前版本规则作用于全部商品；指定商品促销（target_skus）后续版本支持</p>
+        <p class="muted small">当前版本规则作用于全部商品；指定商品促销将在后续版本支持</p>
         <button class="btn primary" @click="addPromo">创建规则</button>
       </div>
 
       <div class="card">
         <table class="tbl">
           <thead>
-            <tr><th>名称</th><th>范围</th><th>门槛</th><th>优惠</th><th>优先级</th><th>状态</th><th>操作</th></tr>
+            <tr><th>名称</th><th>范围</th><th>门槛</th><th>优惠</th><th class="num-cell">优先级</th><th>状态</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="p in promos" :key="p.promotion_id">
@@ -261,11 +276,11 @@ onMounted(() => {
                 <span v-if="p.discount_rate != null">{{ (p.discount_rate * DISCOUNT_ZHE_FACTOR).toFixed(1) }} 折</span>
                 <span v-else>减 {{ formatMoney(p.discount_cents ?? 0) }}</span>
               </td>
-              <td>{{ p.priority }}</td>
-              <td>{{ p.status === 1 ? '启用' : '停用' }}</td>
+              <td class="num-cell">{{ p.priority }}</td>
+              <td><span class="badge" :class="p.status === 1 ? 'badge-ok' : 'badge-off'">{{ p.status === 1 ? '启用' : '停用' }}</span></td>
               <td><button class="btn btn-sm ghost" @click="togglePromo(p)">{{ p.status === 1 ? '停用' : '启用' }}</button></td>
             </tr>
-            <tr v-if="!promos.length"><td colspan="7" class="muted">暂无促销规则</td></tr>
+            <tr v-if="!promos.length"><td colspan="7" class="empty">暂无促销规则，用上方表单创建第一条</td></tr>
           </tbody>
         </table>
       </div>

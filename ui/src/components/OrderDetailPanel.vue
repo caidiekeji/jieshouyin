@@ -86,7 +86,7 @@ function search() {
           <Icon name="refresh" :size="ICON_SIZE.md" />刷新
         </button>
         <button class="btn" @click="reprint"><Icon name="print" :size="ICON_SIZE.md" />重打小票</button>
-        <button class="btn primary" @click="emit('refund', props.orderNo)">发起退款</button>
+        <button class="btn danger-text" @click="emit('refund', props.orderNo)"><Icon name="undo" :size="ICON_SIZE.md" />发起退款</button>
       </div>
     </div>
 
@@ -96,9 +96,10 @@ function search() {
           v-model="query"
           class="input"
           placeholder="输入订单号查询"
+          aria-label="订单号"
           @keyup.enter="search"
         />
-        <button class="btn primary" @click="search">查询</button>
+        <button class="btn" @click="search">查询</button>
       </div>
     </div>
 
@@ -117,10 +118,10 @@ function search() {
         <div class="stat"><span>已退金额</span><strong>¥{{ formatMoney(detail.header.refunded_cents) }}</strong></div>
       </div>
       <div class="form-grid">
-        <label>业务日期<input class="input" :value="detail.header.business_date" readonly /></label>
-        <label>下单时间<input class="input" :value="detail.header.created_at" readonly /></label>
-        <label>收银员<input class="input" :value="detail.header.cashier_id" readonly /></label>
-        <label>会员<input class="input" :value="detail.header.member_name || '散客'" readonly /></label>
+        <div class="field"><span class="field-label">业务日期</span><span class="field-value mono">{{ detail.header.business_date }}</span></div>
+        <div class="field"><span class="field-label">下单时间</span><span class="field-value mono">{{ detail.header.created_at }}</span></div>
+        <div class="field"><span class="field-label">收银员编号</span><span class="field-value mono">{{ detail.header.cashier_id }}</span></div>
+        <div class="field"><span class="field-label">会员</span><span class="field-value">{{ detail.header.member_name || '散客' }}</span></div>
       </div>
     </div>
 
@@ -128,18 +129,18 @@ function search() {
       <h3>商品明细</h3>
       <table class="tbl">
         <thead>
-          <tr><th>商品</th><th>单价</th><th>数量</th><th>小计</th><th>优惠</th><th>已退</th></tr>
+          <tr><th>商品</th><th class="num-cell">单价</th><th class="num-cell">数量</th><th class="num-cell">小计</th><th class="num-cell">优惠</th><th class="num-cell">已退</th></tr>
         </thead>
         <tbody>
           <tr v-for="it in detail.items" :key="it.item_id">
             <td>{{ it.product_name }}<span v-if="it.is_gift" class="badge">赠品</span></td>
-            <td>¥{{ formatMoney(it.unit_price_cents) }}</td>
-            <td>{{ it.qty }}</td>
-            <td>¥{{ formatMoney(it.line_total_cents) }}</td>
-            <td>¥{{ formatMoney(it.discount_cents) }}</td>
-            <td>{{ it.returned_qty }}</td>
+            <td class="num-cell">¥{{ formatMoney(it.unit_price_cents) }}</td>
+            <td class="num-cell">{{ it.qty }}</td>
+            <td class="num-cell">¥{{ formatMoney(it.line_total_cents) }}</td>
+            <td class="num-cell">¥{{ formatMoney(it.discount_cents) }}</td>
+            <td class="num-cell">{{ it.returned_qty }}</td>
           </tr>
-          <tr v-if="!detail.items.length"><td colspan="6" class="muted">无明细</td></tr>
+          <tr v-if="!detail.items.length"><td colspan="6" class="empty">该订单无商品明细</td></tr>
         </tbody>
       </table>
     </div>
@@ -148,17 +149,17 @@ function search() {
       <h3>支付流水</h3>
       <table class="tbl">
         <thead>
-          <tr><th>渠道</th><th>方式</th><th>金额</th><th>实收</th><th>找零</th><th>渠道单号</th><th>状态</th></tr>
+          <tr><th>渠道</th><th>方式</th><th class="num-cell">金额</th><th class="num-cell">实收</th><th class="num-cell">找零</th><th>渠道单号</th><th>状态</th></tr>
         </thead>
         <tbody>
           <tr v-for="p in detail.payments" :key="p.pay_id">
             <td>{{ PAY_CHANNEL_LABEL[p.pay_channel] ?? p.pay_channel }}</td>
             <td>{{ p.pay_mode || '—' }}</td>
-            <td>¥{{ formatMoney(p.amount_cents) }}</td>
-            <td>{{ p.cash_tendered_cents == null ? '—' : formatMoney(p.cash_tendered_cents) }}</td>
-            <td>{{ p.change_cents == null ? '—' : formatMoney(p.change_cents) }}</td>
+            <td class="num-cell">¥{{ formatMoney(p.amount_cents) }}</td>
+            <td class="num-cell">{{ p.cash_tendered_cents == null ? '—' : formatMoney(p.cash_tendered_cents) }}</td>
+            <td class="num-cell">{{ p.change_cents == null ? '—' : formatMoney(p.change_cents) }}</td>
             <td class="mono">{{ p.trade_no || p.out_trade_no || '—' }}</td>
-            <td>{{ PAY_STATUS_LABEL[p.status] ?? p.status }}</td>
+            <td><span class="badge" :class="p.status === 'PAID' || p.status === 'COMPLETED' ? 'badge-ok' : 'badge-off'">{{ PAY_STATUS_LABEL[p.status] ?? p.status }}</span></td>
           </tr>
         </tbody>
       </table>
@@ -167,11 +168,11 @@ function search() {
     <div v-if="detail?.promos.length" class="card wide">
       <h3>优惠明细</h3>
       <table class="tbl">
-        <thead><tr><th>规则</th><th>优惠金额</th><th>说明</th></tr></thead>
+        <thead><tr><th>规则编号</th><th class="num-cell">优惠金额</th><th>说明</th></tr></thead>
         <tbody>
           <tr v-for="(p, i) in detail.promos" :key="i">
-            <td>#{{ p.promotion_id }}</td>
-            <td>¥{{ formatMoney(p.discount_cents) }}</td>
+            <td class="mono">#{{ p.promotion_id }}</td>
+            <td class="num-cell">¥{{ formatMoney(p.discount_cents) }}</td>
             <td class="muted">{{ p.detail || '—' }}</td>
           </tr>
         </tbody>
@@ -181,21 +182,22 @@ function search() {
     <div v-if="detail?.refunds.length" class="card wide">
       <h3>退货记录</h3>
       <table class="tbl">
-        <thead><tr><th>退货单</th><th>退款单号</th><th>金额</th><th>状态</th><th>时间</th></tr></thead>
+        <thead><tr><th>退货单</th><th>退款单号</th><th class="num-cell">金额</th><th>状态</th><th>时间</th></tr></thead>
         <tbody>
           <tr v-for="r in detail.refunds" :key="r.refund_id">
             <td>{{ r.return_no || '—' }}</td>
             <td class="mono">{{ r.refund_no }}</td>
-            <td>¥{{ formatMoney(r.amount_cents) }}</td>
-            <td>{{ PAY_STATUS_LABEL[r.status] ?? r.status }}</td>
+            <td class="num-cell">¥{{ formatMoney(r.amount_cents) }}</td>
+            <td><span class="badge" :class="r.status === 'PAID' || r.status === 'COMPLETED' ? 'badge-ok' : 'badge-off'">{{ PAY_STATUS_LABEL[r.status] ?? r.status }}</span></td>
             <td>{{ r.created_at }}</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div v-if="!detail && !loading" class="card wide">
-      <p class="muted">请输入订单号后查看详情</p>
+    <div v-if="!detail && !loading" class="empty-state-card">
+      <Icon name="search" :size="ICON_SIZE.lg" />
+      <p>输入上方订单号，查看商品明细、支付流水与退货记录</p>
     </div>
   </main>
 </template>
