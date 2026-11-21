@@ -264,6 +264,7 @@ pub fn transition_coupon(conn: &Connection, coupon_code: &str, to: &str) -> Resu
             | ("LOCKED", "UNUSED")
             | ("REDEEMED", "REFUNDED")
             | ("UNUSED", "EXPIRED")
+            | ("LOCKED", "EXPIRED")
     );
     if !legal {
         return Err(CoreError::Validation(format!(

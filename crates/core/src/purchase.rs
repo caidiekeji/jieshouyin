@@ -44,29 +44,34 @@ pub fn receive_purchase(
     if status == "RECEIVED" || status == "CLOSED" {
         return Err(CoreError::Validation("采购单已验收，不可重复验收".into()));
     }
+    let tx = conn.unchecked_transaction()?;
+    // 收货单、差异、库存事件、状态同一事务：任一步失败都不会留下孤儿收货单。
     let receipt_id = {
-        conn.execute(
+        tx.execute(
             "INSERT INTO purchase_receipt(po_no,received_at,operator_id) VALUES (?1,?2,?3)",
             params![po_no, format_utc(&Utc::now()), operator_id],
         )?;
-        conn.last_insert_rowid()
+        tx.last_insert_rowid()
     };
-    let tx = conn.unchecked_transaction()?;
     for (item_id, got) in received {
-        let (sku_id, ordered): (i64, i64) = tx.query_row(
-            "SELECT sku_id,ordered_qty FROM purchase_order_item WHERE item_id=?1 AND po_no=?2",
+        if *got < 0 {
+            return Err(CoreError::Validation("收货数量不能为负".into()));
+        }
+        let (sku_id, ordered, already): (i64, i64, i64) = tx.query_row(
+            "SELECT sku_id,ordered_qty,received_qty FROM purchase_order_item WHERE item_id=?1 AND po_no=?2",
             params![item_id, po_no],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
-        let diff = got - ordered;
+        let new_received = already + got;
+        let diff = new_received - ordered;
         tx.execute(
             "INSERT INTO purchase_receipt_diff(receipt_id,sku_id,ordered_qty,received_qty,diff_qty)
              VALUES (?1,?2,?3,?4,?5)",
-            params![receipt_id, sku_id, ordered, got, diff],
+            params![receipt_id, sku_id, ordered, new_received, diff],
         )?;
         tx.execute(
             "UPDATE purchase_order_item SET received_qty=?1 WHERE item_id=?2",
-            params![got, item_id],
+            params![new_received, item_id],
         )?;
         if *got > 0 {
             apply_event(
@@ -80,9 +85,21 @@ pub fn receive_purchase(
             )?;
         }
     }
-    tx.execute(
-        "UPDATE purchase_order SET status='RECEIVED' WHERE po_no=?1",
+    // 部分收货不得把整单标 RECEIVED，否则剩余数量再也收不进来。
+    let remaining: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM purchase_order_item
+         WHERE po_no=?1 AND received_qty < ordered_qty",
         [po_no],
+        |r| r.get(0),
+    )?;
+    let status = if remaining == 0 {
+        "RECEIVED"
+    } else {
+        "PARTIAL_RECEIVED"
+    };
+    tx.execute(
+        "UPDATE purchase_order SET status=?1 WHERE po_no=?2",
+        params![status, po_no],
     )?;
     tx.commit()?;
     Ok(())

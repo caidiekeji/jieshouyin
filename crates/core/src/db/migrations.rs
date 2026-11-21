@@ -589,6 +589,17 @@ INSERT OR IGNORE INTO system_config(config_key, config_value, updated_at)
         ('expense_labor_yuan','0',datetime('now'));
 "#;
 
+/// M0012：会员管理/充值独立权限，避免用 report.view 代理导致语义错位。
+const M0012: &str = r#"
+INSERT OR IGNORE INTO permission(perm_key, description) VALUES
+ ('member.manage','会员建档与资料'),
+ ('member.recharge','会员充值');
+INSERT OR IGNORE INTO role_permission(role_id, perm_key)
+SELECT r.role_id, p.perm_key FROM role r CROSS JOIN permission p
+WHERE r.role_name IN ('ADMIN','MANAGER')
+  AND p.perm_key IN ('member.manage','member.recharge');
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -645,6 +656,11 @@ pub fn all() -> Vec<Migration> {
             version: 11,
             name: "profit_expense_config",
             up: M0011,
+        },
+        Migration {
+            version: 12,
+            name: "member_permissions",
+            up: M0012,
         },
     ]
 }

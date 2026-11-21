@@ -159,7 +159,8 @@ pub fn render_receipt(
                     buf.push(size.min(3));
                 }
                 let text = render_vars(&content, data)?;
-                buf.extend_from_slice(&encode_gb18030_or_bitmap(&text)?);
+                let wrapped = wrap_and_align(&text, chars_per_line, align.as_deref());
+                buf.extend_from_slice(&encode_gb18030_or_bitmap(&wrapped)?);
                 buf.extend_from_slice(&[0x0A]);
                 // 复位
                 buf.extend_from_slice(ESC_BOLD);
@@ -245,30 +246,75 @@ pub fn render_receipt(
 
 use qrcode::QrCode;
 
-/// GB18030（用 encoding_rs 的 GBK，覆盖常用汉字）；不可编码字符回退位图占位。
-fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
-    // 先整体尝试 GBK 编码（覆盖常用汉字）；无无法编码字符则直接返回。
-    let (bytes, _, whole_had_errors) = encoding_rs::GBK.encode(text);
-    if !whole_had_errors {
-        return Ok(bytes.into_owned());
+/// 显示宽度：汉字/全角符号占 2 列，ASCII 占 1 列（打印头按列排版）。
+fn char_width(c: char) -> usize {
+    let u = c as u32;
+    let wide = matches!(u,
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 |
+        0xF900..=0xFAFF | 0xFE10..=0xFE19 | 0xFE30..=0xFE6F |
+        0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x1F300..=0x1F64F |
+        0x1F900..=0x1F9FF | 0x20000..=0x3FFFD
+    );
+    if wide {
+        2
+    } else {
+        1
     }
-    // 位图回退：逐字符编码，不可编码字符生成 GS v 0 点阵占位。
+}
+
+fn display_width(s: &str) -> usize {
+    s.chars().map(char_width).sum()
+}
+
+/// 按显示列宽折行，并按对齐方式补前导空格（左对齐不补）。
+fn wrap_and_align(text: &str, cols: usize, align: Option<&str>) -> String {
+    let mut out = String::new();
+    for raw in text.split('\n') {
+        let mut line = String::new();
+        let mut w = 0usize;
+        for ch in raw.chars() {
+            let cw = char_width(ch);
+            if w + cw > cols && !line.is_empty() {
+                out.push_str(&pad_line(&line, w, cols, align));
+                out.push('\n');
+                line.clear();
+                w = 0;
+            }
+            line.push(ch);
+            w += cw;
+        }
+        out.push_str(&pad_line(&line, w, cols, align));
+        out.push('\n');
+    }
+    if out.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
+fn pad_line(line: &str, width: usize, cols: usize, align: Option<&str>) -> String {
+    let pad = cols.saturating_sub(width);
+    match align {
+        Some("center") => format!("{}{}", " ".repeat(pad / 2), line),
+        Some("right") => format!("{}{}", " ".repeat(pad), line),
+        _ => line.to_string(),
+    }
+}
+
+/// GBK（打印机 GB18030 指令下的常用汉字子集）；不可编码字符直接报错，
+/// 不再打印一个"空心方框"假装字形（会让小票出现无法辨认的假字）。
+fn encode_gb18030_or_bitmap(text: &str) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     for ch in text.chars() {
         let mut single = [0u8; 4];
         let s = ch.encode_utf8(&mut single);
         let (enc, _, had_errors) = encoding_rs::GBK.encode(s);
-        if !had_errors {
-            out.extend_from_slice(&enc);
-        } else {
-            out.extend_from_slice(GS_V0);
-            out.extend_from_slice(&[0x00, 0x02, 0x00, 0x02]); // 16x16 dots
-            for row in 0..2u8 {
-                for col in 0..2u8 {
-                    out.push(if row == 0 || col == 0 { 0x80 } else { 0x01 });
-                }
-            }
+        if had_errors {
+            return Err(CoreError::Print(format!(
+                "打印机不支持字符 {ch:?}，请改用可打印字符"
+            )));
         }
+        out.extend_from_slice(&enc);
     }
     Ok(out)
 }
@@ -282,12 +328,12 @@ fn render_code128(data: &str) -> Result<Vec<u8>> {
         }
         values.push(b - 32);
     }
-    let checksum: u8 = values
+    let checksum: u8 = (values
         .iter()
         .enumerate()
-        .map(|(i, &v)| v * if i == 0 { 1 } else { i as u8 })
-        .fold(0u16, |acc, v| acc + v as u16) as u8
-        % 103;
+        .map(|(i, &v)| (i as u32 % 103) * v as u32)
+        .sum::<u32>()
+        % 103) as u8;
     values.push(checksum);
     values.push(106); // STOP
     Ok(values)

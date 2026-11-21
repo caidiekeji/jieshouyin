@@ -34,6 +34,8 @@ const showCreate = ref(false)
 const mForm = ref({ phone: '', name: '' })
 // 充值
 const rechargeMemberId = ref<number | null>(null)
+const rechargeChannel = ref('CASH')
+const rechargeRequestId = ref('')
 const rechargeName = ref('')
 const principal = ref('')
 const bonus = ref('')
@@ -63,6 +65,12 @@ function openRecharge(m: MemberRow) {
   rechargeName.value = m.name || m.phone || m.member_code
   principal.value = ''
   bonus.value = ''
+  rechargeChannel.value = 'CASH'
+  // 同一充值会话复用同一 requestId：双击/失败重试都不会重复入账
+  rechargeRequestId.value =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 async function submitRecharge() {
@@ -81,7 +89,9 @@ async function submitRecharge() {
     await api.rechargeMember(
       rechargeMemberId.value,
       Math.round(principalYuan * CENTS_PER_YUAN),
-      Math.round(bonusYuan * CENTS_PER_YUAN)
+      Math.round(bonusYuan * CENTS_PER_YUAN),
+      rechargeChannel.value,
+      rechargeRequestId.value
     )
     rechargeMemberId.value = null
     done('充值成功')
@@ -264,6 +274,11 @@ onMounted(() => {
         <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
           <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
+          <select v-model="rechargeChannel" class="input">
+            <option value="CASH">现金</option>
+            <option value="WECHAT">微信扫码</option>
+            <option value="ALIPAY">支付宝扫码</option>
+          </select>
           <button class="btn primary" @click="submitRecharge">确认充值</button>
           <button class="btn ghost" @click="rechargeMemberId = null">取消</button>
         </div>

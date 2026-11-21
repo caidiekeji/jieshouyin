@@ -63,33 +63,48 @@ pub fn apply_event(
     // change_qty 为带符号变化量（正入负出），乘以事件类型的固有方向。
     // ADJUST 等中性类型符号为 +1，由调用方传入带符号差值（盘盈 + / 盘亏 -）。
     let signed = change_qty * trans_type.sign();
-    let current: i64 = tx
-        .query_row(
-            "SELECT qty FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",
-            [sku_id],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-    let new_qty = current + signed;
-    if new_qty < 0 && !allow_negative {
-        return Err(CoreError::Validation(format!(
-            "SKU {sku_id} 库存不足: {current} {signed}"
-        )));
+    let allow_negative = allow_negative && allows_negative(tx, sku_id)?;
+    if !allow_negative {
+        // 预检只为给出可读错误；实际投影用原子累加，避免并发丢更新。
+        let current: i64 = tx
+            .query_row(
+                "SELECT qty FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",
+                [sku_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if current + signed < 0 {
+            let name: String = tx
+                .query_row(
+                    "SELECT p.spu_name FROM sku s JOIN spu p ON p.spu_id=s.spu_id WHERE s.sku_id=?1",
+                    [sku_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|_| format!("SKU {sku_id}"));
+            return Err(CoreError::Validation(format!(
+                "{} 库存不足：现有 {current}，需 {signed}",
+                name
+            )));
+        }
     }
     tx.execute(
         "INSERT INTO inv_trans(sku_id,warehouse_type,change_qty,trans_type,ref_order_no,operator_id,created_at)
          VALUES (?1,'STORE',?2,?3,?4,?5,?6)",
         params![sku_id, signed, trans_type.as_str(), ref_order_no, operator_id, format_utc(&Utc::now())],
     )?;
-    tx.execute(
+    // 原子累加（不是读-算-写）：多连接/多进程下也不会互相覆盖。
+    let new_qty: i64 = tx.query_row(
         "INSERT INTO inv_stock(sku_id,warehouse_type,qty,version) VALUES (?1,'STORE',?2,1)
-         ON CONFLICT(sku_id,warehouse_type) DO UPDATE SET qty=excluded.qty, version=inv_stock.version+1",
-        params![sku_id, new_qty],
+         ON CONFLICT(sku_id,warehouse_type) DO UPDATE
+         SET qty=inv_stock.qty+excluded.qty, version=inv_stock.version+1
+         RETURNING qty",
+        params![sku_id, signed],
+        |r| r.get(0),
     )?;
     Ok(new_qty)
 }
 
-/// 读取 SKU 是否允许负库存（§5.14），默认 1。
+/// 读取 SKU 是否允许负库存（§5.14）。SKU 不存在直接报错，避免未知 SKU 凭空建库存行。
 pub fn allows_negative(conn: &Connection, sku_id: i64) -> Result<bool> {
     let v: Option<i64> = conn
         .query_row(
@@ -98,7 +113,8 @@ pub fn allows_negative(conn: &Connection, sku_id: i64) -> Result<bool> {
             |r| r.get(0),
         )
         .optional()?;
-    Ok(v.unwrap_or(1) != 0)
+    v.map(|x| x != 0)
+        .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在")))
 }
 
 use rusqlite::OptionalExtension;

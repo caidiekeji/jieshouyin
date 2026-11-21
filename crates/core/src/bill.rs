@@ -26,6 +26,14 @@ pub fn yuan_str_to_cents(s: &str) -> Result<i64> {
     if t.is_empty() {
         return Err(CoreError::Validation("金额为空".into()));
     }
+    // 严格字符集：只允许数字、小数点、负号、指数；逗号/正号/货币符号一律拒绝，
+    // 避免"1,234.56"被静默解析成 1234.56 或 12.3456。
+    if !t
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | 'e' | 'E'))
+    {
+        return Err(CoreError::Validation(format!("非法金额: {t}")));
+    }
     // 科学计数法：按小数点位置手工移位，避免浮点
     let (mantissa, exp) = match t.to_ascii_lowercase().split_once('e') {
         Some((m, e)) => (
@@ -91,8 +99,19 @@ pub fn parse_wechat_bill(csv: &str) -> Result<Vec<BillRow>> {
         }
         let status = col(&fields, &cols, "交易状态").unwrap_or_default();
         if status.contains("退款") || status == "REFUND" {
-            // 退款行金额在"退款金额"列；此处仅记状态供 STATUS_MISMATCH 对比，
-            // 金额对账以支付行为准（refund_record 已在本地记录）。
+            // 退款行也要入列，否则本地退款永远无法与渠道退款核对。
+            let refund_amt = col(&fields, &cols, "退款金额")
+                .or_else(|| col(&fields, &cols, "申请退款金额"))
+                .unwrap_or_default();
+            if refund_amt.is_empty() {
+                continue;
+            }
+            rows.push(BillRow {
+                out_trade_no: out_no,
+                trade_no: col(&fields, &cols, "微信订单号"),
+                amount_cents: yuan_str_to_cents(&refund_amt)?,
+                is_refund: true,
+            });
             continue;
         }
         let amount = col(&fields, &cols, "订单金额")
@@ -236,6 +255,28 @@ pub fn reconcile_channel(
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(stmt);
 
+    // 本地退款记录（按订单号索引）：退款行必须核对 refund_record，不能只看支付流水。
+    struct LocalRefund {
+        order_no: String,
+        amount: i64,
+    }
+    let refunds: Vec<LocalRefund> = {
+        let mut stmt = conn.prepare(
+            "SELECT r.order_no, r.amount_cents
+             FROM refund_record r
+             JOIN payment_record p ON p.pay_id = r.pay_id
+             JOIN sales_order o ON o.order_no = r.order_no
+             WHERE p.pay_channel = ?1 AND r.status IN ('PROCESSING','COMPLETED')
+               AND o.business_date = ?2",
+        )?;
+        stmt.query_map([channel, recon_date], |r| {
+            Ok(LocalRefund {
+                order_no: r.get(0)?,
+                amount: r.get(1)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?
+    };
     let mut summary = ReconcileSummary::default();
     let mut diffs: Vec<(DiffType, Option<String>, i64, i64, String)> = Vec::new();
 
@@ -252,21 +293,38 @@ pub fn reconcile_channel(
 
     for row in rows {
         if row.is_refund {
-            // 退款行：本地应有对应 refund_record，缺失则状态差异
-            let has = locals.iter().any(|l| {
-                l.order_no == row.out_trade_no || by_out.contains_key(row.out_trade_no.as_str())
-            });
-            if !has {
-                summary.status_mismatch += 1;
-                diffs.push((
-                    DiffType::STATUS_MISMATCH,
-                    Some(row.out_trade_no.clone()),
-                    0,
-                    row.amount_cents,
-                    format!("渠道退款行无本地退款记录: {}", row.out_trade_no),
-                ));
-            } else {
-                summary.matched += 1;
+            // 退款行：按原订单号核对 refund_record 金额（渠道退款可能分多笔）
+            match refunds
+                .iter()
+                .find(|r| r.order_no == row.out_trade_no && r.amount == row.amount_cents)
+            {
+                Some(_) => summary.matched += 1,
+                None => {
+                    let sum: i64 = refunds
+                        .iter()
+                        .filter(|r| r.order_no == row.out_trade_no)
+                        .map(|r| r.amount)
+                        .sum();
+                    if sum > 0 {
+                        summary.amount_mismatch += 1;
+                        diffs.push((
+                            DiffType::AMOUNT_MISMATCH,
+                            Some(row.out_trade_no.clone()),
+                            sum,
+                            row.amount_cents,
+                            format!("本地退款合计 {sum} vs 渠道退款 {}", row.amount_cents),
+                        ));
+                    } else {
+                        summary.status_mismatch += 1;
+                        diffs.push((
+                            DiffType::STATUS_MISMATCH,
+                            Some(row.out_trade_no.clone()),
+                            0,
+                            row.amount_cents,
+                            format!("渠道退款行无本地退款记录: {}", row.out_trade_no),
+                        ));
+                    }
+                }
             }
             continue;
         }
@@ -302,8 +360,12 @@ pub fn reconcile_channel(
     }
 
     // 渠道缺失的本地流水（本地收款但账单无）
-    let billed: std::collections::HashSet<&str> =
-        rows.iter().map(|r| r.out_trade_no.as_str()).collect();
+    let billed: std::collections::HashSet<&str> = rows
+        .iter()
+        .flat_map(|r| {
+            std::iter::once(r.out_trade_no.as_str()).chain(r.trade_no.as_deref())
+        })
+        .collect();
     for l in &locals {
         let hit = billed.contains(l.out_trade_no.as_str())
             || l.trade_no
@@ -396,6 +458,12 @@ T20261118002,退款,商品,2026-11-18 11:00:00,2026-11-18 11:00:01,,,,,,3.00,3.0
         assert_eq!(rows[0].amount_cents, 990);
         assert!(!rows[0].is_refund);
         assert!(rows[1].is_refund);
+    }
+
+    #[test]
+    fn yuan_to_cents_rejects_thousands_and_plus() {
+        assert!(yuan_str_to_cents("1,234.56").is_err());
+        assert!(yuan_str_to_cents("+12.34").is_err());
     }
 
     #[test]

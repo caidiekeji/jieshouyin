@@ -33,7 +33,7 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 pub fn validate_password_policy(password: &str) -> Result<()> {
     let has_letter = password.chars().any(|c| c.is_ascii_alphabetic());
     let has_digit = password.chars().any(|c| c.is_ascii_digit());
-    if password.len() < 8 || !has_letter || !has_digit {
+    if password.chars().count() < 8 || !has_letter || !has_digit {
         return Err(CoreError::Validation(
             "密码须 ≥8 位且同时包含字母和数字".into(),
         ));
@@ -155,15 +155,42 @@ pub fn authorize_sensitive(
     current_nonce: &str,
     now: DateTime<Utc>,
 ) -> Result<SensitiveAuth> {
-    let session = login(conn, approver_username, approver_password, now)?;
-    if !can(conn, session.role_id, permission)? {
+    // 二次授权只校验凭据，不累计失败次数：否则收银员可故意输错把店长账号锁死。
+    let (user_id, role_id) = verify_credentials(conn, approver_username, approver_password)?;
+    if !can(conn, role_id, permission)? {
         return Err(CoreError::ApproverPermissionDenied);
     }
     Ok(SensitiveAuth {
-        approver_id: session.user_id,
+        approver_id: user_id,
         nonce: current_nonce.to_string(),
         expires_at: now + Duration::seconds(60),
     })
+}
+
+/// 校验账号密码但不写失败计数/锁定（二次授权专用）。
+fn verify_credentials(conn: &Connection, username: &str, password: &str) -> Result<(i64, i64)> {
+    let row: rusqlite::Result<(i64, String, i64, Option<String>)> = conn.query_row(
+        "SELECT u.user_id,u.password_hash,u.role_id,u.locked_until
+         FROM user_account u WHERE u.username=?1 AND u.status=1",
+        [username],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    );
+    let (user_id, hash, role_id, locked) = match row {
+        Ok(v) => v,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            return Err(CoreError::PermissionDenied("账号或密码错误".into()))
+        }
+        Err(e) => return Err(e.into()),
+    };
+    if let Some(lock) = locked {
+        if Utc::now() < parse_rfc3339(&lock)? {
+            return Err(CoreError::PermissionDenied("账号已锁定，请稍后再试".into()));
+        }
+    }
+    if !verify_password(password, &hash) {
+        return Err(CoreError::PermissionDenied("账号或密码错误".into()));
+    }
+    Ok((user_id, role_id))
 }
 
 /// 查询角色是否拥有权限。
@@ -234,9 +261,13 @@ pub fn guard(conn: &Connection, req: &GuardRequest<'_>) -> Result<()> {
         }
     }
 
-    // 5. 限额校验
+    // 5. 限额校验：有二次授权时按批准人角色的限额（授权即提额），否则按操作员角色。
     if let Some(key) = req.limit_key {
-        if let Some(limit) = role_limit(conn, req.session.role_id, key)? {
+        let limit_role = match req.sensitive_auth {
+            Some(auth) => role_of_approver(conn, auth.approver_id)?,
+            None => req.session.role_id,
+        };
+        if let Some(limit) = role_limit(conn, limit_role, key)? {
             if req.amount_cents > limit {
                 return Err(CoreError::AmountLimitExceeded(format!(
                     "{key}: {} > {limit}",

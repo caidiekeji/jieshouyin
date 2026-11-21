@@ -23,7 +23,9 @@ pub fn generate_daily_summary(
     let row: (i64, i64, i64, i64) = conn.query_row(
         "SELECT COUNT(DISTINCT o.order_no),
                 COALESCE(SUM(o.pay_cents),0),
-                COALESCE(SUM(CASE WHEN o.status='REFUNDED' THEN o.pay_cents ELSE 0 END),0),
+                COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                          JOIN sales_order o2 ON o2.order_no=r.order_no
+                          WHERE o2.business_date=?1 AND r.status='COMPLETED'),0),
                 COALESCE(SUM(o.discount_cents),0)
          FROM sales_order o
          WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED') AND o.business_date=?1",
@@ -33,7 +35,8 @@ pub fn generate_daily_summary(
     let s = DailySummary {
         business_date: business_date.into(),
         order_count: row.0,
-        total_sales_cents: row.1,
+        // 净销售口径：订单实收 - 已完成退款；否则退货越多"销售额"越高。
+        total_sales_cents: row.1 - row.2,
         refund_cents: row.2,
         discount_cents: row.3,
     };
@@ -75,6 +78,30 @@ pub fn channel_distribution(conn: &Connection, business_date: &str) -> Result<Ve
     for row in rows {
         v.push(row?);
     }
+    // 渠道净额 = 成功收款 - 已完成退款（退款按原支付渠道冲减）
+    let mut refunds = std::collections::HashMap::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT p.pay_channel, COALESCE(SUM(r.amount_cents),0)
+             FROM refund_record r
+             JOIN payment_record p ON p.pay_id=r.pay_id
+             JOIN sales_order o ON o.order_no=r.order_no
+             WHERE r.status='COMPLETED' AND o.business_date=?1
+             GROUP BY p.pay_channel",
+        )?;
+        let rows = stmt.query_map([business_date], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (ch, amt) = row?;
+            refunds.insert(ch, amt);
+        }
+    }
+    for t in &mut v {
+        if let Some(r) = refunds.get(&t.channel) {
+            t.amount_cents -= r;
+        }
+    }
     Ok(v)
 }
 
@@ -87,9 +114,11 @@ pub fn verify_channel_sum(conn: &Connection, business_date: &str) -> Result<bool
         [business_date],
         |r| r.get(0),
     )?;
+    // 实收不变式：渠道成功流水合计 == 所有已收款订单的 pay_cents（含已退款订单，
+    // 退款是资金流出，不改写原收款金额）。
     let order_sum: i64 = conn.query_row(
         "SELECT COALESCE(SUM(pay_cents),0) FROM sales_order
-         WHERE status IN ('COMPLETED','PARTIAL_REFUND') AND business_date=?1",
+         WHERE status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED') AND business_date=?1",
         [business_date],
         |r| r.get(0),
     )?;
@@ -108,7 +137,11 @@ pub struct ProductSales {
 pub fn sales_by_product(conn: &Connection, from: &str, to: &str) -> Result<Vec<ProductSales>> {
     let mut stmt = conn.prepare(
         "SELECT i.sku_id, SUM(i.qty - i.returned_qty),
-                SUM(i.line_total_cents - i.discount_cents), SUM(i.discount_cents)
+                SUM(i.line_total_cents - i.discount_cents -
+                    COALESCE((SELECT SUM(ri.refund_cents) FROM sales_return_item ri
+                              JOIN refund_record rr ON rr.return_no=ri.return_no
+                              WHERE ri.order_item_id=i.item_id AND rr.status='COMPLETED'),0)),
+                SUM(i.discount_cents)
          FROM sales_order_item i JOIN sales_order o ON o.order_no=i.order_no
          WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
          GROUP BY i.sku_id ORDER BY i.sku_id",

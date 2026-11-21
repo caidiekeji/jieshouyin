@@ -252,6 +252,7 @@ const subtotal = computed(() => cart.value.reduce((s, l) => s + l.qty * effectiv
 
 /** 后端口径的应收金额（原价 − 促销 − 券）；未取到时退回前端估算。 */
 const quote = ref<OrderQuote | null>(null)
+let quoteSeq = 0
 const payableAmount = computed(() => quote.value?.payable_cents ?? subtotal.value)
 
 /** 行成交价：识别会员后按会员价显示（结算时与促销取优由后端裁决，前端只负责如实呈现）。 */
@@ -377,10 +378,11 @@ function onScanKeydown(e: KeyboardEvent) {
     if (fast) {
       e.preventDefault()
       void handleScannedCode(code)
-    } else if (products.value.length) {
-      // 手动回车：联想候选第一条直接入购物车（自动联想的键盘路径）
+    } else if (code) {
+      // 手动回车不能把联想第一条当扫码结果加入购物车：
+      // 输入的是"可乐"却加进"可乐罐"是错单，必须让收银员从候选里明确选择。
       e.preventDefault()
-      addToCart(products.value[0])
+      showToast('未匹配到精确条码，请从候选列表选择商品', true)
     }
     return
   }
@@ -393,7 +395,8 @@ function onScanKeydown(e: KeyboardEvent) {
 }
 
 async function handleScannedCode(code: string) {
-  // 顾客付款码优先（微信 18–19 位 / 支付宝 26–30 位纯数字）：
+  // 顾客付款码优先（微信 18 位 10–15 前缀 / 支付宝 16–24 位 25–30 前缀纯数字，
+  // 规则由后端 detect_payment_code 单点判定，前端不重复实现长度规则）：
   // 有待收金额时扫到付款码即走收款，不当商品条码查。
   if (cart.value.length && payShortfall.value > 0) {
     const channel = await api.detectPaymentCode(code)
@@ -888,11 +891,14 @@ async function submitCheckout() {
       // 主流式单笔支付：金额自动=应收，只按渠道补必要信息
       const ch = payChannel.value
       const amount = payShortfall.value
-      if (amount <= 0) {
-        showToast('购物车为空或无待收金额', true)
+      if (amount < 0) {
+        showToast('支付金额异常（负数），请刷新报价', true)
         return
       }
-      if (ch === 'WECHAT' || ch === 'ALIPAY') {
+      if (amount === 0) {
+        // 零元单（全赠品/全额券）：不需要也不允许造一笔 0 元支付
+        payments = []
+      } else if (ch === 'WECHAT' || ch === 'ALIPAY') {
         if (!nativeMode.value && !payAuthCode.value.trim()) {
           showToast('请扫描或输入顾客付款码', true)
           return
@@ -969,6 +975,24 @@ async function submitCheckout() {
             mode: isScan && nativeMode.value ? 'NATIVE' : null,
           }
         })
+      const sum = payments.reduce((s, p) => s + p.amount_cents, 0)
+      // 组合支付必须刚好等于应收：多收/少收都在收款前拦下，不能靠后端兜底
+      if (sum !== (quote.value?.payable_cents ?? -1)) {
+        showToast(
+          `组合支付合计 ${(sum / CENTS_PER_YUAN).toFixed(2)} 元与应收 ${(
+            (quote.value?.payable_cents ?? 0) / CENTS_PER_YUAN
+          ).toFixed(2)} 元不一致`,
+          true
+        )
+        return
+      }
+      if (
+        payments.some((p) => p.channel === 'STORED_VALUE') &&
+        memberId.value == null
+      ) {
+        showToast('储值支付需先识别会员', true)
+        return
+      }
       if (!payments.length) {
         showToast('请填写支付金额', true)
         return
@@ -1231,14 +1255,19 @@ async function refreshQuote(opts: { silent?: boolean } = {}): Promise<boolean> {
     quote.value = null
     return false
   }
+  // 竞态守卫：只接受最后一次请求的结果，避免旧报价覆盖新购物车
+  const seq = ++quoteSeq
   try {
-    quote.value = await api.quoteOrder(
+    const q = await api.quoteOrder(
       cart.value,
       memberId.value,
       couponCode.value.trim() || null
     )
+    if (seq !== quoteSeq) return false
+    quote.value = q
     return true
   } catch (e) {
+    if (seq !== quoteSeq) return false
     quote.value = null
     if (!opts.silent) showToast(`应收金额计算失败：${String(e)}`, true)
     return false

@@ -403,8 +403,20 @@ export const api = {
     invoke<number>('create_member', { phone, name }),
   listMembers: (keyword: string, limit: number) =>
     invoke<MemberRow[]>('list_members', { keyword, limit }),
-  rechargeMember: (memberId: number, principalCents: number, bonusCents: number) =>
-    invoke<void>('recharge_member', { memberId, principalCents, bonusCents }),
+  rechargeMember: (
+    memberId: number,
+    principalCents: number,
+    bonusCents: number,
+    payChannel: string,
+    requestId: string
+  ) =>
+    invoke<void>('recharge_member', {
+      memberId,
+      principalCents,
+      bonusCents,
+      payChannel,
+      requestId
+    }),
   listPromotions: () => invoke<PromotionRow[]>('list_promotions'),
   createPromotion: (p: {
     name: string

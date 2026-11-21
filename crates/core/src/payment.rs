@@ -89,17 +89,17 @@ pub enum CancelResult {
 }
 
 /// 顾客付款码识别（§6.2 付款码主通道）。
-/// 微信付款码 18–19 位纯数字，支付宝付款码 26–30 位纯数字。
-/// 判定规则只此一处（前端经命令复用），避免前后端各写一套导致口径不一致。
-/// 非付款码返回 None，调用方按商品条码继续处理。
+/// 微信：18 位纯数字且前两位 10–15；支付宝：16–24 位且前两位 25–30。
+/// 只按长度判定会把 18 位商品条码当付款码直接扣款，因此必须叠加前缀规则。
 pub fn detect_payment_code(code: &str) -> Option<Channel> {
     let t = code.trim();
     if t.is_empty() || !t.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
+    let prefix: u32 = t.get(0..2)?.parse().ok()?;
     match t.len() {
-        18 | 19 => Some(Channel::WECHAT),
-        26..=30 => Some(Channel::ALIPAY),
+        18 if (10..=15).contains(&prefix) => Some(Channel::WECHAT),
+        16..=24 if (25..=30).contains(&prefix) => Some(Channel::ALIPAY),
         _ => None,
     }
 }
@@ -579,16 +579,19 @@ mod tests {
     }
 
     #[test]
-    fn payment_code_detected_by_length() {
-        // 微信 18 位、支付宝 28 位
+    fn payment_code_detected_by_length_and_prefix() {
+        // 微信 18 位、前两位 10–15
         assert_eq!(
             detect_payment_code("134567890123456789"),
             Some(Channel::WECHAT)
         );
+        // 支付宝 16–24 位、前两位 25–30
         assert_eq!(
-            detect_payment_code("28123456789012345678901234567"),
+            detect_payment_code("28123456789012345678"),
             Some(Channel::ALIPAY)
         );
+        // 18 位 69 开头是商品条码，不能被当成微信付款码
+        assert_eq!(detect_payment_code("690123456789012345"), None);
         // 商品条码不是付款码
         assert_eq!(detect_payment_code("6901234567892"), None);
         assert_eq!(detect_payment_code("ABC123"), None);

@@ -27,6 +27,8 @@ pub const PERM_REPORT_VIEW: &str = "report.view";
 pub const PERM_REPORT_EXPORT: &str = "report.export";
 pub const PERM_SYSTEM_CONFIG: &str = "system.config";
 pub const PERM_USER_MANAGE: &str = "user.manage";
+pub const PERM_MEMBER_MANAGE: &str = "member.manage";
+pub const PERM_MEMBER_RECHARGE: &str = "member.recharge";
 
 // ── 授权 entitlement（§4.3）──────────────────────────────────
 /// 前台六项生存性操作，任何非 UNACTIVATED 状态都不得阻断。
@@ -128,6 +130,9 @@ pub const CFG_PAY_CHANNEL_SV: &str = "pay_channel_sv_enabled";
 // ── 门店与行业（多行业适配；行业决定分类树与功能可见性）────────
 /// 门店名称：顶栏与小票抬头显示。
 pub const CFG_STORE_NAME: &str = "store_name";
+pub const CFG_STORE_PHONE: &str = "store_phone";
+/// 小票二维码链接前缀（真实可访问的订单查询页）；未配置时二维码只承载单号。
+pub const CFG_RECEIPT_QR_BASE: &str = "receipt_qr_base";
 /// 所属行业标识：SUPERMARKET / CLOTHING / RESTAURANT。
 pub const CFG_INDUSTRY: &str = "industry";
 /// 在线激活服务地址。为空时回退到构建时内置的地址。
@@ -154,7 +159,7 @@ pub const CONFIG_KIND_SWITCH: &str = "switch";
 
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
-pub const CONFIG_META: [(&str, &str, &str, &str); 25] = [
+pub const CONFIG_META: [(&str, &str, &str, &str); 27] = [
     (
         CFG_STORE_NAME,
         "门店名称",
@@ -305,11 +310,23 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 25] = [
         "在线激活服务地址，留空使用内置服务",
         CONFIG_KIND_TEXT,
     ),
+    (
+        CFG_STORE_PHONE,
+        "门店电话",
+        "打印在小票抬头的联系电话",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_RECEIPT_QR_BASE,
+        "小票二维码链接前缀",
+        "小票二维码指向的订单查询地址前缀，留空则二维码只承载订单号",
+        CONFIG_KIND_TEXT,
+    ),
 ];
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
 /// 未列入的键（门店名称、所属行业）由专属命令管理，界面只读展示，避免点了保存却被拒。
-pub const CONFIG_EDITABLE: [&str; 23] = [
+pub const CONFIG_EDITABLE: [&str; 25] = [
     CFG_STORE_TIMEZONE,
     CFG_BUSINESS_DAY_CUTOFF,
     CFG_SCAN_GAP_MS,
@@ -333,6 +350,8 @@ pub const CONFIG_EDITABLE: [&str; 23] = [
     CFG_PRINT_PORT,
     CFG_PRINT_AUTO,
     CFG_ACTIVATION_ENDPOINT,
+    CFG_STORE_PHONE,
+    CFG_RECEIPT_QR_BASE,
 ];
 
 // ── 配置默认值（与 M0001 种子一致，读取失败时兜底）──────────────

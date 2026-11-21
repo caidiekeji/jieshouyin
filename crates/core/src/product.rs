@@ -98,8 +98,8 @@ pub fn create_product(
     if name.trim().is_empty() {
         return Err(CoreError::Validation("商品名不能为空".into()));
     }
-    if sale_price_cents <= 0 {
-        return Err(CoreError::Validation("售价必须大于 0".into()));
+    if sale_price_cents < 0 {
+        return Err(CoreError::Validation("售价不能为负".into()));
     }
     if cost_price_cents < 0 || initial_qty < 0 || alert_qty < 0 {
         return Err(CoreError::Validation("成本/库存/预警值不能为负".into()));
@@ -114,28 +114,43 @@ pub fn create_product(
     if cat_exists.is_none() {
         return Err(CoreError::Validation(format!("分类 {category_id} 不存在")));
     }
-    let code = format!("SPU{}", Utc::now().timestamp_millis());
-    conn.execute(
+    // 条码先查重，给收银员可读错误，而不是把 UNIQUE constraint failed 抛到前端。
+    if let Some(b) = barcode.map(str::trim).filter(|b| !b.is_empty()) {
+        let exists: Option<i64> = conn
+            .query_row("SELECT sku_id FROM sku WHERE barcode=?1", [b], |r| r.get(0))
+            .optional()?;
+        if exists.is_some() {
+            return Err(CoreError::Validation(format!("条码 {b} 已存在")));
+        }
+    }
+    // SPU 编码加随机段，避免毫秒时间戳并发撞码。
+    let code = format!(
+        "SPU{}{:04}",
+        Utc::now().timestamp_millis(),
+        rand::random::<u16>() % 10000
+    );
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "INSERT INTO spu(category_id,spu_name,spu_code,unit) VALUES (?1,?2,?3,?4)",
         params![category_id, name.trim(), code, unit],
     )?;
-    let spu_id = conn.last_insert_rowid();
-    conn.execute(
+    let spu_id = tx.last_insert_rowid();
+    tx.execute(
         "INSERT INTO sku(spu_id,barcode,sale_price_cents,cost_price_cents,is_weighed,alert_qty)
          VALUES (?1,?2,?3,?4,?5,?6)",
         params![
             spu_id,
-            barcode,
+            barcode.map(str::trim).filter(|b| !b.is_empty()),
             sale_price_cents,
             cost_price_cents,
             is_weighed as i64,
             alert_qty
         ],
     )?;
-    let sku_id = conn.last_insert_rowid();
+    let sku_id = tx.last_insert_rowid();
     if initial_qty > 0 {
         crate::inventory::apply_event(
-            conn,
+            &tx,
             sku_id,
             initial_qty,
             crate::inventory::TransType::PURCHASE_IN,
@@ -145,11 +160,12 @@ pub fn create_product(
         )?;
     } else {
         // 零库存也建立台账行，便于预警与盘点
-        conn.execute(
+        tx.execute(
             "INSERT INTO inv_stock(sku_id,warehouse_type,qty,version) VALUES (?1,'STORE',0,1)",
             [sku_id],
         )?;
     }
+    tx.commit()?;
     Ok(sku_id)
 }
 
@@ -302,7 +318,7 @@ pub fn update_product(
     sale_price_cents: i64,
     alert_qty: i64,
 ) -> Result<()> {
-    if sale_price_cents <= 0 || alert_qty < 0 {
+    if sale_price_cents < 0 || alert_qty < 0 {
         return Err(CoreError::Validation("售价/预警值非法".into()));
     }
     let n = conn.execute(
@@ -350,7 +366,9 @@ pub fn adjust_stock(
         sku_id,
         change_qty,
         crate::inventory::TransType::ADJUST,
-        Some(reason.trim()),
+        // ref_order_no 只放业务单据号，不能塞调整原因（会污染按单追溯）；
+        // 原因由命令层写 audit_operation。
+        None,
         operator_id,
         allow_negative,
     )?;
@@ -466,7 +484,7 @@ mod tests {
     fn invalid_inputs_rejected() {
         let c = setup();
         assert!(create_product(&c, 1, "", None, "件", 100, 0, false, 0, 0, None).is_err());
-        assert!(create_product(&c, 1, "X", None, "件", 0, 0, false, 0, 0, None).is_err());
+        assert!(create_product(&c, 1, "X", None, "件", -1, 0, false, 0, 0, None).is_err());
         assert!(create_product(&c, 999, "X", None, "件", 100, 0, false, 0, 0, None).is_err());
         assert!(create_category(&c, None, " ").is_err());
         assert!(create_category(&c, Some(999), "Y").is_err());

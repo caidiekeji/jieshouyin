@@ -80,6 +80,16 @@ pub fn begin_order(
     if pay_cents < 0 {
         return Err(CoreError::Money("应付金额不得为负".into()));
     }
+    // 领域自洽：行合计必须等于订单合计，优惠不得超出合计。
+    let lines_total: i64 = lines.iter().map(|l| l.line_total_cents).sum();
+    if lines_total != total_cents {
+        return Err(CoreError::Money(format!(
+            "行合计 {lines_total} 与订单合计 {total_cents} 不一致"
+        )));
+    }
+    if discount_cents < 0 || discount_cents > total_cents {
+        return Err(CoreError::Money("优惠金额越界".into()));
+    }
     tx.execute(
         "INSERT INTO sales_order(order_no,device_id,cashier_id,shift_id,member_id,total_cents,discount_cents,pay_cents,status,business_date,sync_status,created_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'PENDING_PAYMENT',?9,'LOCAL_ONLY',?10)",
@@ -348,6 +358,12 @@ pub fn shift_summary(conn: &Connection, shift_id: i64) -> Result<Vec<ShiftSummar
     let mut stmt = conn.prepare(
         "SELECT o.cashier_id, COUNT(DISTINCT o.order_no), COALESCE(SUM(o.total_cents),0), COALESCE(SUM(o.pay_cents),0),
                 COALESCE(SUM(CASE WHEN p.pay_channel='CASH' THEN p.amount_cents ELSE 0 END),0)
+                - COALESCE((SELECT SUM(r.amount_cents)
+                            FROM refund_record r
+                            JOIN payment_record p2 ON p2.pay_id=r.pay_id
+                            JOIN sales_order o2 ON o2.order_no=r.order_no
+                            WHERE o2.shift_id=?1 AND o2.cashier_id=o.cashier_id
+                              AND p2.pay_channel='CASH' AND r.status='COMPLETED'),0)
          FROM sales_order o
          LEFT JOIN payment_record p ON p.order_no=o.order_no AND p.status='SUCCESS'
          WHERE o.shift_id=?1 AND o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
