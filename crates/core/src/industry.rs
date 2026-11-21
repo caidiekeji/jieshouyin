@@ -180,9 +180,8 @@ pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
 /// 停用不属于当前模板、且整棵子树都没有在售商品/子分类的一级分类。
 /// 有占用的旧分类保持原状，交给用户在分类管理里显式处理。
 fn hide_stale_roots(conn: &Connection, roots: &[String]) -> Result<()> {
-    let mut stmt = conn.prepare(
-        "SELECT category_id, name FROM category WHERE parent_id IS NULL AND status=1",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT category_id, name FROM category WHERE parent_id IS NULL AND status=1")?;
     let active: Vec<(i64, String)> = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<std::result::Result<Vec<_>, _>>()?;

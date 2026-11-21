@@ -442,15 +442,17 @@ pub fn set_product_image_url(
     let normalized = image_url.map(str::trim).filter(|t| !t.is_empty());
     if let Some(t) = normalized {
         if !t.starts_with("https://") {
-            return Err(CoreError::Validation(
-                "图片地址必须以 https:// 开头".into(),
-            ));
+            return Err(CoreError::Validation("图片地址必须以 https:// 开头".into()));
         }
         if t.len() > 2048 {
-            return Err(CoreError::Validation("图片地址过长（上限 2048 字符）".into()));
+            return Err(CoreError::Validation(
+                "图片地址过长（上限 2048 字符）".into(),
+            ));
         }
         if t.chars().any(|c| c.is_whitespace() || c.is_control()) {
-            return Err(CoreError::Validation("图片地址不能包含空白或控制字符".into()));
+            return Err(CoreError::Validation(
+                "图片地址不能包含空白或控制字符".into(),
+            ));
         }
     }
     let n = conn.execute(

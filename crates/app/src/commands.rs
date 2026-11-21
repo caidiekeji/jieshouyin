@@ -3379,7 +3379,11 @@ pub fn issue_coupon(
     }
     // 前端 datetime-local 不带时区：按门店时区（UTC+8）解释后统一存 UTC RFC3339，
     // 避免字符串比较时把本地时间当 UTC 用，券提前/延后 8 小时失效。
-    let valid_until = match valid_until.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+    let valid_until = match valid_until
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
         Some(v) => {
             let utc = if let Ok(dt) = parse_rfc3339(v) {
                 dt
@@ -3452,7 +3456,10 @@ pub fn issue_coupon(
 
 /// 轮询 Native 支付结果（§6.3）。SUCCESS → 资产收口 + 订单提交。
 #[tauri::command]
-pub async fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<CheckoutResult> {
+pub async fn poll_native_pay(
+    order_no: String,
+    state: State<'_, AppState>,
+) -> Result<CheckoutResult> {
     {
         let license = state
             .license
