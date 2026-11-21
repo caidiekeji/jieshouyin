@@ -70,6 +70,16 @@ pub struct ChessFee {
     pub fee_cents: i64,
 }
 
+type ChessFeeRow = (
+    String,
+    String,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+);
+
 fn cfg_text(conn: &Connection, key: &str, default: &str) -> String {
     conn.query_row(
         "SELECT config_value FROM system_config WHERE config_key=?1",
@@ -117,6 +127,7 @@ fn validate_cart(cart_json: &str) -> Result<()> {
 }
 
 /// 新建桌台/包间。编码在同一场景内唯一，房费商品仅棋牌使用。
+#[allow(clippy::too_many_arguments)]
 pub fn create_table(
     conn: &Connection,
     scene: &str,
@@ -548,15 +559,7 @@ pub fn transfer_table(conn: &Connection, table_id: i64, target_id: i64) -> Resul
 
 /// 棋牌计时：最低 60 分钟，之后按实际分钟按房费 SKU 的分钟单价计费。
 pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
-    let (scene, status, fee_sku, opened, fee_unit, min_minutes, round_minutes): (
-        String,
-        String,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<i64>,
-    ) = conn
+    let (scene, status, fee_sku, opened, fee_unit, min_minutes, round_minutes): ChessFeeRow = conn
         .query_row(
             "SELECT t.scene,t.status,t.fee_sku_id,s.opened_at,
                     t.fee_unit,t.min_minutes,t.round_minutes
@@ -617,7 +620,7 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
         // 小时价按分钟折算，分位四舍五入；金额仍由服务端计算。
         ((unit_cents as i128 * billable_minutes as i128) + 30) / 60
     } else {
-        (unit_cents as i128 * billable_minutes as i128)
+        unit_cents as i128 * billable_minutes as i128
     };
     Ok(ChessFee {
         elapsed_minutes,
