@@ -152,11 +152,7 @@ pub fn calc_promotions(
         }
         if promo.discount_cents.is_some() {
             // 单品满减：只对优惠额最大的一行减一次，避免"买 N 行减 N 次"。
-            if let Some((idx, amount)) = candidates
-                .iter()
-                .max_by_key(|(_, d)| *d)
-                .copied()
-            {
+            if let Some((idx, amount)) = candidates.iter().max_by_key(|(_, d)| *d).copied() {
                 applied.push(AppliedPromo {
                     promotion_id: promo.promotion_id,
                     discount_cents: amount,
@@ -297,12 +293,7 @@ fn allocate_discounts(lines: &mut [CartLine], amount: i64, promo_id: i64) -> Res
 }
 
 /// 单行分摊：金额只落在一行（单品满减只能用一次）。
-fn allocate_to_line(
-    lines: &mut [CartLine],
-    idx: usize,
-    amount: i64,
-    promo_id: i64,
-) -> Result<()> {
+fn allocate_to_line(lines: &mut [CartLine], idx: usize, amount: i64, promo_id: i64) -> Result<()> {
     let line = lines
         .get_mut(idx)
         .ok_or_else(|| CoreError::Money("促销分摊行不存在".into()))?;

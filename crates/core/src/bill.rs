@@ -362,9 +362,7 @@ pub fn reconcile_channel(
     // 渠道缺失的本地流水（本地收款但账单无）
     let billed: std::collections::HashSet<&str> = rows
         .iter()
-        .flat_map(|r| {
-            std::iter::once(r.out_trade_no.as_str()).chain(r.trade_no.as_deref())
-        })
+        .flat_map(|r| std::iter::once(r.out_trade_no.as_str()).chain(r.trade_no.as_deref()))
         .collect();
     for l in &locals {
         let hit = billed.contains(l.out_trade_no.as_str())
