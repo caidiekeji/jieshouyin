@@ -649,7 +649,7 @@ CREATE TABLE service_table (
 CREATE INDEX idx_service_table_scene ON service_table(scene, status);
 CREATE TABLE table_session (
     session_id  INTEGER PRIMARY KEY AUTOINCREMENT,
-    table_id    INTEGER NOT NULL REFERENCES service_table(table_id),
+    table_id    INTEGER NOT NULL REFERENCES service_table(table_id) ON DELETE CASCADE,
     cart_json   TEXT    NOT NULL DEFAULT '[]',
     opened_at   TEXT    NOT NULL,
     updated_at  TEXT    NOT NULL,
