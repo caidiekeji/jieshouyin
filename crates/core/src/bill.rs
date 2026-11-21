@@ -384,13 +384,16 @@ pub fn reconcile_channel(
         }
     }
 
-    // 幂等：先清当日同渠道旧差异再写入
-    conn.execute(
+    // 幂等：先清当日同渠道旧差异再写入。清理与重写必须同一事务，
+    // 否则中途失败会留下“旧差异已删、新差异没写”的空窗。
+    drop(stmt);
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM reconcile_record WHERE recon_date = ?1 AND channel = ?2",
         rusqlite::params![recon_date, channel],
     )?;
     for (t, order_no, local_amt, chan_amt, detail) in diffs {
-        conn.execute(
+        tx.execute(
             "INSERT INTO reconcile_record(recon_date, channel, local_amount_cents, channel_amount_cents, diff_type, order_no, detail_json, created_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
             rusqlite::params![
@@ -405,6 +408,7 @@ pub fn reconcile_channel(
             ],
         )?;
     }
+    tx.commit()?;
     Ok(summary)
 }
 

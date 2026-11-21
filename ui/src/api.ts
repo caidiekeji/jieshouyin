@@ -365,8 +365,8 @@ export const api = {
     initialQty: number
     alertQty: number
   }) => invoke<number>('create_product', p),
-  listProducts: (keyword: string, limit: number) =>
-    invoke<ProductRow[]>('list_products', { keyword, limit }),
+  listProducts: (keyword: string, limit: number, includeDisabled = false) =>
+    invoke<ProductRow[]>('list_products', { keyword, limit, includeDisabled }),
   updateProduct: (
     skuId: number,
     salePriceCents: number,
@@ -380,6 +380,9 @@ export const api = {
   listCategories: () => invoke<Category[]>('list_categories'),
   createCategory: (parentId: number | null, name: string) =>
     invoke<number>('create_category', { parentId, name }),
+  updateCategory: (categoryId: number, parentId: number | null, name: string) =>
+    invoke<void>('update_category', { categoryId, parentId, name }),
+  deleteCategory: (categoryId: number) => invoke<void>('delete_category', { categoryId }),
   adjustStock: (skuId: number, changeQty: number, reason: string) =>
     invoke<number>('adjust_stock', { skuId, changeQty, reason }),
   createSupplier: (name: string, contact: string | null, phone: string | null) =>

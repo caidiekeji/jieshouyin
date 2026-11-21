@@ -95,11 +95,12 @@ pub fn list_orders(
         "SELECT o.order_no, o.business_date, o.created_at, o.cashier_id, o.member_id,
                 COALESCE(m.name,''), o.total_cents, o.discount_cents, o.pay_cents, o.status,
                 (SELECT COUNT(*) FROM sales_order_item i WHERE i.order_no=o.order_no),
-                COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r WHERE r.order_no=o.order_no),0)
+                COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                          WHERE r.order_no=o.order_no AND r.status IN ('PROCESSING','COMPLETED')),0)
          FROM sales_order o
          LEFT JOIN member m ON m.member_id=o.member_id
          WHERE (?1 IS NULL OR o.business_date=?1)
-           AND (?2 = '' OR o.order_no LIKE ?3)
+           AND (?2 = '' OR o.order_no LIKE ?3 OR COALESCE(m.name,'') LIKE ?3 OR COALESCE(m.phone,'') LIKE ?3)
          ORDER BY o.created_at DESC LIMIT ?4",
     )?;
     let rows = stmt.query_map(params![date, keyword, pattern, limit], |r| {
@@ -138,7 +139,8 @@ pub fn order_detail(conn: &Connection, order_no: &str) -> Result<Option<OrderDet
             "SELECT o.order_no, o.business_date, o.created_at, o.cashier_id, o.member_id,
                     COALESCE(m.name,''), o.total_cents, o.discount_cents, o.pay_cents, o.status,
                     (SELECT COUNT(*) FROM sales_order_item i WHERE i.order_no=o.order_no),
-                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r WHERE r.order_no=o.order_no),0)
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=o.order_no AND r.status IN ('PROCESSING','COMPLETED')),0)
              FROM sales_order o
              LEFT JOIN member m ON m.member_id=o.member_id
              WHERE o.order_no=?1",

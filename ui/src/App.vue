@@ -1144,8 +1144,19 @@ const payMethods = computed(() =>
   ).filter((m) => channelEnabled.value[m.id] !== false)
 )
 
+/** 切换支付模式时清空上一模式的组合明细，避免把上次的拆分金额带入本次收款。 */
+function resetPaySplits() {
+  paySplits.value = [{ channel: 'CASH', amountYuan: '', authCode: '' }]
+}
+
+function enterMixedMode() {
+  payMode.value = 'mixed'
+  resetPaySplits()
+}
+
 function selectPayChannel(id: PayChannel) {
   payMode.value = 'simple'
+  resetPaySplits()
   payChannel.value = id
   // 现金收银进入弹窗流程：展示应收、快捷面额、实收与找零
   if (id === 'CASH' && cart.value.length) {
@@ -2034,7 +2045,7 @@ function doLogout() {
               >
                 <Icon :name="m.icon" :size="ICON_SIZE.md" />{{ m.label }}
               </button>
-              <button :class="['pay-method-btn', { active: payMode === 'mixed' }]" @click="payMode = 'mixed'">
+              <button :class="['pay-method-btn', { active: payMode === 'mixed' }]" @click="enterMixedMode">
                 <Icon name="plus" :size="ICON_SIZE.md" />组合
               </button>
             </div>
@@ -2098,7 +2109,7 @@ function doLogout() {
               <div class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
                 待收 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}
               </div>
-              <button class="btn ghost" @click="payMode = 'simple'; payChannel = 'CASH'"><Icon name="undo" :size="ICON_SIZE.sm" />返回单笔支付</button>
+              <button class="btn ghost" @click="selectPayChannel('CASH')"><Icon name="undo" :size="ICON_SIZE.sm" />返回单笔支付</button>
             </div>
             <div class="actions checkout-actions">
               <button class="btn" @click="openParkDialog"><Icon name="pause" :size="ICON_SIZE.md" />挂单</button>
@@ -2136,7 +2147,7 @@ function doLogout() {
       </main>
 
       <!-- 采购与盘点 -->
-      <SupplyAdmin v-else-if="view === 'supply'" />
+      <SupplyAdmin v-else-if="view === 'supply'" :request-auth="requireSensitiveAuth" />
 
       <!-- 会员营销 -->
       <MemberAdmin v-else-if="view === 'member'" />

@@ -21,6 +21,10 @@ import {
 } from '../constants'
 
 const tab = ref<'purchase' | 'stocktake'>('purchase')
+const props = defineProps<{
+  /** 二次授权：盘点调账前要求店长/管理员密码确认 */
+  requestAuth?: (permission: string, title: string) => Promise<string>
+}>()
 const err = ref('')
 const okMsg = ref('')
 
@@ -131,10 +135,8 @@ const receiveQty = ref<Record<number, string>>({})
 async function openReceive(poNo: string) {
   try {
     receiveRows.value = await api.getPurchaseItems(poNo)
+    // 不预填订购数：验收必须逐行核对（默认全收会让漏检/短装被直接入账）。
     receiveQty.value = {}
-    for (const r of receiveRows.value) {
-      receiveQty.value[r.item_id] = String(r.received_qty ?? r.ordered_qty)
-    }
     receivePo.value = poNo
   } catch (e) {
     fail(e)
@@ -144,13 +146,16 @@ async function openReceive(poNo: string) {
 async function submitReceive() {
   if (receivePo.value == null) return
   try {
-    await api.receivePurchase(
-      receivePo.value,
-      receiveRows.value.map((r) => ({
-        item_id: r.item_id,
-        received_qty: parseInt(receiveQty.value[r.item_id] || '0', 10)
-      }))
-    )
+    const rows = receiveRows.value.map((r) => {
+      const raw = receiveQty.value[r.item_id]
+      if (raw === undefined || String(raw).trim() === '') {
+        throw new Error(`${r.product_name} 未填写实收数量`)
+      }
+      const n = Number(raw)
+      if (!Number.isInteger(n) || n < 0) throw new Error(`${r.product_name} 实收数量必须是不小于 0 的整数`)
+      return { item_id: r.item_id, received_qty: n }
+    })
+    await api.receivePurchase(receivePo.value, rows)
     receivePo.value = null
     done('验收完成，库存已入账')
     await reloadPos()
@@ -225,12 +230,18 @@ async function openCount(taskNo: string) {
 async function submitCount() {
   if (countTask.value == null) return
   try {
-    await api.recordCount(
-      countTask.value,
-      countRows.value
-        .filter((r) => countQty.value[r.item_id] !== undefined && countQty.value[r.item_id] !== '')
-        .map((r) => ({ item_id: r.item_id, received_qty: parseInt(countQty.value[r.item_id], 10) }))
-    )
+    // 盘点必须逐行录数：漏行会被后端按账面值处理，等于把漏盘当成零差异审批。
+    const missing = countRows.value.filter((r) => {
+      const raw = countQty.value[r.item_id]
+      return raw === undefined || String(raw).trim() === ''
+    })
+    if (missing.length) throw new Error(`还有 ${missing.length} 行未录实盘数，请全部填写后再提交`)
+    const counts = countRows.value.map((r) => {
+      const n = Number(countQty.value[r.item_id])
+      if (!Number.isInteger(n) || n < 0) throw new Error(`${r.product_name} 的实盘数必须是不小于 0 的整数`)
+      return { item_id: r.item_id, received_qty: n }
+    })
+    await api.recordCount(countTask.value, counts)
     countTask.value = null
     done('实盘已录入，待审批')
     await reloadStocktakes()
@@ -251,12 +262,14 @@ async function openApprove(taskNo: string) {
 async function submitApprove() {
   if (approveTask.value == null) return
   try {
+    // 调账影响库存资产，必须由店长/管理员二次确认后再提交。
+    if (props.requestAuth) await props.requestAuth('stocktake.approve', '盘点调账授权')
     await api.approveStocktake(approveTask.value)
     approveTask.value = null
     done('盘点已审批，库存差异已调整')
     await reloadStocktakes()
   } catch (e) {
-    fail(e)
+    if (String(e) !== '已取消二次授权') fail(e)
   }
 }
 
@@ -452,6 +465,11 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
+        <p class="muted small">
+          共 {{ countRows.length }} 行，其中差异行
+          {{ countRows.filter((r) => (r.diff_qty ?? 0) !== 0).length }} 行，差异合计
+          {{ countRows.reduce((s, r) => s + (r.diff_qty ?? 0), 0) }} 件。审批后按差异生成库存调整流水。
+        </p>
         <div class="form-row">
           <button class="btn primary" @click="submitApprove">确认审批</button>
           <button class="btn ghost" @click="approveTask = null">取消</button>

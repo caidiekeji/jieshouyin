@@ -7,8 +7,9 @@ use checkout_core::constants::{
     CFG_EXPENSE_LABOR_YUAN, CFG_EXPENSE_RENT_YUAN, CFG_EXPENSE_UTILITY_YUAN,
     CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
     CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_ENABLED,
-    CFG_POINTS_PER_YUAN, CFG_POINTS_REDEEM_RATE, CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT,
-    CFG_RECEIPT_QR_BASE, CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_PHONE, CFG_STORE_TIMEZONE,
+    CFG_POINTS_PER_YUAN, CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT,
+    CFG_RECEIPT_QR_BASE, CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_NO, CFG_STORE_PHONE,
+    CFG_STORE_TIMEZONE, CFG_DEVICE_NO,
     COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS,
     DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_ENABLED, DEFAULT_POINTS_PER_YUAN,
     DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD,
@@ -64,6 +65,16 @@ fn cfg_i64(conn: &Connection, key: &str, default: i64) -> i64 {
         .flatten()
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(default)
+}
+
+/// 读取 system_config 字符串值，缺失/空白回退到默认值。
+fn cfg_str(conn: &Connection, key: &str, default: &str) -> String {
+    cfg_get(conn, key)
+        .ok()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// 读取 system_config f64 值，缺失/非法回退到默认值。
@@ -512,17 +523,14 @@ fn consume_sensitive(
         .pending_sensitive
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    let slot = pending.as_ref().ok_or(CoreError::SensitiveAuthRequired)?;
-    if slot.permission != permission || slot.auth.nonce != nonce {
-        return Err(CoreError::SensitiveAuthRequired);
-    }
-    let auth = slot.auth.clone();
-    if auth.expires_at <= now {
-        *pending = None;
-        return Err(CoreError::SensitiveAuthRequired);
-    }
-    *pending = None; // 一次性消费
-    Ok(auth)
+    // 只清理已过期项，不动其他仍在等待消费的授权。
+    pending.retain(|p| p.auth.expires_at > now);
+    let idx = pending
+        .iter()
+        .position(|p| p.permission == permission && p.auth.nonce == nonce)
+        .ok_or(CoreError::SensitiveAuthRequired)?;
+    let slot = pending.remove(idx); // 一次性消费
+    Ok(slot.auth)
 }
 
 #[derive(Debug, Deserialize)]
@@ -890,7 +898,10 @@ pub fn checkout(
         )));
     }
 
-    let order_no = checkout_core::order::generate_order_no("STORE", "POS1");
+    let order_no = checkout_core::order::generate_order_no(
+        &cfg_str(&conn, CFG_STORE_NO, "STORE"),
+        &cfg_str(&conn, CFG_DEVICE_NO, "POS1"),
+    );
     let biz = business_date_for(&conn, &now_dt)?;
     let shift_id: i64 = *state
         .current_shift
@@ -1466,6 +1477,7 @@ pub fn create_product(
 pub fn list_products(
     keyword: String,
     limit: i64,
+    include_disabled: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Vec<checkout_core::product::ProductRow>> {
     let license = state
@@ -1477,7 +1489,12 @@ pub fn list_products(
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
-    let mut rows = checkout_core::product::list_products(&conn, &keyword, limit)?;
+    let mut rows = checkout_core::product::list_products(
+        &conn,
+        &keyword,
+        limit,
+        include_disabled.unwrap_or(false),
+    )?;
     // 本地图片：库内是文件名，这里解析成绝对路径供前端展示
     let img_dir = state.data_dir.join("images");
     for r in &mut rows {
@@ -1539,6 +1556,23 @@ pub fn create_category(
 ) -> Result<i64> {
     let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::product::create_category(&conn, parent_id, &name)
+}
+
+#[tauri::command]
+pub fn update_category(
+    category_id: i64,
+    parent_id: Option<i64>,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::product::update_category(&conn, category_id, parent_id, &name)
+}
+
+#[tauri::command]
+pub fn delete_category(category_id: i64, state: State<'_, AppState>) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::product::delete_category(&conn, category_id)
 }
 
 /// 库存调整（inventory.adjust，F-13/F-14）：带符号差值，原因入 inv_trans 审计。
@@ -2472,7 +2506,7 @@ pub fn refund_order(
     let return_no = gen_no("RT");
     let total: i64;
     // 扫码渠道退款任务（渠道受理在事务提交后执行，受理 ≠ 成功）
-    let mut scan_refunds: Vec<(String, PayChannel, i64)> = Vec::new();
+    let mut scan_refunds: Vec<(String, PayChannel, i64, Option<String>)> = Vec::new();
     {
         let tx = conn.unchecked_transaction()?;
         total = checkout_core::order::create_return(
@@ -2489,21 +2523,59 @@ pub fn refund_order(
         // 渠道占比分摊 → refund_record（§6.6）
         if !shares.is_empty() {
             let allocated = checkout_core::payment::route_refund(&shares, total)?;
-            for (i, (channel, amt)) in allocated.into_iter().enumerate() {
-                let refund_no = format!("{return_no}:R{}", i + 1);
-                let is_scan = matches!(channel, PayChannel::WECHAT | PayChannel::ALIPAY);
-                let status = if is_scan { "PROCESSING" } else { "COMPLETED" };
-                tx.execute(
-                    "INSERT INTO refund_record(pay_id,return_no,order_no,refund_no,amount_cents,status,created_at,updated_at)
-                     VALUES ((SELECT pay_id FROM payment_record WHERE order_no=?1 AND pay_channel=?2 AND status='SUCCESS' ORDER BY pay_id LIMIT 1),
-                             ?3,?4,?5,?6,?7,?8,?8)",
-                    rusqlite::params![
-                        order_no, channel.as_str(), return_no, order_no, refund_no, amt,
-                        status, now_str()
-                    ],
-                )?;
-                if is_scan {
-                    scan_refunds.push((refund_no, channel, amt));
+            let mut leg_no = 0usize;
+            for (channel, amt) in allocated.into_iter() {
+                // 同一渠道可能有多笔收款（组合支付/补差价）：按各笔的未退余额逐笔挂账，
+                // 不能一律挂第一笔，否则对账与按笔退款都会错位。
+                let pays: Vec<(i64, i64, Option<String>)> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT pay_id, amount_cents, out_trade_no FROM payment_record
+                         WHERE order_no=?1 AND pay_channel=?2 AND status='SUCCESS'
+                         ORDER BY pay_id",
+                    )?;
+                    let rows = stmt.query_map(rusqlite::params![order_no, channel.as_str()], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    })?;
+                    let v = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+                    drop(stmt);
+                    v
+                };
+                let mut left = amt;
+                for (pay_id, paid, otn) in &pays {
+                    if left <= 0 {
+                        break;
+                    }
+                    let refunded: i64 = tx.query_row(
+                        "SELECT COALESCE(SUM(amount_cents),0) FROM refund_record
+                         WHERE pay_id=?1 AND status IN ('PROCESSING','COMPLETED')",
+                        [pay_id],
+                        |r| r.get(0),
+                    )?;
+                    let room = (paid - refunded).max(0);
+                    // 已无余额（此前退款失败重试）时仍挂到该笔，保留追溯关系。
+                    let take = if room == 0 { left } else { left.min(room) };
+                    leg_no += 1;
+                    let refund_no = format!("{return_no}:R{leg_no}");
+                    let is_scan = matches!(channel, PayChannel::WECHAT | PayChannel::ALIPAY);
+                    let status = if is_scan { "PROCESSING" } else { "COMPLETED" };
+                    tx.execute(
+                        "INSERT INTO refund_record(pay_id,return_no,order_no,refund_no,amount_cents,status,created_at,updated_at)
+                         VALUES (?1,?2,?3,?4,?5,?6,?7,?7)",
+                        rusqlite::params![
+                            pay_id, return_no, order_no, refund_no, take, status, now_str()
+                        ],
+                    )?;
+                    if is_scan {
+                        scan_refunds.push((refund_no, channel, take, otn.clone()));
+                    }
+                    left -= take;
+                }
+                if left > 0 {
+                    return Err(CoreError::Validation(format!(
+                        "{} 渠道可退余额不足，剩余 {} 分无法归集",
+                        channel.as_str(),
+                        left
+                    )));
                 }
             }
         }
@@ -2562,16 +2634,8 @@ pub fn refund_order(
 
     // 扫码渠道退款执行（PAY-04）：受理成功 ≠ 成功，终态由退款查询收敛
     let mut channel_failed = false;
-    for (refund_no, channel, amt) in scan_refunds {
-        let out_trade_no: Option<String> = conn
-            .query_row(
-                "SELECT out_trade_no FROM payment_record
-                 WHERE order_no=?1 AND pay_channel=?2 AND status='SUCCESS' ORDER BY pay_id LIMIT 1",
-                rusqlite::params![order_no, channel.as_str()],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
+    let mut channel_pending = false;
+    for (refund_no, channel, amt, out_trade_no) in scan_refunds {
         if let Some(otn) = out_trade_no {
             let gw = state.gateway.of_channel(channel);
             match gw.refund(&otn, &refund_no, amt) {
@@ -2581,7 +2645,10 @@ pub fn refund_order(
                         rusqlite::params![now_str(), refund_no],
                     )?;
                 }
-                Ok(_) => { /* PROCESSING 保持，等待退款查询收敛 */ }
+                Ok(_) => {
+                    // 受理成功但未终态：保持 PROCESSING，等待退款查询收敛
+                    channel_pending = true;
+                }
                 Err(e) => {
                     conn.execute(
                         "UPDATE refund_record SET status='FAILED', updated_at=?1 WHERE refund_no=?2",
@@ -2604,6 +2671,13 @@ pub fn refund_order(
         return Err(CoreError::Validation(
             "渠道退款受理失败：退款单已标记 FAILED/待人工处理，请勿重复退货".into(),
         ));
+    }
+    // 退货单状态跟渠道终态一致：无微信/支付宝在途才 COMPLETED，否则保持 PROCESSING。
+    if !channel_pending {
+        conn.execute(
+            "UPDATE sales_return SET status='COMPLETED' WHERE return_no=?1 AND status='PROCESSING'",
+            [&return_no],
+        )?;
     }
 
     Ok(total)
@@ -2634,11 +2708,13 @@ pub fn request_sensitive_auth(
         &nonce,
         now,
     )?;
-    *state
+    let mut pending = state
         .pending_sensitive
         .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))? =
-        Some(PendingSensitive { auth, permission });
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    // 并发授权（如同时开退款与盘点审批）各占一槽，先清过期项防堆积。
+    pending.retain(|p| p.auth.expires_at > now);
+    pending.push(PendingSensitive { auth, permission });
     Ok(nonce)
 }
 
@@ -2723,7 +2799,7 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
                 return Err(CoreError::Validation("开关只允许 0 或 1".into()));
             }
         }
-        CFG_POINTS_PER_YUAN | CFG_POINTS_REDEEM_RATE => {
+        CFG_POINTS_PER_YUAN => {
             let n: i64 = value
                 .parse()
                 .map_err(|_| CoreError::Validation("积分配置必须为非负整数".into()))?;
@@ -2744,6 +2820,39 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
             if !v.is_empty() && !(v.starts_with("http://") || v.starts_with("https://")) {
                 return Err(CoreError::Validation(
                     "激活服务地址必须以 http:// 或 https:// 开头".into(),
+                ));
+            }
+        }
+        CFG_PRINT_HOST => {
+            let v = value.trim();
+            // 允许留空关闭；非空时只接受主机名/IP 字符集，杜绝把端口或 URL 拼进地址。
+            if !v.is_empty()
+                && (v.len() > 64
+                    || !v
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'))
+            {
+                return Err(CoreError::Validation(
+                    "打印机地址只能是 IP/主机名（字母数字 . -），不含端口与协议".into(),
+                ));
+            }
+        }
+        CFG_PRINT_PORT => {
+            let n: u16 = value
+                .parse()
+                .map_err(|_| CoreError::Validation("打印机端口必须是 1–65535 的整数".into()))?;
+            if n == 0 {
+                return Err(CoreError::Validation("打印机端口必须是 1–65535 的整数".into()));
+            }
+        }
+        CFG_STORE_NO | CFG_DEVICE_NO => {
+            let v = value.trim();
+            if v.is_empty()
+                || v.len() > 8
+                || !v.chars().all(|c| c.is_ascii_alphanumeric())
+            {
+                return Err(CoreError::Validation(
+                    "门店/终端编号必须是 1–8 位字母或数字".into(),
                 ));
             }
         }
@@ -3409,6 +3518,13 @@ pub fn confirm_native_pay(order_no: String, state: State<'_, AppState>) -> Resul
     let operator_id = session.user_id;
     drop(session);
     drop(license);
+    // 人工确认只服务于 LOCAL 网关（未配置真实渠道）。一旦接入微信/支付宝，
+    // 到账必须由渠道查单确认，人工按钮不能绕过渠道终态，否则可凭空把订单置为已付。
+    if state.gateway.wechat.is_some() || state.gateway.alipay.is_some() {
+        return Err(CoreError::Validation(
+            "已配置真实支付渠道：Native 支付请使用渠道查单确认，禁止人工确认".into(),
+        ));
+    }
     let out_trade_no: String = conn
         .query_row(
             "SELECT out_trade_no FROM payment_record
@@ -3978,10 +4094,10 @@ pub fn upload_product_image(
     let file_name = format!("sku{sku_id}_{}.{ext}", Utc::now().timestamp_millis());
     let path = dir.join(&file_name);
     std::fs::write(&path, &bytes).map_err(|e| CoreError::Other(format!("保存图片失败: {e}")))?;
-    // 落库用绝对路径：前端 convertFileSrc 需要绝对路径才能转成可展示地址
-    let abs = path.to_string_lossy().to_string();
-    checkout_core::product::set_product_image_path(&conn, sku_id, Some(abs.as_str()))?;
-    Ok(abs)
+    // 库内存文件名，读取时统一拼 data_dir/images 解析成绝对路径；
+    // 存绝对路径会在安装目录变化/迁移后失效，也会让读取端重复拼接。
+    checkout_core::product::set_product_image_path(&conn, sku_id, Some(file_name.as_str()))?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 /// 登记商品在线图片地址（http/https）。空字符串表示清除在线地址。
@@ -4252,7 +4368,7 @@ pub fn run() {
                 data_dir: data_dir.clone(),
                 gateway,
                 current_shift: std::sync::Mutex::new(0i64),
-                pending_sensitive: std::sync::Mutex::new(None),
+                pending_sensitive: std::sync::Mutex::new(Vec::new()),
             });
 
             // 系统托盘：关闭按钮只隐藏到托盘，真正退出走托盘菜单。
@@ -4382,6 +4498,8 @@ pub fn run() {
             set_product_status,
             list_categories,
             create_category,
+            update_category,
+            delete_category,
             adjust_stock,
             create_supplier,
             list_suppliers,

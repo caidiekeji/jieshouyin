@@ -600,6 +600,36 @@ WHERE r.role_name IN ('ADMIN','MANAGER')
   AND p.perm_key IN ('member.manage','member.recharge');
 "#;
 
+/// M0013：高频查询索引（订单明细/支付/退款/库存流水/会员流水/券）。
+/// SQLite 不会为外键自动建索引，万单级后详情与对账会全表扫描。
+const M0013: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_order_item_order ON sales_order_item(order_no);
+CREATE INDEX IF NOT EXISTS idx_payment_order ON payment_record(order_no);
+CREATE INDEX IF NOT EXISTS idx_refund_order ON refund_record(order_no);
+CREATE INDEX IF NOT EXISTS idx_refund_return ON refund_record(return_no);
+CREATE INDEX IF NOT EXISTS idx_inv_trans_sku_time ON inv_trans(sku_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_asset_log_member_type ON member_asset_log(member_id, asset_type);
+CREATE INDEX IF NOT EXISTS idx_coupon_status_until ON coupon(status, valid_until);
+CREATE INDEX IF NOT EXISTS idx_return_item_order ON sales_return_item(order_item_id);
+CREATE INDEX IF NOT EXISTS idx_reconcile_date_channel ON reconcile_record(recon_date, channel);
+"#;
+
+/// M0014：订单状态显式约束。SQLite 无法给已有表补 CHECK，用触发器拦截；
+/// 避免任意字符串写入 status 后报表/状态机按未知状态静默跳过。
+const M0014: &str = r#"
+CREATE TRIGGER IF NOT EXISTS trg_order_status_ins
+BEFORE INSERT ON sales_order
+WHEN NEW.status NOT IN ('PENDING_PAYMENT','COMPLETED','PARTIAL_REFUND','REFUNDED','CANCELED','VOIDED')
+BEGIN SELECT RAISE(ABORT,'invalid sales_order.status'); END;
+CREATE TRIGGER IF NOT EXISTS trg_order_status_upd
+BEFORE UPDATE OF status ON sales_order
+WHEN NEW.status NOT IN ('PENDING_PAYMENT','COMPLETED','PARTIAL_REFUND','REFUNDED','CANCELED','VOIDED')
+BEGIN SELECT RAISE(ABORT,'invalid sales_order.status'); END;
+INSERT OR IGNORE INTO system_config(config_key,config_value,updated_at) VALUES
+ ('store_no','STORE',datetime('now')),
+ ('device_no','POS1',datetime('now'));
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -661,6 +691,16 @@ pub fn all() -> Vec<Migration> {
             version: 12,
             name: "member_permissions",
             up: M0012,
+        },
+        Migration {
+            version: 13,
+            name: "hot_path_indexes",
+            up: M0013,
+        },
+        Migration {
+            version: 14,
+            name: "order_status_guard",
+            up: M0014,
         },
     ]
 }

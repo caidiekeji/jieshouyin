@@ -27,8 +27,9 @@ pub struct AppState {
     pub gateway: RoutingGateway,
     /// 当前开放班次 ID（开班时设置，收银结算引用）。
     pub current_shift: Mutex<i64>,
-    /// 待消费的二次授权凭据（nonce 一次性）。
-    pub pending_sensitive: Mutex<Option<PendingSensitive>>,
+    /// 待消费的二次授权凭据：按 nonce 多槽保存，并发弹窗不会互相覆盖；
+    /// 每个 nonce 只能消费一次。
+    pub pending_sensitive: Mutex<Vec<PendingSensitive>>,
 }
 
 /// 构建授权服务：使用加密文件存储（keyring 不可用时的文档允许降级路径）。
@@ -43,7 +44,9 @@ pub fn build_license_service(state: &AppState) -> LicenseService {
         state.license_path.clone(),
         fp.as_deref(),
     ));
-    let last_known = chrono::DateTime::from_timestamp(0, 0).unwrap();
+    // 回拨检测基线不能是 1970：那等于永远检测不到系统时间回拨。
+    // 以进程启动时刻为基线，之后由授权服务持久化最新的可信时间。
+    let last_known = chrono::Utc::now();
     LicenseService::new(store, state.public_key, Box::new(SystemClock), last_known)
 }
 

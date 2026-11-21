@@ -113,8 +113,19 @@ pub fn allows_negative(conn: &Connection, sku_id: i64) -> Result<bool> {
             |r| r.get(0),
         )
         .optional()?;
-    v.map(|x| x != 0)
-        .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在")))
+    let sku_allow = v
+        .map(|x| x != 0)
+        .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在")))?;
+    // 全局开关是总闸：门店关闭负库存后，SKU 级允许也不生效（否则设置页是假开关）。
+    let global: Option<String> = conn
+        .query_row(
+            "SELECT config_value FROM system_config WHERE config_key=?1",
+            [crate::constants::CFG_ALLOW_NEGATIVE_STOCK],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let global_allow = global.as_deref().unwrap_or("0") != "0";
+    Ok(sku_allow && global_allow)
 }
 
 use rusqlite::OptionalExtension;

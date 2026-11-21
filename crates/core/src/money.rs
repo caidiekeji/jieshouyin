@@ -37,8 +37,14 @@ pub fn allocate_by_remaining(remaining: &[i64], total: i64) -> Result<Vec<i64>> 
         return Err(CoreError::Money("优惠额不得为负".into()));
     }
 
-    // 优惠额截断到可分摊基数
-    let effective = total_i.min(base);
+    // 超出可分摊基数说明调用方金额有误：静默截断会让“已全额分摊”的假设失真，
+    // 必须报错交给上层（促销越界/退款超过实收都会在此暴露）。
+    if total_i > base {
+        return Err(CoreError::Money(format!(
+            "分摊金额 {total} 超过可分摊基数 {base}"
+        )));
+    }
+    let effective = total_i;
     let mut alloc: Vec<i64> = remaining
         .iter()
         .map(|&r| (effective * r as i128 / base) as i64)
@@ -109,10 +115,9 @@ mod tests {
     }
 
     #[test]
-    fn allocate_truncates_to_base() {
-        let r = allocate_by_remaining(&[100, 100], 500).unwrap();
-        assert_eq!(r, vec![100, 100]);
-        assert_eq!(r.iter().sum::<i64>(), 200);
+    fn allocate_rejects_over_base() {
+        // 超过基数不再静默截断：否则调用方以为全额已分摊
+        assert!(allocate_by_remaining(&[100, 100], 500).is_err());
     }
 
     #[test]

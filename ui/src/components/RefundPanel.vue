@@ -79,6 +79,15 @@ function selectedItems() {
     .map(([id, qty]) => ({ order_item_id: Number(id), qty }))
 }
 
+/** 退货数量只允许正整数：v-model.number 可能得到小数，直接提交会在后端反序列化失败。 */
+function selectedItemsValid() {
+  return Object.entries(quantities.value).every(([id, qty]) => {
+    if (!qty) return true
+    const item = detail.value?.items.find((x) => x.item_id === Number(id))
+    return Number.isInteger(qty) && qty > 0 && qty <= (item ? refundableQty(item.item_id) : 0)
+  })
+}
+
 /** 试算：数量变化即向后台要一次准确金额 */
 async function preview() {
   const items = selectedItems()
@@ -104,6 +113,10 @@ async function submitRefund() {
   const items = selectedItems()
   if (!items.length) {
     fail('请至少选择一行退货明细')
+    return
+  }
+  if (!selectedItemsValid()) {
+    fail('退货数量必须是正整数，且不超过可退数量')
     return
   }
   submitting.value = true
@@ -159,7 +172,7 @@ onMounted(async () => {
             <td class="num-cell">{{ o.item_count }}</td>
             <td class="num-cell">¥{{ formatMoney(o.pay_cents) }}</td>
             <td class="num-cell">¥{{ formatMoney(o.refunded_cents) }}</td>
-            <td><span class="badge" :class="o.status === 'PAID' || o.status === 'PARTIAL_REFUNDED' ? 'badge-ok' : 'badge-off'">{{ ORDER_STATUS_LABEL[o.status] ?? o.status }}</span></td>
+            <td><span class="badge" :class="o.status === 'COMPLETED' || o.status === 'PARTIAL_REFUND' ? 'badge-ok' : 'badge-off'">{{ ORDER_STATUS_LABEL[o.status] ?? o.status }}</span></td>
             <td>
               <button class="btn btn-sm" @click="selectOrder(o.order_no)">选择</button>
               <button class="btn btn-sm ghost" @click="emit('detail', o.order_no)">详情</button>
@@ -171,7 +184,12 @@ onMounted(async () => {
     </div>
 
     <div v-if="detail" class="card wide">
-      <h3>退货明细 · {{ detail.header.order_no }}</h3>
+      <h3>
+        退货明细 · {{ detail.header.order_no }}
+        <span class="badge" :class="detail.header.status === 'COMPLETED' || detail.header.status === 'PARTIAL_REFUND' ? 'badge-ok' : 'badge-off'">
+          {{ ORDER_STATUS_LABEL[detail.header.status] ?? detail.header.status }}
+        </span>
+      </h3>
       <table class="tbl">
         <thead>
           <tr><th>商品</th><th class="num-cell">单价</th><th class="num-cell">数量</th><th class="num-cell">已退</th><th class="num-cell">可退</th><th class="num-cell">退货数量</th></tr>
@@ -192,6 +210,7 @@ onMounted(async () => {
                 type="number"
                 min="0"
                 :max="refundableQty(it.item_id)"
+                step="1"
                 aria-label="退货数量"
               />
             </td>
@@ -203,7 +222,11 @@ onMounted(async () => {
         <span>应退金额</span>
         <strong>¥{{ formatMoney(refundAmount) }}</strong>
       </div>
-      <button class="btn primary" :disabled="submitting || refundAmount <= 0" @click="submitRefund">
+      <button
+        class="btn primary"
+        :disabled="submitting || refundAmount <= 0 || !(detail.header.status === 'COMPLETED' || detail.header.status === 'PARTIAL_REFUND')"
+        @click="submitRefund"
+      >
         <span v-if="submitting" class="btn-spinner" aria-label="退款处理中"></span>
         <Icon v-else name="check" :size="ICON_SIZE.md" />{{ submitting ? '退款处理中…' : '确认退款（需授权）' }}
       </button>

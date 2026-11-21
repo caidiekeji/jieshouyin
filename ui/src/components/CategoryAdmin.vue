@@ -54,6 +54,31 @@ async function add() {
   }
 }
 
+async function rename(c: Category) {
+  const next = window.prompt('新的分类名称', c.name)?.trim()
+  if (!next || next === c.name) return
+  try {
+    await api.updateCategory(c.category_id, c.parent_id, next)
+    okMsg.value = '分类已改名'
+    setTimeout(() => (okMsg.value = ''), TOAST_DURATION_MS)
+    await reload()
+  } catch (e) {
+    err.value = String(e)
+  }
+}
+
+async function remove(c: Category) {
+  if (!window.confirm(`删除分类「${c.name}」？分类下有商品或子分类时会被拒绝。`)) return
+  try {
+    await api.deleteCategory(c.category_id)
+    okMsg.value = '分类已删除'
+    setTimeout(() => (okMsg.value = ''), TOAST_DURATION_MS)
+    await reload()
+  } catch (e) {
+    err.value = String(e)
+  }
+}
+
 onMounted(reload)
 </script>
 
@@ -68,10 +93,16 @@ onMounted(reload)
 
       <div v-if="tree.length" class="category-tree">
         <div v-for="root in tree" :key="root.category_id" class="category-branch">
-          <div class="category-node root-node">{{ root.name }}</div>
+          <div class="category-node root-node">
+            {{ root.name }}
+            <button class="btn btn-sm ghost" @click="rename(root)">改名</button>
+            <button class="btn btn-sm ghost danger-text" @click="remove(root)">删除</button>
+          </div>
           <div v-if="root.children.length" class="category-children">
             <span v-for="child in root.children" :key="child.category_id" class="category-node child-node">
               {{ child.name }}
+              <button class="btn btn-sm ghost" @click="rename(child)">改名</button>
+              <button class="btn btn-sm ghost danger-text" @click="remove(child)">删除</button>
             </span>
           </div>
         </div>

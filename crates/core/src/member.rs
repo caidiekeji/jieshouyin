@@ -279,10 +279,17 @@ pub fn transition_coupon(conn: &Connection, coupon_code: &str, to: &str) -> Resu
 }
 
 /// 券懒更新过期（读路径双保险之一）。
+/// LOCKED 券只有在没有任何未完成订单占用时才允许过期，否则会把在途订单的券
+/// 提前置为 EXPIRED，导致支付成功后无法核销/取消时无法释放。
 pub fn expire_lazy(conn: &Connection, coupon_code: &str, now: &str) -> Result<()> {
     conn.execute(
         "UPDATE coupon SET status='EXPIRED'
-         WHERE coupon_code=?1 AND status='UNUSED' AND valid_until IS NOT NULL AND valid_until < ?2",
+         WHERE coupon_code=?1 AND valid_until IS NOT NULL AND valid_until < ?2
+           AND (status='UNUSED'
+                OR (status='LOCKED' AND NOT EXISTS (
+                    SELECT 1 FROM sales_order o
+                    WHERE o.coupon_code = coupon.coupon_code
+                      AND o.status = 'PENDING_PAYMENT')) )",
         params![coupon_code, now],
     )?;
     Ok(())

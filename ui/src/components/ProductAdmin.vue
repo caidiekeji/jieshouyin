@@ -9,6 +9,7 @@ import {
   ERROR_DURATION_MS,
   ICON_SIZE,
   PAGE_SIZE,
+  PRODUCT_NAME_MAX,
   TOAST_DURATION_MS,
 } from '../constants'
 
@@ -124,7 +125,7 @@ function done(msg: string) {
 async function reload() {
   loading.value = true
   try {
-    products.value = await api.listProducts(keyword.value.trim(), PAGE_SIZE.PRODUCTS)
+    products.value = await api.listProducts(keyword.value.trim(), PAGE_SIZE.PRODUCTS, true)
     categories.value = await api.listCategories()
   } catch (e) {
     fail(e)
@@ -133,10 +134,30 @@ async function reload() {
   }
 }
 
+/** 金额文本 → 分：空/非数字/负数直接报错，避免 parseFloat 得到 NaN 后静默存 0。 */
+function yuanToCents(raw: string, label: string): number {
+  const t = raw.trim()
+  const n = Number(t)
+  if (!t || !Number.isFinite(n) || n < 0) {
+    throw new Error(`${label}必须是不小于 0 的数字`)
+  }
+  return Math.round(n * CENTS_PER_YUAN)
+}
+
+function intOrZero(raw: string, label: string): number {
+  const n = Number(raw.trim() || '0')
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${label}必须是不小于 0 的整数`)
+  return n
+}
+
 async function createProduct() {
-  const sale = Math.round(parseFloat(form.value.salePrice || '0') * CENTS_PER_YUAN)
-  const cost = Math.round(parseFloat(form.value.costPrice || '0') * CENTS_PER_YUAN)
   try {
+    if (!form.value.name.trim()) throw new Error('商品名不能为空')
+    if (form.value.name.trim().length > PRODUCT_NAME_MAX) {
+      throw new Error(`商品名不能超过 ${PRODUCT_NAME_MAX} 个字符`)
+    }
+    const sale = yuanToCents(form.value.salePrice || '0', '售价')
+    const cost = yuanToCents(form.value.costPrice || '0', '成本')
     const skuId = await api.createProduct({
       name: form.value.name,
       barcode: form.value.barcode.trim() || null,
@@ -146,11 +167,11 @@ async function createProduct() {
       salePriceCents: sale,
       costPriceCents: cost,
       memberPriceCents: form.value.memberPrice.trim()
-        ? Math.round(parseFloat(form.value.memberPrice) * CENTS_PER_YUAN)
+        ? yuanToCents(form.value.memberPrice, '会员价')
         : null,
       isWeighed: form.value.isWeighed,
-      initialQty: form.value.initialQty,
-      alertQty: form.value.alertQty,
+      initialQty: intOrZero(String(form.value.initialQty), '初始库存'),
+      alertQty: intOrZero(String(form.value.alertQty), '预警值'),
     })
     // 图片：上传的本地文件优先，其次登记在线地址
     if (createImageFile.value) {
@@ -185,9 +206,9 @@ async function saveEdit() {
   try {
     await api.updateProduct(
       editSku.value,
-      Math.round(parseFloat(editPrice.value || '0') * CENTS_PER_YUAN),
-      parseInt(editAlert.value || '0', 10),
-      editMemberPrice.value.trim() ? Math.round(parseFloat(editMemberPrice.value) * CENTS_PER_YUAN) : null,
+      yuanToCents(editPrice.value || '0', '售价'),
+      intOrZero(editAlert.value || '0', '预警值'),
+      editMemberPrice.value.trim() ? yuanToCents(editMemberPrice.value, '会员价') : null,
       editInstore.value.trim() || null
     )
     editSku.value = null

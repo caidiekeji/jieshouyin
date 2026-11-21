@@ -260,6 +260,14 @@ pub fn create_return(
     operator_id: i64,
 ) -> Result<i64> {
     let refund_total: i64 = refunds.iter().sum();
+    if items.len() != refunds.len() {
+        return Err(CoreError::Validation(
+            "退货明细与退款金额逐行数量不一致".into(),
+        ));
+    }
+    if items.is_empty() {
+        return Err(CoreError::Validation("退货明细不能为空".into()));
+    }
     let (status, pay_cents): (String, i64) = tx.query_row(
         "SELECT status, pay_cents FROM sales_order WHERE order_no=?1",
         [order_no],
@@ -284,9 +292,11 @@ pub fn create_return(
     }
     tx.execute(
         "INSERT INTO sales_return(return_no,order_no,member_id,cashier_id,approver_id,refund_total_cents,status,created_at)
-         VALUES (?1,?2,?3,?4,?5,?6,'COMPLETED',?7)",
+         VALUES (?1,?2,?3,?4,?5,?6,'PROCESSING',?7)",
         params![return_no, order_no, member_id, cashier_id, approver_id, refund_total, format_utc(&Utc::now())],
     )?;
+    // 退货单先落 PROCESSING：渠道退款执行完毕且无在途再置 COMPLETED，
+    // 与 refund_record 的 PROCESSING/COMPLETED 语义保持一致。
     for ((item_id, sku_id, qty), refund) in items.iter().zip(refunds.iter()) {
         tx.execute(
             "INSERT INTO sales_return_item(return_no,order_item_id,sku_id,qty,refund_cents) VALUES (?1,?2,?3,?4,?5)",

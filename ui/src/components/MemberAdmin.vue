@@ -115,6 +115,8 @@ const pForm = ref({
   mode: 'DISCOUNT' as 'DISCOUNT' | 'FULL_CUT',
   discountRate: '',
   discountAmount: '',
+  /** 适用商品 SKU ID，逗号分隔；留空表示全部商品 */
+  targetSkusText: '',
 })
 
 async function reloadPromos() {
@@ -128,6 +130,23 @@ async function reloadPromos() {
 async function addPromo() {
   const isRate = pForm.value.mode === 'DISCOUNT'
   try {
+    const rate = Number(pForm.value.discountRate)
+    if (isRate && (!Number.isFinite(rate) || rate <= 0 || rate >= 1)) {
+      throw new Error('折扣率需在 0 与 1 之间（如 0.85）')
+    }
+    const cut = Number(pForm.value.discountAmount || '0')
+    if (!isRate && (!Number.isFinite(cut) || cut <= 0)) throw new Error('满减金额必须大于 0')
+    const minAmount = Number(pForm.value.minAmount || '0')
+    if (!Number.isFinite(minAmount) || minAmount < 0) throw new Error('门槛金额不能为负')
+    const targetSkus = pForm.value.targetSkusText
+      .split(/[，,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => {
+        const id = Number(s)
+        if (!Number.isInteger(id) || id <= 0) throw new Error(`SKU ID 无效：${s}`)
+        return id
+      })
     await api.createPromotion({
       name: pForm.value.name,
       scope: pForm.value.scope,
@@ -135,14 +154,15 @@ async function addPromo() {
       exclusive: pForm.value.exclusive,
       stackable: pForm.value.stackable,
       minQty: pForm.value.minQty,
-      minAmountCents: Math.round(parseFloat(pForm.value.minAmount || '0') * CENTS_PER_YUAN),
-      discountRate: isRate ? parseFloat(pForm.value.discountRate || '0') : null,
-      discountCents: isRate ? null : Math.round(parseFloat(pForm.value.discountAmount || '0') * CENTS_PER_YUAN),
-      targetSkus: [],
+      minAmountCents: Math.round(minAmount * CENTS_PER_YUAN),
+      discountRate: isRate ? rate : null,
+      discountCents: isRate ? null : Math.round(cut * CENTS_PER_YUAN),
+      targetSkus,
       validFrom: null,
       validUntil: null
     })
     showCreatePromo.value = false
+    pForm.value.targetSkusText = ''
     done('促销规则已创建')
     await reloadPromos()
   } catch (e) {
@@ -310,8 +330,11 @@ onMounted(() => {
               <option value="FULL_CUT">满减</option>
             </select>
           </label>
-          <label v-if="pForm.mode === 'DISCOUNT'">折扣率<input v-model="pForm.discountRate" class="input" placeholder="0.85 = 85折" /></label>
+          <label v-if="pForm.mode === 'DISCOUNT'">折扣率<input v-model="pForm.discountRate" class="input" placeholder="0.85 = 8.5 折" /></label>
           <label v-else>满减金额（元）<input v-model="pForm.discountAmount" class="input" type="number" step="0.01" placeholder="如 5 = 减 5 元" /></label>
+          <label>适用商品 SKU（逗号分隔）
+            <input v-model="pForm.targetSkusText" class="input" placeholder="留空 = 全部商品；如 12,15" />
+          </label>
           <div class="field">
             <span class="field-label">叠加方式</span>
             <div class="segmented" role="radiogroup" aria-label="叠加方式">
@@ -320,7 +343,7 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <p class="muted small">当前版本规则作用于全部商品；指定商品促销将在后续版本支持</p>
+        <p class="muted small">折扣率填 0–1 之间的小数（0.85 即 8.5 折）；指定 SKU 后规则只作用于这些商品。</p>
         <button class="btn primary" @click="addPromo">创建规则</button>
       </div>
 

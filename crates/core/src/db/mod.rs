@@ -9,7 +9,9 @@ pub fn open_connection(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;
+         -- 收银必须保证断电后已提交的单据不丢：WAL 下 NORMAL 可能丢最后若干事务，
+         -- 改 FULL（每次提交 fsync）。单店每秒个位数事务，性能足够。
+         PRAGMA synchronous = FULL;
          PRAGMA foreign_keys = ON;
          PRAGMA busy_timeout = 5000;",
     )?;

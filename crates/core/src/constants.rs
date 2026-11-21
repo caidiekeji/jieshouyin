@@ -131,6 +131,9 @@ pub const CFG_PAY_CHANNEL_SV: &str = "pay_channel_sv_enabled";
 /// 门店名称：顶栏与小票抬头显示。
 pub const CFG_STORE_NAME: &str = "store_name";
 pub const CFG_STORE_PHONE: &str = "store_phone";
+/// 门店编号 / 终端编号：拼进订单号前缀，多门店多机台部署时必须不同，否则会撞单号。
+pub const CFG_STORE_NO: &str = "store_no";
+pub const CFG_DEVICE_NO: &str = "device_no";
 /// 小票二维码链接前缀（真实可访问的订单查询页）；未配置时二维码只承载单号。
 pub const CFG_RECEIPT_QR_BASE: &str = "receipt_qr_base";
 /// 所属行业标识：SUPERMARKET / CLOTHING / RESTAURANT。
@@ -159,7 +162,7 @@ pub const CONFIG_KIND_SWITCH: &str = "switch";
 
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
-pub const CONFIG_META: [(&str, &str, &str, &str); 27] = [
+pub const CONFIG_META: [(&str, &str, &str, &str); 28] = [
     (
         CFG_STORE_NAME,
         "门店名称",
@@ -224,12 +227,6 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 27] = [
         CFG_POINTS_PER_YUAN,
         "每元赠送积分",
         "消费满一元赠送的积分数量",
-        CONFIG_KIND_NUMBER,
-    ),
-    (
-        CFG_POINTS_REDEEM_RATE,
-        "积分抵扣比例",
-        "一百积分可抵扣的金额（分）",
         CONFIG_KIND_NUMBER,
     ),
     (
@@ -317,6 +314,18 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 27] = [
         CONFIG_KIND_TEXT,
     ),
     (
+        CFG_STORE_NO,
+        "门店编号",
+        "拼进订单号前缀；多门店部署时每店必须不同",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_DEVICE_NO,
+        "终端编号",
+        "拼进订单号前缀；同店多收银机必须不同",
+        CONFIG_KIND_TEXT,
+    ),
+    (
         CFG_RECEIPT_QR_BASE,
         "小票二维码链接前缀",
         "小票二维码指向的订单查询地址前缀，留空则二维码只承载订单号",
@@ -326,7 +335,7 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 27] = [
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
 /// 未列入的键（门店名称、所属行业）由专属命令管理，界面只读展示，避免点了保存却被拒。
-pub const CONFIG_EDITABLE: [&str; 25] = [
+pub const CONFIG_EDITABLE: [&str; 26] = [
     CFG_STORE_TIMEZONE,
     CFG_BUSINESS_DAY_CUTOFF,
     CFG_SCAN_GAP_MS,
@@ -336,7 +345,6 @@ pub const CONFIG_EDITABLE: [&str; 25] = [
     CFG_NATIVE_TIMEOUT_S,
     CFG_POINTS_ENABLED,
     CFG_POINTS_PER_YUAN,
-    CFG_POINTS_REDEEM_RATE,
     CFG_EXPENSE_RENT_YUAN,
     CFG_EXPENSE_UTILITY_YUAN,
     CFG_EXPENSE_LABOR_YUAN,
@@ -351,6 +359,8 @@ pub const CONFIG_EDITABLE: [&str; 25] = [
     CFG_PRINT_AUTO,
     CFG_ACTIVATION_ENDPOINT,
     CFG_STORE_PHONE,
+    CFG_STORE_NO,
+    CFG_DEVICE_NO,
     CFG_RECEIPT_QR_BASE,
 ];
 

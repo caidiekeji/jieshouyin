@@ -60,8 +60,103 @@ pub fn create_category(conn: &Connection, parent_id: Option<i64>, name: &str) ->
     Ok(conn.last_insert_rowid())
 }
 
-pub fn list_categories(conn: &Connection) -> Result<Vec<Category>> {
-    let mut stmt = conn.prepare(
+/// 改名/改父级：父级链不得成环（不能挂到自己或自己的后代下）。
+pub fn update_category(
+    conn: &Connection,
+    category_id: i64,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(CoreError::Validation("分类名不能为空".into()));
+    }
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT category_id FROM category WHERE category_id=?1 AND status=1",
+            [category_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if exists.is_none() {
+        return Err(CoreError::Validation(format!("分类 {category_id} 不存在")));
+    }
+    if let Some(mut pid) = parent_id {
+        if pid == category_id {
+            return Err(CoreError::Validation("上级分类不能是自己".into()));
+        }
+        // 沿父链上溯，若遇到自己则说明目标父级在后代中，会形成环。
+        let mut depth = 0;
+        loop {
+            if pid == category_id {
+                return Err(CoreError::Validation("上级分类不能是自己的下级".into()));
+            }
+            depth += 1;
+            if depth > 32 {
+                return Err(CoreError::Validation("分类层级异常（疑似已有环）".into()));
+            }
+            let next: Option<Option<i64>> = conn
+                .query_row(
+                    "SELECT parent_id FROM category WHERE category_id=?1 AND status=1",
+                    [pid],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            match next {
+                Some(Some(p)) => pid = p,
+                Some(None) => break,
+                None => {
+                    return Err(CoreError::Validation(format!("上级分类 {pid} 不存在")));
+                }
+            }
+        }
+    }
+    conn.execute(
+        "UPDATE category SET name=?1, parent_id=?2 WHERE category_id=?3",
+        params![name.trim(), parent_id, category_id],
+    )?;
+    Ok(())
+}
+
+/// 删除分类（软删 status=0）：有在售商品或在用子分类时拒绝，避免商品失去归属。
+pub fn delete_category(conn: &Connection, category_id: i64) -> Result<()> {
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT category_id FROM category WHERE category_id=?1 AND status=1",
+            [category_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if exists.is_none() {
+        return Err(CoreError::Validation(format!("分类 {category_id} 不存在")));
+    }
+    let sku_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM spu WHERE category_id=?1 AND status=1",
+        [category_id],
+        |r| r.get(0),
+    )?;
+    if sku_count > 0 {
+        return Err(CoreError::Validation(format!(
+            "分类下还有 {sku_count} 个商品，请先移出或停用"
+        )));
+    }
+    let child_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM category WHERE parent_id=?1 AND status=1",
+        [category_id],
+        |r| r.get(0),
+    )?;
+    if child_count > 0 {
+        return Err(CoreError::Validation(format!(
+            "分类下还有 {child_count} 个子分类，请先删除子分类"
+        )));
+    }
+    conn.execute(
+        "UPDATE category SET status=0 WHERE category_id=?1",
+        [category_id],
+    )?;
+    Ok(())
+}
+
+pub fn list_categories(conn: &Connection) -> Result<Vec<Category>> {    let mut stmt = conn.prepare(
         "SELECT category_id, parent_id, name FROM category WHERE status=1 ORDER BY category_id",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -95,6 +190,39 @@ pub fn create_product(
     alert_qty: i64,
     operator_id: Option<i64>,
 ) -> Result<i64> {
+    let tx = conn.unchecked_transaction()?;
+    let sku_id = create_product_in(
+        &tx,
+        category_id,
+        name,
+        barcode,
+        unit,
+        sale_price_cents,
+        cost_price_cents,
+        is_weighed,
+        initial_qty,
+        alert_qty,
+        operator_id,
+    )?;
+    tx.commit()?;
+    Ok(sku_id)
+}
+
+/// 事务内的建品实现：调用方负责事务边界，便于与店内码/会员价一次性提交。
+#[allow(clippy::too_many_arguments)]
+fn create_product_in(
+    tx: &Connection,
+    category_id: i64,
+    name: &str,
+    barcode: Option<&str>,
+    unit: &str,
+    sale_price_cents: i64,
+    cost_price_cents: i64,
+    is_weighed: bool,
+    initial_qty: i64,
+    alert_qty: i64,
+    operator_id: Option<i64>,
+) -> Result<i64> {
     if name.trim().is_empty() {
         return Err(CoreError::Validation("商品名不能为空".into()));
     }
@@ -104,7 +232,7 @@ pub fn create_product(
     if cost_price_cents < 0 || initial_qty < 0 || alert_qty < 0 {
         return Err(CoreError::Validation("成本/库存/预警值不能为负".into()));
     }
-    let cat_exists: Option<i64> = conn
+    let cat_exists: Option<i64> = tx
         .query_row(
             "SELECT category_id FROM category WHERE category_id=?1",
             [category_id],
@@ -116,7 +244,7 @@ pub fn create_product(
     }
     // 条码先查重，给收银员可读错误，而不是把 UNIQUE constraint failed 抛到前端。
     if let Some(b) = barcode.map(str::trim).filter(|b| !b.is_empty()) {
-        let exists: Option<i64> = conn
+        let exists: Option<i64> = tx
             .query_row("SELECT sku_id FROM sku WHERE barcode=?1", [b], |r| r.get(0))
             .optional()?;
         if exists.is_some() {
@@ -129,7 +257,6 @@ pub fn create_product(
         Utc::now().timestamp_millis(),
         rand::random::<u16>() % 10000
     );
-    let tx = conn.unchecked_transaction()?;
     tx.execute(
         "INSERT INTO spu(category_id,spu_name,spu_code,unit) VALUES (?1,?2,?3,?4)",
         params![category_id, name.trim(), code, unit],
@@ -150,7 +277,7 @@ pub fn create_product(
     let sku_id = tx.last_insert_rowid();
     if initial_qty > 0 {
         crate::inventory::apply_event(
-            &tx,
+            tx,
             sku_id,
             initial_qty,
             crate::inventory::TransType::PURCHASE_IN,
@@ -165,12 +292,17 @@ pub fn create_product(
             [sku_id],
         )?;
     }
-    tx.commit()?;
     Ok(sku_id)
 }
 
-/// 商品列表：关键字模糊匹配 + 全量库存（F-15 预警由前端按 qty<=alert_qty 标红）。
-pub fn list_products(conn: &Connection, keyword: &str, limit: i64) -> Result<Vec<ProductRow>> {
+/// 商品列表：默认只返回在售（status=1），与 POS 扫码口径一致；
+/// 后台管理需包含停用商品时显式传 include_disabled=true。
+pub fn list_products(
+    conn: &Connection,
+    keyword: &str,
+    limit: i64,
+    include_disabled: bool,
+) -> Result<Vec<ProductRow>> {
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_id, p.spu_name, s.barcode, p.category_id, COALESCE(c.name,'未分类'),
@@ -182,9 +314,10 @@ pub fn list_products(conn: &Connection, keyword: &str, limit: i64) -> Result<Vec
          LEFT JOIN category c ON c.category_id = p.category_id
          LEFT JOIN inv_stock i ON i.sku_id = s.sku_id AND i.warehouse_type='STORE'
          WHERE (?1 = '' OR s.barcode LIKE ?2 OR p.spu_name LIKE ?2)
+           AND (?4 <> 0 OR p.status = 1)
          ORDER BY p.spu_id DESC LIMIT ?3",
     )?;
-    let rows = stmt.query_map(params![keyword, pattern, limit], |r| {
+    let rows = stmt.query_map(params![keyword, pattern, limit, include_disabled as i64], |r| {
         Ok(ProductRow {
             sku_id: r.get(0)?,
             spu_id: r.get(1)?,
@@ -232,8 +365,23 @@ pub fn create_product_full(
     if is_weighed && instore_code.is_none() {
         return Err(CoreError::Validation("称重商品必须填写店内码".into()));
     }
-    let sku_id = create_product(
-        conn,
+    // 店内码是唯一检索键，先给可读错误。
+    if let Some(code) = instore_code.map(str::trim).filter(|c| !c.is_empty()) {
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT sku_id FROM sku WHERE instore_code=?1",
+                [code],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if exists.is_some() {
+            return Err(CoreError::Validation(format!("店内码 {code} 已存在")));
+        }
+    }
+    // 建品、店内码、会员价必须同一事务：否则主记录已提交而店内码写失败会留下半成品。
+    let tx = conn.unchecked_transaction()?;
+    let sku_id = create_product_in(
+        &tx,
         category_id,
         name,
         barcode,
@@ -245,10 +393,13 @@ pub fn create_product_full(
         alert_qty,
         operator_id,
     )?;
-    conn.execute(
-        "UPDATE sku SET instore_code=?1, member_price_cents=?2 WHERE sku_id=?3",
-        params![instore_code, member_price_cents, sku_id],
-    )?;
+    if instore_code.is_some() || member_price_cents.is_some() {
+        tx.execute(
+            "UPDATE sku SET instore_code=?1, member_price_cents=?2 WHERE sku_id=?3",
+            params![instore_code, member_price_cents, sku_id],
+        )?;
+    }
+    tx.commit()?;
     Ok(sku_id)
 }
 
@@ -415,7 +566,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let rows = list_products(&c, "", 50).unwrap();
+        let rows = list_products(&c, "", 50, true).unwrap();
         assert_eq!(rows.len(), 1);
         let p = &rows[0];
         assert_eq!(p.sku_id, sku);
@@ -437,7 +588,7 @@ mod tests {
     fn weighed_product_no_barcode_ok() {
         let c = setup();
         let sku = create_product(&c, 1, "散装糖", None, "克", 100, 50, true, 0, 0, None).unwrap();
-        let rows = list_products(&c, "散装", 10).unwrap();
+        let rows = list_products(&c, "散装", 10, true).unwrap();
         assert_eq!(rows[0].sku_id, sku);
         assert!(rows[0].is_weighed);
         assert_eq!(rows[0].qty, 0);
@@ -454,7 +605,7 @@ mod tests {
             .unwrap();
         update_product(&c, sku, 200, 2).unwrap();
         set_product_status(&c, spu_id, 0).unwrap();
-        let row = &list_products(&c, "", 10).unwrap()[0];
+        let row = &list_products(&c, "", 10, true).unwrap()[0];
         assert_eq!(row.sale_price_cents, 200);
         assert_eq!(row.alert_qty, 2);
         assert_eq!(row.status, 0);
