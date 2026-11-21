@@ -564,12 +564,28 @@ fn plan_amounts(
     let mut coupon_reason: Option<&'static str> = None;
     let mut coupon_shortfall_cents: Option<i64> = None;
     if let Some(code) = coupon_code.map(str::trim).filter(|c| !c.is_empty()) {
-        let coupon: Option<(i64, i64, Option<i64>, String, Option<String>, Option<String>)> = conn
+        let coupon: Option<(
+            i64,
+            i64,
+            Option<i64>,
+            String,
+            Option<String>,
+            Option<String>,
+        )> = conn
             .query_row(
                 "SELECT discount_cents,min_order_cents,member_id,status,valid_from,valid_until
                  FROM coupon WHERE coupon_code=?1",
                 [code],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
             )
             .optional()?;
         match coupon {
