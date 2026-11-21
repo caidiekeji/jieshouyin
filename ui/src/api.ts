@@ -44,6 +44,10 @@ export interface OrderQuote {
   payable_cents: number
   /** 券不可用等提示（不阻断报价） */
   coupon_note: string | null
+  /** 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / BELOW_THRESHOLD；券生效或未用券为 null */
+  coupon_reason: string | null
+  /** 未达门槛差额（分），仅 BELOW_THRESHOLD 时有值 */
+  coupon_shortfall_cents: number | null
   /** 识别会员后本单预计累计积分 */
   points_earned: number
 }

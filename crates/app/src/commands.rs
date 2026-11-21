@@ -515,6 +515,11 @@ struct AmountPlan {
     payable: i64,
     /// 券不可用等提示（不参与金额试算，界面据此提示）。
     coupon_note: Option<String>,
+    /// 券不可用原因码（机器可判）：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / BELOW_THRESHOLD。
+    /// 券生效或未用券为 None；前端据此区分「券本身无效」与「未达门槛」，只有前者才清除券码。
+    coupon_reason: Option<&'static str>,
+    /// 未达用券门槛时的差额（分），供收银台做凑单引导；仅 BELOW_THRESHOLD 时有值。
+    coupon_shortfall_cents: Option<i64>,
 }
 
 /// 计算订单金额（只读，不改任何状态）。
@@ -556,6 +561,8 @@ fn plan_amounts(
     // 3. 券（只读试算；状态迁移由 checkout 负责）
     let mut coupon_discount: i64 = 0;
     let mut coupon_note: Option<String> = None;
+    let mut coupon_reason: Option<&'static str> = None;
+    let mut coupon_shortfall_cents: Option<i64> = None;
     if let Some(code) = coupon_code.map(str::trim).filter(|c| !c.is_empty()) {
         let coupon: Option<(i64, i64, String, Option<String>, Option<String>)> = conn
             .query_row(
@@ -566,20 +573,29 @@ fn plan_amounts(
             )
             .optional()?;
         match coupon {
-            None => coupon_note = Some("优惠券不存在".into()),
+            None => {
+                coupon_note = Some("优惠券不存在".into());
+                coupon_reason = Some("NOT_FOUND");
+            }
             Some((amount, min_order, status, valid_from, valid_until)) => {
                 let expired = valid_until.as_deref().map(|v| v < now).unwrap_or(false);
                 let not_started = valid_from.as_deref().map(|v| v > now).unwrap_or(false);
                 if status != COUPON_UNUSED {
                     coupon_note = Some("优惠券不可用".into());
+                    coupon_reason = Some("DISABLED");
                 } else if expired {
                     coupon_note = Some("优惠券已过期".into());
+                    coupon_reason = Some("EXPIRED");
                 } else if not_started {
                     coupon_note = Some("优惠券尚未生效".into());
+                    coupon_reason = Some("NOT_STARTED");
                 } else {
                     let after_promo: i64 = cart_lines.iter().map(|l| l.payable()).sum();
                     if after_promo < min_order {
                         coupon_note = Some("订单金额未达用券门槛".into());
+                        coupon_reason = Some("BELOW_THRESHOLD");
+                        // 差额按促销后金额计算，与门槛判定同口径，供界面提示「再买 X 元」
+                        coupon_shortfall_cents = Some(min_order - after_promo);
                     } else {
                         coupon_discount = amount.min(after_promo);
                     }
@@ -596,6 +612,8 @@ fn plan_amounts(
         discount,
         payable: total - discount,
         coupon_note,
+        coupon_reason,
+        coupon_shortfall_cents,
     })
 }
 
@@ -607,6 +625,10 @@ pub struct OrderQuote {
     pub payable_cents: i64,
     /// 券不可用等提示（不阻断报价）。
     pub coupon_note: Option<String>,
+    /// 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / BELOW_THRESHOLD；券生效或未用券为 None。
+    pub coupon_reason: Option<String>,
+    /// 未达门槛差额（分），仅 BELOW_THRESHOLD 时有值，供收银台凑单引导。
+    pub coupon_shortfall_cents: Option<i64>,
     /// 本单识别会员后预计累计的积分（未识别会员/积分关闭为 0）。
     pub points_earned: i64,
 }
@@ -629,6 +651,8 @@ pub fn quote_order(
         discount_cents: plan.discount,
         payable_cents: plan.payable,
         coupon_note: plan.coupon_note,
+        coupon_reason: plan.coupon_reason.map(ToString::to_string),
+        coupon_shortfall_cents: plan.coupon_shortfall_cents,
         points_earned,
     })
 }

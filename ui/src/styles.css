@@ -516,6 +516,8 @@ h2 { font-size: var(--font-lg); }
 /* 收银台（主流式交互）：会员/券图标按钮 → 支付方式大按钮 → 渠道面板 */
 .pay-quick-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .pay-quick.active { border-color: var(--brand); background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
+/* 券已录入但未达门槛：区别于「已应用」的品牌色，用警示色提示需凑单 */
+.pay-quick.pending { border-color: var(--warning-border); background: var(--warning-subtle); color: var(--warning-text); font-weight: 600; }
 .pay-methods { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); margin-top: var(--space-3); }
 .pay-method-btn {
   display: flex; align-items: center; justify-content: center; gap: var(--space-2);

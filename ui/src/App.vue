@@ -864,6 +864,11 @@ async function submitCheckout() {
     return
   }
   if (paying.value) return
+  // 券未达门槛时后端会拒绝收款；提前给可行动提示，避免收银员白点一次收款
+  if (quote.value?.coupon_reason === 'BELOW_THRESHOLD') {
+    showToast(couponHint.value, true)
+    return
+  }
   // 现金必须经弹窗确认，杜绝「取消弹窗 → 主收款按钮空实收直接成交」的账实断点
   if (payMode.value === 'simple' && payChannel.value === 'CASH' && !cashDialogOpen.value) {
     cashTendered.value = ''
@@ -1165,6 +1170,17 @@ function openCouponDialog() {
   couponDraft.value = couponCode.value
   couponDialogOpen.value = true
 }
+
+/** 券提示：未达门槛给可行动的凑单差额，券本身无效则显示后端原文案 */
+const couponHint = computed(() => {
+  const q = quote.value
+  if (!q?.coupon_note) return ''
+  if (q.coupon_reason === 'BELOW_THRESHOLD' && q.coupon_shortfall_cents != null) {
+    return `还差 ¥${formatMoney(q.coupon_shortfall_cents)} 可用券，加购后自动生效 · 不用请清除券`
+  }
+  return q.coupon_note
+})
+
 async function applyCouponDialog() {
   const code = couponDraft.value.trim()
   if (!code) {
@@ -1179,14 +1195,24 @@ async function applyCouponDialog() {
     couponCode.value = ''
     couponDraft.value = ''
     showToast('优惠券校验失败，已取消使用', true)
-  } else if (quote.value?.coupon_note) {
-    // 后端返回券不可用提示：券码已提交但未生效，回滚并透出原因
-    const reason = quote.value.coupon_note
+    return
+  }
+  const reason = quote.value?.coupon_reason
+  if (reason === 'BELOW_THRESHOLD') {
+    // 主流做法：门槛不满足 = 券从未被应用，券仍有效 → 保留券码供凑单后自动生效，不清空
+    showToast(couponHint.value)
+    return
+  }
+  if (reason) {
+    // 券本身无效（不存在/已核销/过期/未生效）：清掉券码，避免一直挂在收银台误导
+    const note = quote.value?.coupon_note ?? '优惠券不可用'
     couponCode.value = ''
     couponDraft.value = ''
     void refreshQuote({ silent: true })
-    showToast(`优惠券未生效（${reason}），已取消使用`, true)
+    showToast(`${note}，已取消使用`, true)
+    return
   }
+  showToast('优惠券已应用')
 }
 function clearCoupon() {
   couponCode.value = ''
@@ -1971,12 +1997,19 @@ function doLogout() {
               <button class="btn pay-quick" :class="{ active: memberId != null }" @click="openMemberDialog">
                 <Icon name="user" :size="ICON_SIZE.md" />{{ memberId != null ? '会员（已识别）' : '会员' }}
               </button>
-              <button class="btn pay-quick" :class="{ active: !!couponCode }" @click="openCouponDialog">
+              <button
+                class="btn pay-quick"
+                :class="{
+                  active: !!couponCode && quote?.coupon_reason !== 'BELOW_THRESHOLD',
+                  pending: quote?.coupon_reason === 'BELOW_THRESHOLD',
+                }"
+                @click="openCouponDialog"
+              >
                 <Icon name="ticket" :size="ICON_SIZE.md" />{{ couponCode ? `券 ${couponCode}` : '优惠券' }}
               </button>
               <button v-if="couponCode" class="btn ghost pay-quick" @click="clearCoupon"><Icon name="close" :size="ICON_SIZE.sm" />清除券</button>
             </div>
-            <span v-if="quote?.coupon_note" class="muted small">{{ quote.coupon_note }}</span>
+            <span v-if="couponHint" class="small" :class="quote?.coupon_reason === 'BELOW_THRESHOLD' ? 'warning-text' : 'muted'">{{ couponHint }}</span>
             <span v-if="memberBalances" class="member-balance-inline">
               本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
             </span>
