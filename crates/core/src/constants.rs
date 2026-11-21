@@ -423,7 +423,10 @@ mod tests {
             "CONFIG_EDITABLE 存在重复键"
         );
         for key in CONFIG_EDITABLE {
-            assert!(unique.contains(key), "可编辑配置 {key} 未出现在 CONFIG_META");
+            assert!(
+                unique.contains(key),
+                "可编辑配置 {key} 未出现在 CONFIG_META"
+            );
         }
     }
 }
