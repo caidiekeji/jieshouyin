@@ -1468,22 +1468,21 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
         String,
         Option<i64>,
         Option<String>,
-    ) = conn
-        .query_row(
-            "SELECT total_cents,discount_cents,pay_cents,created_at,member_id,table_code
+    ) = conn.query_row(
+        "SELECT total_cents,discount_cents,pay_cents,created_at,member_id,table_code
              FROM sales_order WHERE order_no=?1",
-            [order_no],
-            |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
-            },
-        )?;
+        [order_no],
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
+        },
+    )?;
     let member_phone: String = match member_id {
         Some(mid) => conn
             .query_row(
