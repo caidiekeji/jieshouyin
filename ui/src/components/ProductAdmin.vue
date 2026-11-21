@@ -342,7 +342,7 @@ onMounted(reload)
               <img v-if="imageSrc(p)" :src="imageSrc(p)!" class="thumb" alt="" />
               <span v-else class="muted small">无</span>
             </td>
-            <td>{{ p.name }}<span v-if="p.is_weighed" class="muted small">（称重/{{ p.unit }}）</span></td>
+            <td>{{ p.name }}<span v-if="p.is_weighed" class="muted small">（称重/{{ p.unit }}）</span><span v-else-if="p.is_service" class="muted small">（服务/{{ p.unit }}）</span></td>
             <td class="mono">{{ p.barcode || '—' }}</td>
             <td>{{ p.category_name }}</td>
             <td class="num-cell">
@@ -355,14 +355,17 @@ onMounted(reload)
                 <button class="btn btn-sm" aria-label="保存修改" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" /></button>
               </span>
             </td>
-            <td class="num-cell" :class="{ 'warning-text': p.qty <= p.alert_qty }">
-              {{ p.qty }} {{ p.unit }}<span v-if="p.qty <= p.alert_qty" class="muted small">（低于预警 {{ p.alert_qty }}）</span>
+            <td class="num-cell" :class="{ 'warning-text': !p.is_service && p.qty <= p.alert_qty }">
+              <span v-if="p.is_service">—</span>
+              <template v-else>
+                {{ p.qty }} {{ p.unit }}<span v-if="p.qty <= p.alert_qty" class="muted small">（低于预警 {{ p.alert_qty }}）</span>
+              </template>
             </td>
             <td>{{ p.status === 1 ? '在售' : '停用' }}</td>
             <td class="row-actions-cell">
               <div class="row-actions">
                 <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
-                <button class="btn btn-sm" @click="startAdjust(p)"><Icon name="package" :size="ICON_SIZE.sm" />库存</button>
+                <button v-if="!p.is_service" class="btn btn-sm" @click="startAdjust(p)"><Icon name="package" :size="ICON_SIZE.sm" />库存</button>
                 <button class="btn btn-sm" @click="startImage(p)"><Icon name="image" :size="ICON_SIZE.sm" />图片</button>
                 <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
               </div>
