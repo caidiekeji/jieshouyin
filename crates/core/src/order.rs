@@ -539,7 +539,7 @@ mod tests {
         let q: i64 = c
             .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(q, 0, "已支付订单作废不得回滚库存");
+        assert_eq!(q, -2, "已支付订单作废不得回滚库存（保持 commit 后的 -2）");
     }
 
     #[test]
