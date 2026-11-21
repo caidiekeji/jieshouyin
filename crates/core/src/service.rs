@@ -57,9 +57,7 @@ fn validate_cart(cart_json: &str) -> Result<()> {
         let sku_id = line.get("sku_id").and_then(|v| v.as_i64()).unwrap_or(0);
         let qty = line.get("qty").and_then(|v| v.as_i64()).unwrap_or(0);
         if sku_id <= 0 || qty <= 0 {
-            return Err(CoreError::Validation(
-                "桌台购物车存在非法商品或数量".into(),
-            ));
+            return Err(CoreError::Validation("桌台购物车存在非法商品或数量".into()));
         }
     }
     Ok(())
@@ -88,11 +86,10 @@ pub fn create_table(
         return Err(CoreError::Validation("桌台座位数需在 1–50".into()));
     }
     if let Some(sku_id) = fee_sku_id {
-        let exists: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sku WHERE sku_id=?1",
-            [sku_id],
-            |r| r.get(0),
-        )?;
+        let exists: i64 =
+            conn.query_row("SELECT COUNT(*) FROM sku WHERE sku_id=?1", [sku_id], |r| {
+                r.get(0)
+            })?;
         if exists == 0 {
             return Err(CoreError::Validation(format!("房费商品 {sku_id} 不存在")));
         }
@@ -131,11 +128,7 @@ pub fn delete_table(conn: &Connection, table_id: i64) -> Result<()> {
 }
 
 /// 开台：登记当前购物车（棋牌可带一条房费），同一桌只允许一个 OPEN 会话。
-pub fn open_table(
-    conn: &Connection,
-    table_id: i64,
-    cart_json: &str,
-) -> Result<ServiceTable> {
+pub fn open_table(conn: &Connection, table_id: i64, cart_json: &str) -> Result<ServiceTable> {
     validate_cart(cart_json)?;
     let status: String = conn
         .query_row(

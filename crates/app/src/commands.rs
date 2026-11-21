@@ -293,14 +293,14 @@ pub fn save_service_table_cart(
 
 /// 清台：结算成功后释放；force=true 表示未结算强清，需作废权限并留审计。
 #[tauri::command]
-pub fn close_service_table(
-    table_id: i64,
-    force: bool,
-    state: State<'_, AppState>,
-) -> Result<()> {
+pub fn close_service_table(table_id: i64, force: bool, state: State<'_, AppState>) -> Result<()> {
     let (operator_id, conn) = admin_guard(
         &state,
-        if force { PERM_POS_VOID } else { PERM_POS_CHECKOUT },
+        if force {
+            PERM_POS_VOID
+        } else {
+            PERM_POS_CHECKOUT
+        },
     )?;
     checkout_core::service::close_table(&conn, table_id)?;
     if force {
@@ -1059,7 +1059,11 @@ pub async fn checkout(
             &biz,
             &now,
         )?;
-        if let Some(tc) = table_code.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        if let Some(tc) = table_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
             if tc.chars().count() > 12 {
                 return Err(CoreError::Validation("桌台编码过长".into()));
             }

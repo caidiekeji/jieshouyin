@@ -24,8 +24,8 @@ pub mod purchase;
 pub mod rbac;
 pub mod report;
 pub mod report_catalog;
-pub mod service;
 pub mod scanner;
+pub mod service;
 pub mod time;
 
 pub use error::{CoreError, Result};
