@@ -386,7 +386,6 @@ pub fn reconcile_channel(
 
     // 幂等：先清当日同渠道旧差异再写入。清理与重写必须同一事务，
     // 否则中途失败会留下“旧差异已删、新差异没写”的空窗。
-    drop(stmt);
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "DELETE FROM reconcile_record WHERE recon_date = ?1 AND channel = ?2",
