@@ -156,7 +156,8 @@ pub fn delete_category(conn: &Connection, category_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn list_categories(conn: &Connection) -> Result<Vec<Category>> {    let mut stmt = conn.prepare(
+pub fn list_categories(conn: &Connection) -> Result<Vec<Category>> {
+    let mut stmt = conn.prepare(
         "SELECT category_id, parent_id, name FROM category WHERE status=1 ORDER BY category_id",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -317,27 +318,30 @@ pub fn list_products(
            AND (?4 <> 0 OR p.status = 1)
          ORDER BY p.spu_id DESC LIMIT ?3",
     )?;
-    let rows = stmt.query_map(params![keyword, pattern, limit, include_disabled as i64], |r| {
-        Ok(ProductRow {
-            sku_id: r.get(0)?,
-            spu_id: r.get(1)?,
-            name: r.get(2)?,
-            barcode: r.get(3)?,
-            category_id: r.get(4)?,
-            category_name: r.get(5)?,
-            unit: r.get(6)?,
-            sale_price_cents: r.get(7)?,
-            cost_price_cents: r.get(8)?,
-            is_weighed: r.get::<_, i64>(9)? != 0,
-            status: r.get(10)?,
-            qty: r.get(11)?,
-            alert_qty: r.get(12)?,
-            member_price_cents: r.get(13)?,
-            instore_code: r.get(14)?,
-            image_path: r.get(15)?,
-            image_url: r.get(16)?,
-        })
-    })?;
+    let rows = stmt.query_map(
+        params![keyword, pattern, limit, include_disabled as i64],
+        |r| {
+            Ok(ProductRow {
+                sku_id: r.get(0)?,
+                spu_id: r.get(1)?,
+                name: r.get(2)?,
+                barcode: r.get(3)?,
+                category_id: r.get(4)?,
+                category_name: r.get(5)?,
+                unit: r.get(6)?,
+                sale_price_cents: r.get(7)?,
+                cost_price_cents: r.get(8)?,
+                is_weighed: r.get::<_, i64>(9)? != 0,
+                status: r.get(10)?,
+                qty: r.get(11)?,
+                alert_qty: r.get(12)?,
+                member_price_cents: r.get(13)?,
+                instore_code: r.get(14)?,
+                image_path: r.get(15)?,
+                image_url: r.get(16)?,
+            })
+        },
+    )?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);

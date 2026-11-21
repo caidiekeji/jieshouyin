@@ -3,13 +3,12 @@
 
 use crate::state::{build_license_service, init_db, AppState, PendingSensitive};
 use checkout_core::constants::{
-    CFG_ACTIVATION_ENDPOINT, CFG_ALLOW_NEGATIVE_STOCK, CFG_BUSINESS_DAY_CUTOFF,
+    CFG_ACTIVATION_ENDPOINT, CFG_ALLOW_NEGATIVE_STOCK, CFG_BUSINESS_DAY_CUTOFF, CFG_DEVICE_NO,
     CFG_EXPENSE_LABOR_YUAN, CFG_EXPENSE_RENT_YUAN, CFG_EXPENSE_UTILITY_YUAN,
     CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
     CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_ENABLED,
-    CFG_POINTS_PER_YUAN, CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT,
-    CFG_RECEIPT_QR_BASE, CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_NO, CFG_STORE_PHONE,
-    CFG_STORE_TIMEZONE, CFG_DEVICE_NO,
+    CFG_POINTS_PER_YUAN, CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT, CFG_RECEIPT_QR_BASE,
+    CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_NO, CFG_STORE_PHONE, CFG_STORE_TIMEZONE,
     COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS,
     DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_ENABLED, DEFAULT_POINTS_PER_YUAN,
     DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD,
@@ -2533,9 +2532,10 @@ pub fn refund_order(
                          WHERE order_no=?1 AND pay_channel=?2 AND status='SUCCESS'
                          ORDER BY pay_id",
                     )?;
-                    let rows = stmt.query_map(rusqlite::params![order_no, channel.as_str()], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                    })?;
+                    let rows = stmt
+                        .query_map(rusqlite::params![order_no, channel.as_str()], |r| {
+                            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                        })?;
                     let v = rows.collect::<rusqlite::Result<Vec<_>>>()?;
                     drop(stmt);
                     v
@@ -2842,15 +2842,14 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
                 .parse()
                 .map_err(|_| CoreError::Validation("打印机端口必须是 1–65535 的整数".into()))?;
             if n == 0 {
-                return Err(CoreError::Validation("打印机端口必须是 1–65535 的整数".into()));
+                return Err(CoreError::Validation(
+                    "打印机端口必须是 1–65535 的整数".into(),
+                ));
             }
         }
         CFG_STORE_NO | CFG_DEVICE_NO => {
             let v = value.trim();
-            if v.is_empty()
-                || v.len() > 8
-                || !v.chars().all(|c| c.is_ascii_alphanumeric())
-            {
+            if v.is_empty() || v.len() > 8 || !v.chars().all(|c| c.is_ascii_alphanumeric()) {
                 return Err(CoreError::Validation(
                     "门店/终端编号必须是 1–8 位字母或数字".into(),
                 ));
