@@ -271,7 +271,7 @@ onMounted(() => {
     </template>
 
     <!-- 促销 -->
-    <template v-else>
+    <template v-else-if="tab === 'promo'">
       <div class="toolbar">
         <button class="btn primary" @click="showCreatePromo = !showCreatePromo"><Icon name="plus" :size="ICON_SIZE.md" />新建促销</button>
       </div>
