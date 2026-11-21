@@ -244,9 +244,7 @@ fn create_product_in(
         return Err(CoreError::Validation("成本/库存/预警值不能为负".into()));
     }
     if is_service && is_weighed {
-        return Err(CoreError::Validation(
-            "服务类商品不能同时按重量计价".into(),
-        ));
+        return Err(CoreError::Validation("服务类商品不能同时按重量计价".into()));
     }
     if is_service && initial_qty > 0 {
         return Err(CoreError::Validation(
@@ -646,9 +644,11 @@ mod tests {
         )
         .unwrap();
         let stock_rows: i64 = c
-            .query_row("SELECT COUNT(*) FROM inv_stock WHERE sku_id=?1", [sku], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM inv_stock WHERE sku_id=?1",
+                [sku],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(stock_rows, 0);
         let rows = list_products(&c, "中式推拿", 10, true).unwrap();
