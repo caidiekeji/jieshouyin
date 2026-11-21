@@ -728,10 +728,38 @@ pub fn quote_order(
     coupon_code: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<OrderQuote> {
+    let license = state
+        .license
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    license.gate(ENT_POS_CORE)?;
+    let session = state
+        .session
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let session = session.as_ref().ok_or(CoreError::NotAuthenticated)?;
+    let now_dt = parse_rfc3339(&now_str())?;
     let conn = state
         .conn
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
+    // 报价接口同样要登录 + pos.checkout：否则未登录即可批量探测商品价格与促销结果。
+    checkout_core::rbac::guard(
+        &conn,
+        &checkout_core::rbac::GuardRequest {
+            entitlement: ENT_POS_CORE,
+            permission: PERM_POS_CHECKOUT,
+            session,
+            license: &license,
+            sensitive_auth: None,
+            current_nonce: "",
+            now: now_dt,
+            amount_cents: 0,
+            limit_key: None,
+        },
+    )?;
+    drop(session);
+    drop(license);
     let plan = plan_amounts(&conn, &lines, member_id, coupon_code.as_deref(), &now_str())?;
     let points_earned = estimate_points(&conn, member_id, plan.payable);
     Ok(OrderQuote {
@@ -1583,6 +1611,12 @@ pub fn adjust_stock(
     state: State<'_, AppState>,
 ) -> Result<i64> {
     let (operator_id, conn) = admin_guard(&state, PERM_INVENTORY_ADJUST)?;
+    if change_qty == 0 {
+        return Err(CoreError::Validation("调整数量不能为 0".into()));
+    }
+    if reason.trim().is_empty() {
+        return Err(CoreError::Validation("库存调整必须填写原因".into()));
+    }
     let tx = conn.unchecked_transaction()?;
     let new_qty =
         checkout_core::product::adjust_stock(&tx, sku_id, change_qty, &reason, Some(operator_id))?;

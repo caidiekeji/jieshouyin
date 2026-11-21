@@ -96,6 +96,8 @@ pub const CENTS_PER_YUAN: i64 = 100;
 pub const PAPER_WIDTH_DEFAULT: u8 = 58;
 /// 密码策略下限（§12.3）：8 位且字母数字混合。
 pub const PASSWORD_MIN_LEN: usize = 8;
+/// 商品名最大字符数（与前端 PRODUCT_NAME_MAX 对齐）。
+pub const PRODUCT_NAME_MAX_CHARS: usize = 40;
 
 // ── 系统配置键（§16 / M0001 system_config 种子）────────────────
 pub const CFG_STORE_TIMEZONE: &str = "store_timezone";

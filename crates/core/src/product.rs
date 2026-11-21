@@ -227,6 +227,12 @@ fn create_product_in(
     if name.trim().is_empty() {
         return Err(CoreError::Validation("商品名不能为空".into()));
     }
+    if name.trim().chars().count() > crate::constants::PRODUCT_NAME_MAX_CHARS {
+        return Err(CoreError::Validation(format!(
+            "商品名不能超过 {} 个字符",
+            crate::constants::PRODUCT_NAME_MAX_CHARS
+        )));
+    }
     if sale_price_cents < 0 {
         return Err(CoreError::Validation("售价不能为负".into()));
     }

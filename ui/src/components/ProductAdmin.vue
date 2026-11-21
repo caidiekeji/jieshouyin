@@ -173,13 +173,22 @@ async function createProduct() {
       initialQty: intOrZero(String(form.value.initialQty), '初始库存'),
       alertQty: intOrZero(String(form.value.alertQty), '预警值'),
     })
-    // 图片：上传的本地文件优先，其次登记在线地址
-    if (createImageFile.value) {
-      const base64 = await readFileBase64(createImageFile.value)
-      await api.uploadProductImage(skuId, base64)
-    }
-    if (form.value.imageUrl.trim()) {
-      await api.setProductImageUrl(skuId, form.value.imageUrl.trim())
+    // 图片：上传的本地文件优先，其次登记在线地址。
+    // 商品已落库后再失败不会回滚商品，但必须明确告知并保留编辑入口，不能当成创建失败。
+    try {
+      if (createImageFile.value) {
+        const base64 = await readFileBase64(createImageFile.value)
+        await api.uploadProductImage(skuId, base64)
+      }
+      if (form.value.imageUrl.trim()) {
+        await api.setProductImageUrl(skuId, form.value.imageUrl.trim())
+      }
+    } catch (imgErr) {
+      showCreate.value = false
+      createImageFile.value = null
+      await reload()
+      fail(`商品已创建，但图片设置失败：${String(imgErr)}。可在商品编辑中重试图片`)
+      return
     }
     showCreate.value = false
     createImageFile.value = null
