@@ -141,8 +141,8 @@ pub fn render_receipt(
                 bold,
                 size,
             } => {
-                if let Some(a) = align {
-                    let n = match a.as_str() {
+                if let Some(a) = align.as_deref() {
+                    let n = match a {
                         "center" => 1,
                         "right" => 2,
                         _ => 0,

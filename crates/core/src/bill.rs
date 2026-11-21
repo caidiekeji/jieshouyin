@@ -269,13 +269,15 @@ pub fn reconcile_channel(
              WHERE p.pay_channel = ?1 AND r.status IN ('PROCESSING','COMPLETED')
                AND o.business_date = ?2",
         )?;
-        stmt.query_map([channel, recon_date], |r| {
+        let rows = stmt.query_map([channel, recon_date], |r| {
             Ok(LocalRefund {
                 order_no: r.get(0)?,
                 amount: r.get(1)?,
             })
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?
+        })?;
+        let v = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        drop(stmt);
+        v
     };
     let mut summary = ReconcileSummary::default();
     let mut diffs: Vec<(DiffType, Option<String>, i64, i64, String)> = Vec::new();
