@@ -725,6 +725,31 @@ const M0016: &str = r#"
 ALTER TABLE sku ADD COLUMN is_service INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// M0017：桌台会话补会员、已下单快照；订单补技师提成；新增技师与日排班。
+const M0017: &str = r#"
+CREATE TABLE IF NOT EXISTS technician (
+    technician_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    phone           TEXT,
+    commission_bps  INTEGER NOT NULL DEFAULT 0,
+    status          INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_technician_name ON technician(name);
+CREATE TABLE IF NOT EXISTS technician_shift (
+    technician_id  INTEGER NOT NULL REFERENCES technician(technician_id) ON DELETE CASCADE,
+    business_date  TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    PRIMARY KEY (technician_id, business_date)
+);
+CREATE INDEX idx_technician_shift_date ON technician_shift(business_date);
+ALTER TABLE table_session ADD COLUMN member_id INTEGER REFERENCES member(member_id);
+ALTER TABLE table_session ADD COLUMN sent_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE table_session ADD COLUMN last_ticket_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE sales_order_item ADD COLUMN technician_id INTEGER REFERENCES technician(technician_id);
+ALTER TABLE sales_order_item ADD COLUMN commission_cents INTEGER NOT NULL DEFAULT 0;
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -806,6 +831,11 @@ pub fn all() -> Vec<Migration> {
             version: 16,
             name: "sku_service_flag",
             up: M0016,
+        },
+        Migration {
+            version: 17,
+            name: "table_member_kitchen_technician",
+            up: M0017,
         },
     ]
 }

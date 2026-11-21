@@ -80,6 +80,9 @@ pub fn begin_order(
     if pay_cents < 0 {
         return Err(CoreError::Money("应付金额不得为负".into()));
     }
+    // 行折后合计（未分摊整单券/整单折扣）作为提成分摊分母：
+    // 每行按 line_net / Σline_net 分得整单实收，再乘技师比例。
+    let line_payable_total: i64 = lines.iter().map(|l| l.payable()).sum();
     // 领域自洽：行合计必须等于订单合计，优惠不得超出合计。
     let lines_total: i64 = lines.iter().map(|l| l.line_total_cents).sum();
     if lines_total != total_cents {
@@ -96,10 +99,21 @@ pub fn begin_order(
         params![order_no, device_id, cashier_id, shift_id, member_id, total_cents, discount_cents, pay_cents, biz_date, now],
     )?;
     for line in lines {
+        let commission = if line.is_gift {
+            0
+        } else {
+            crate::technician::line_commission(
+                tx,
+                line.technician_id,
+                line.payable(),
+                line_payable_total,
+                pay_cents,
+            )?
+        };
         tx.execute(
-            "INSERT INTO sales_order_item(order_no,sku_id,qty,unit_price_cents,line_total_cents,discount_cents,is_gift)
-             VALUES (?1,?2,?3,?4,?5,?6,?7)",
-            params![order_no, line.sku_id, line.qty, line.unit_price_cents, line.line_total_cents, line.discount_cents, line.is_gift as i32],
+            "INSERT INTO sales_order_item(order_no,sku_id,qty,unit_price_cents,line_total_cents,discount_cents,is_gift,technician_id,commission_cents)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![order_no, line.sku_id, line.qty, line.unit_price_cents, line.line_total_cents, line.discount_cents, line.is_gift as i32, line.technician_id, commission],
         )?;
     }
     Ok(())
@@ -322,6 +336,24 @@ pub fn create_return(
         tx.execute(
             "UPDATE sales_order_item SET returned_qty=?1 WHERE item_id=?2",
             params![already + qty, item_id],
+        )?;
+        // 提成随退货冲减：按退货前剩余数量等比保留，避免重复退累计多扣。
+        let commission: i64 = tx.query_row(
+            "SELECT commission_cents FROM sales_order_item WHERE item_id=?1",
+            [item_id],
+            |r| r.get(0),
+        )?;
+        let remaining_before = line_qty - already;
+        let kept = if remaining_before > 0 {
+            (commission as i128 * (remaining_before - qty) as i128
+                + remaining_before as i128 / 2)
+                / remaining_before as i128
+        } else {
+            0
+        };
+        tx.execute(
+            "UPDATE sales_order_item SET commission_cents=?1 WHERE item_id=?2",
+            params![kept as i64, item_id],
         )?;
         let is_service: i64 = tx.query_row(
             "SELECT is_service FROM sku WHERE sku_id=?1",

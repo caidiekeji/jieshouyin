@@ -5,6 +5,7 @@ import { api, formatMoney, type CartLine, type ProductHit, type ServiceTable } f
 const props = defineProps<{
   activeTableId: number | null
   cart: CartLine[]
+  memberId: number | null
   /** 建/删包间需 product.edit：店员只开台与续费。 */
   canManage: boolean
 }>()
@@ -20,6 +21,7 @@ const feeProducts = ref<ProductHit[]>([])
 const busy = ref(false)
 const showCreate = ref(false)
 const form = ref({ code: '', name: '', zone: '大厅', seats: 4, feeSkuId: null as number | null })
+const transferSource = ref<ServiceTable | null>(null)
 const tick = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -67,19 +69,12 @@ function itemCount(t: ServiceTable): number {
   return linesOf(t).reduce((n, l) => n + (l.qty || 0), 0)
 }
 
-function feeLine(p: ProductHit, qty = 1): CartLine {
-  return {
-    sku_id: p.sku_id,
-    qty,
-    unit_price_cents: p.price_cents,
-    name: p.spu_name,
-    image_path: p.image_path,
-    image_url: p.image_url,
-  }
-}
-
 async function pick(t: ServiceTable) {
   if (busy.value) return
+  if (transferSource.value) {
+    await runTransfer(t)
+    return
+  }
   busy.value = true
   try {
     if (t.status === 'FREE') {
@@ -88,7 +83,8 @@ async function pick(t: ServiceTable) {
         emit('error', '该包间未绑定房费商品，请先删除后重建并选择房费项目')
         return
       }
-      const opened = await api.openServiceTable(t.table_id, JSON.stringify([feeLine(fee)]))
+      // 房费不再预收 1 小时；开台由收银台按分钟计时生成房费行，最低 60 分钟。
+      const opened = await api.openServiceTable(t.table_id, '[]', props.memberId)
       emit('select', opened, linesOf(opened))
     } else {
       emit('select', t, linesOf(t))
@@ -101,10 +97,35 @@ async function pick(t: ServiceTable) {
   }
 }
 
+function startTransfer(t: ServiceTable) {
+  transferSource.value = t
+}
+
+async function runTransfer(target: ServiceTable) {
+  const source = transferSource.value
+  if (!source) return
+  if (target.status !== 'FREE') {
+    emit('error', '转台请选择空闲包间')
+    return
+  }
+  if (!window.confirm(`转台：${source.code} → ${target.code}？计时与消费继续保留。`)) return
+  busy.value = true
+  try {
+    const updated = await api.transferServiceTable(source.table_id, target.table_id)
+    transferSource.value = null
+    emit('select', updated, linesOf(updated))
+    await load()
+  } catch (e) {
+    emit('error', String(e))
+  } finally {
+    busy.value = false
+  }
+}
+
 async function create() {
   if (busy.value) return
   if (!form.value.feeSkuId) {
-    emit('error', '请选择房费商品（可在商品里建“1小时房费”）')
+    emit('error', '请选择房费商品（商品单价按“每分钟”维护，例如 1.5 元/分钟）')
     return
   }
   busy.value = true
@@ -154,15 +175,6 @@ async function remove(t: ServiceTable) {
   }
 }
 
-function renew(t: ServiceTable) {
-  const fee = feeOf(t)
-  if (!fee) {
-    emit('error', '该包间未绑定房费商品')
-    return
-  }
-  emit('add', fee)
-}
-
 onMounted(() => {
   void load()
   void loadFees()
@@ -176,10 +188,14 @@ onUnmounted(() => {
 <template>
   <section class="chess-board">
     <div class="board-head">
-      <div><strong>棋牌包间</strong><span>开台自动带 1 个房费项目，超时用“续费”加钟</span></div>
+      <div><strong>棋牌包间</strong><span>按分钟计时，最低 60 分钟；开台不再预收整小时房费</span></div>
       <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = !showCreate">
         {{ showCreate ? '收起' : '＋ 新增包间' }}
       </button>
+    </div>
+    <div v-if="transferSource" class="transfer-hint">
+      <span>转台：点击空闲包间，当前 {{ transferSource.code }} 的计时与消费会迁过去</span>
+      <button class="link" @click="transferSource = null">取消</button>
     </div>
     <div v-if="showCreate" class="create-row">
       <input v-model="form.code" class="input input-sm" placeholder="包间号 B01" maxlength="12" />
@@ -202,21 +218,21 @@ onUnmounted(() => {
         @click="pick(r)"
       >
         <header><strong>{{ r.code }}</strong><span>{{ r.zone || '未分区' }} · {{ r.seats }}人</span></header>
-        <p>{{ r.name }}</p>
+        <p>{{ r.name }}<span v-if="r.member_phone" class="member-tag">会员 {{ r.member_phone }}</span></p>
         <div class="clock">{{ r.status === 'OCCUPIED' ? elapsed(r) : '待开台' }}</div>
         <div class="card-foot">
-          <span v-if="feeOf(r)" class="fee">{{ feeOf(r)?.spu_name }} ¥{{ formatMoney(feeOf(r)!.price_cents) }}/份</span>
+          <span v-if="feeOf(r)" class="fee">{{ feeOf(r)?.spu_name }} ¥{{ formatMoney(feeOf(r)!.price_cents) }}/分钟</span>
           <span v-else class="fee muted">未绑定房费</span>
           <span class="count">{{ itemCount(r) }} 件</span>
         </div>
         <div class="card-actions" @click.stop>
-          <button v-if="r.status === 'OCCUPIED'" class="link" @click="renew(r)">续 1 小时</button>
+          <button v-if="r.status === 'OCCUPIED'" class="link" @click="startTransfer(r)">转台</button>
           <button v-if="r.status === 'OCCUPIED'" class="link danger" @click="clear(r)">清台</button>
           <button v-else-if="canManage" class="link" @click="remove(r)">删除</button>
         </div>
       </article>
       <div v-if="!rooms.length" class="empty-board">
-        还没有包间。先在商品里建“房费”分类和“1小时房费”，再新增包间并绑定。
+        还没有包间。先在商品里建“房费”分类和“每分钟房费”，再新增包间并绑定。
       </div>
     </div>
   </section>
@@ -246,6 +262,27 @@ onUnmounted(() => {
 .board-head .btn.ghost {
   color: #dfeee5;
   border-color: #3a6f59;
+}
+.transfer-hint {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #7d6a3a;
+  background: rgba(241, 211, 139, 0.12);
+  color: #f1d38b;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.member-tag {
+  color: #bff0d8;
+  background: rgba(76, 175, 125, 0.18);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  font-size: 11px;
 }
 .create-row {
   display: grid;

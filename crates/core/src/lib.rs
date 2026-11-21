@@ -26,6 +26,7 @@ pub mod report;
 pub mod report_catalog;
 pub mod scanner;
 pub mod service;
+pub mod technician;
 pub mod time;
 
 pub use error::{CoreError, Result};

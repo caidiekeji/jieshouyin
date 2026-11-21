@@ -10,6 +10,7 @@ import {
   type ProductHit,
   type CartLine,
   type Category,
+  type Technician,
   type OrderItemRow,
   type ConfigRow,
   type ReportMeta,
@@ -23,6 +24,7 @@ import RestaurantScene from './components/RestaurantScene.vue'
 import ChessScene from './components/ChessScene.vue'
 import BabyScene from './components/BabyScene.vue'
 import WellnessScene from './components/WellnessScene.vue'
+import TechnicianPanel from './components/TechnicianPanel.vue'
 import Icon from './components/Icon.vue'
 import ProductAdmin from './components/ProductAdmin.vue'
 import CategoryAdmin from './components/CategoryAdmin.vue'
@@ -147,6 +149,8 @@ const industry = computed(() => storeProfile.value?.industry ?? '')
 /** 当前选中的桌台/包间；结算成功后清台 */
 const activeTable = ref<ServiceTable | null>(null)
 let tableSaveTimer: ReturnType<typeof setTimeout> | null = null
+/** 棋牌计时刷新：每 30 秒按后端计算结果更新房费行，最低 60 分钟。 */
+let chessFeeTimer: ReturnType<typeof setInterval> | null = null
 /** 订单详情页当前单号 */
 const orderNo = ref('')
 /** 退款页预置单号（从订单详情跳转时带入） */
@@ -168,6 +172,22 @@ const searchBusy = ref(false)
 /** 收款提交中：按钮禁用防重复提交，保留宽度防抖 */
 const paying = ref(false)
 const cart = ref<(CartLine & { name: string })[]>([])
+/** 养生技师：只允许把服务行指派给当日排班在岗的技师。 */
+const technicians = ref<Technician[]>([])
+const onDutyTechnicians = computed(() => technicians.value.filter((t) => t.on_duty))
+/** 当前餐饮桌已验证下发的数量；退菜前不能把数量改到低于它。 */
+const tableSentQty = computed<Record<number, number>>(() => {
+  if (!activeTable.value || activeTable.value.scene !== 'DINING') return {}
+  try {
+    const lines = JSON.parse(activeTable.value.sent_json || '[]') as CartLine[]
+    return lines.reduce<Record<number, number>>((m, l) => {
+      m[l.sku_id] = (m[l.sku_id] || 0) + (l.qty || 0)
+      return m
+    }, {})
+  } catch {
+    return {}
+  }
+})
 const cashTendered = ref('')
 const lastOrder = ref('')
 const toast = ref('')
@@ -220,13 +240,54 @@ async function selectSceneTable(table: ServiceTable, lines: CartLine[]) {
     name: l.name || `商品 ${l.sku_id}`,
     member_price_cents: null,
   }))
+  // 开台时绑定的会员随桌台恢复：重新识别后刷新会员价与积分展示。
+  if (table.member_id && table.member_phone) {
+    memberPhone.value = table.member_phone
+    await findMember()
+  }
+  if (table.scene === 'CHESS') await refreshChessFee()
   showToast(`已选中 ${table.code}${lines.length ? '，继续点单' : '，可以点单'}`)
+}
+
+/** 棋牌包间按分钟计费：房费行由后端计时结果生成，随购物车进入统一报价与结算。 */
+async function refreshChessFee() {
+  const table = activeTable.value
+  if (!table || table.scene !== 'CHESS' || !table.fee_sku_id) {
+    stopChessFeeTimer()
+    return
+  }
+  try {
+    const fee = await api.chessTableFee(table.table_id)
+    const others = cart.value.filter((l) => !l.is_chess_fee)
+    cart.value = [
+      ...others,
+      {
+        sku_id: table.fee_sku_id,
+        qty: fee.billable_minutes,
+        unit_price_cents: fee.minute_cents,
+        name: `包间费 ${fee.billable_minutes} 分钟`,
+        is_chess_fee: true,
+        chess_minutes: fee.billable_minutes,
+      },
+    ]
+    if (!chessFeeTimer) {
+      chessFeeTimer = setInterval(() => void refreshChessFee(), 30000)
+    }
+  } catch (e) {
+    showToast(String(e), true)
+  }
+}
+
+function stopChessFeeTimer() {
+  if (chessFeeTimer) clearInterval(chessFeeTimer)
+  chessFeeTimer = null
 }
 
 async function clearActiveTable() {
   if (!activeTable.value) return
   if (tableSaveTimer) clearTimeout(tableSaveTimer)
   tableSaveTimer = null
+  stopChessFeeTimer()
   activeTable.value = null
   cart.value = []
   clearMember()
@@ -237,6 +298,7 @@ async function releaseActiveTable(): Promise<string | null> {
   const table = activeTable.value
   if (!table) return null
   activeTable.value = null
+  stopChessFeeTimer()
   if (tableSaveTimer) clearTimeout(tableSaveTimer)
   tableSaveTimer = null
   try {
@@ -250,6 +312,8 @@ async function releaseActiveTable(): Promise<string | null> {
 watch(cart, scheduleTableSave, { deep: true })
 watch(industry, () => {
   activeTable.value = null
+  stopChessFeeTimer()
+  void loadTechnicians()
   if (tableSaveTimer) {
     clearTimeout(tableSaveTimer)
     tableSaveTimer = null
@@ -958,6 +1022,23 @@ async function loadPosCategory(categoryId: number | null) {
 }
 
 /** 进入收银台即装载分类与首个分类商品；商品/分类变更后回到收银会重新拉取。 */
+/** 本地营业日 YYYY-MM-DD；技师排班按自然日，不跟随后台跨零点营业日切换。 */
+function localDateString(d = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+async function loadTechnicians() {
+  try {
+    technicians.value = await api.listTechnicians(localDateString())
+  } catch (e) {
+    technicians.value = []
+    showToast(String(e), true)
+  }
+}
+
 async function loadPosCatalog() {
   if (posCatalogBusy.value) return
   posCatalogBusy.value = true
@@ -991,7 +1072,10 @@ function addFromCatalog(p: ProductHit) {
 }
 
 watch(view, (v) => {
-  if (v === 'pos') void loadPosCatalog()
+  if (v === 'pos') {
+    void loadPosCatalog()
+    void loadTechnicians()
+  }
 })
 
 function addToCart(p: ProductHit) {
@@ -1013,6 +1097,12 @@ function addToCart(p: ProductHit) {
 
 function changeQty(index: number, delta: number) {
   const line = cart.value[index]
+  if (!line || line.is_chess_fee) return
+  const sent = tableSentQty.value[line.sku_id] || 0
+  if (delta < 0 && line.qty - 1 < sent) {
+    showToast(`该菜已下厨 ${sent} 份，减菜请用「退菜」`, true)
+    return
+  }
   line.qty += delta
   if (line.qty <= 0) cart.value.splice(index, 1)
 }
@@ -1020,18 +1110,87 @@ function changeQty(index: number, delta: number) {
 /** 直接改数量：键盘输入比连点加减快，0 视为移除该行。 */
 function setLineQty(index: number, raw: string) {
   const line = cart.value[index]
-  if (!line) return
+  if (!line || line.is_chess_fee) return
   const qty = Math.floor(Number(raw))
   if (!Number.isFinite(qty) || qty <= 0) {
     cart.value.splice(index, 1)
     return
   }
+  const sent = tableSentQty.value[line.sku_id] || 0
+  if (qty < sent) {
+    showToast(`该菜已下厨 ${sent} 份，不能改成 ${qty}，减菜请用「退菜」`, true)
+    return
+  }
   line.qty = qty
+}
+
+/** 餐饮下单：把新增菜品送后厨并打印厨打单；购物车与失败都不会被静默吞掉。 */
+async function submitTableOrder() {
+  const table = activeTable.value
+  if (!table || table.scene !== 'DINING') return
+  if (!cart.value.length) {
+    showToast('购物车为空', true)
+    return
+  }
+  await flushTableCart()
+  try {
+    const items = await api.submitServiceTableOrder(table.table_id, 'DINING')
+    if (!items.length) {
+      showToast('没有新增菜品需要下单')
+      return
+    }
+    // 已下发快照与当前购物车一致，本地同步，避免退菜按钮状态滞后。
+    activeTable.value = { ...table, sent_json: JSON.stringify(cart.value) }
+    const printMsg = await api.printKitchenTicket(table.table_id)
+    showToast(`已下单 ${items.length} 类菜品；${printMsg}`, printMsg.includes('失败') || printMsg.includes('未配置'))
+  } catch (e) {
+    showToast(`下单失败：${String(e)}`, true)
+  }
+}
+
+/** 已下单退菜：需作废权限；数量不能超过已下厨数量，操作写审计。 */
+async function returnTableLine(line: CartLine) {
+  const table = activeTable.value
+  if (!table || table.scene !== 'DINING') return
+  const sent = tableSentQty.value[line.sku_id] || 0
+  if (sent <= 0) {
+    showToast('该菜尚未下单，直接减少数量即可', true)
+    return
+  }
+  const raw = window.prompt(`退菜数量（已下单 ${sent} 份）`, '1')
+  if (raw == null) return
+  const qty = Math.floor(Number(raw))
+  if (!Number.isFinite(qty) || qty <= 0) {
+    showToast('退菜数量必须大于 0', true)
+    return
+  }
+  try {
+    const updated = await api.returnServiceTableLine(
+      table.table_id,
+      'DINING',
+      line.sku_id,
+      qty,
+      '前台退菜'
+    )
+    activeTable.value = updated
+    cart.value = (JSON.parse(updated.cart_json || '[]') as CartLine[]).map((l) => ({
+      ...l,
+      name: l.name || `商品 ${l.sku_id}`,
+      member_price_cents: null,
+    }))
+    showToast(`已退 ${qty} 份，桌台与后厨已同步`)
+  } catch (e) {
+    showToast(`退菜失败：${String(e)}`, true)
+  }
 }
 
 /** 清空当前购物车：主流 POS 的清空动作，避免逐行减到 0。 */
 function clearCart() {
   if (!cart.value.length) return
+  if (Object.keys(tableSentQty.value).length) {
+    showToast('本桌已有下厨菜品，请逐项退菜后再清空', true)
+    return
+  }
   if (!window.confirm('清空当前购物车的全部商品？')) return
   cart.value = []
   showToast('已清空购物车')
@@ -2213,6 +2372,7 @@ async function doLogout() {
             v-if="industry === 'RESTAURANT'"
             :active-table-id="activeTable?.table_id ?? null"
             :cart="cart"
+            :member-id="memberId"
             :can-manage="atLeast('MANAGER')"
             @select="selectSceneTable"
             @cleared="clearActiveTable"
@@ -2222,9 +2382,9 @@ async function doLogout() {
             v-else-if="industry === 'BOARD_GAME'"
             :active-table-id="activeTable?.table_id ?? null"
             :cart="cart"
+            :member-id="memberId"
             :can-manage="atLeast('MANAGER')"
             @select="selectSceneTable"
-            @add="addToCart"
             @cleared="clearActiveTable"
             @error="showSceneError"
           />
@@ -2237,6 +2397,11 @@ async function doLogout() {
             v-else-if="industry === 'WELLNESS'"
             @add="addToCart"
             @error="showSceneError"
+          />
+          <TechnicianPanel
+            v-if="industry === 'WELLNESS'"
+            :can-manage="atLeast('MANAGER')"
+            @changed="loadTechnicians"
           />
           <div class="search-row scan-search">
             <input
@@ -2304,6 +2469,11 @@ async function doLogout() {
         <section class="panel cart-panel">
           <h3>
             购物车 <span class="badge">{{ cart.length }}</span>
+            <button
+              v-if="industry === 'RESTAURANT' && activeTable"
+              class="btn btn-sm cart-order"
+              @click="submitTableOrder"
+            >下单厨打</button>
             <button v-if="cart.length" class="btn ghost btn-sm cart-clear" @click="clearCart">清空</button>
           </h3>
           <div class="cart-list">
@@ -2313,8 +2483,28 @@ async function doLogout() {
               <div class="line-name">
                 {{ l.name || `商品 ${l.sku_id}` }}
                 <span v-if="l.member_price_cents" class="tag">会员价</span>
+                <span v-if="tableSentQty[l.sku_id]" class="tag sent-tag">已下 {{ tableSentQty[l.sku_id] }}</span>
+                <button
+                  v-if="industry === 'RESTAURANT' && activeTable && (tableSentQty[l.sku_id] || 0) > 0"
+                  class="link danger return-link"
+                  @click="returnTableLine(l)"
+                >退菜</button>
+                <select
+                  v-if="industry === 'WELLNESS'"
+                  v-model.number="l.technician_id"
+                  class="input input-sm tech-select"
+                  aria-label="指定技师"
+                >
+                  <option :value="null">不指定技师</option>
+                  <option v-for="t in onDutyTechnicians" :key="t.technician_id" :value="t.technician_id">
+                    {{ t.name }} · {{ (t.commission_bps / 100).toFixed(0) }}%
+                  </option>
+                </select>
               </div>
-              <div class="qty-ctrl">
+              <div v-if="l.is_chess_fee" class="qty-ctrl chess-fee-qty">
+                <span>{{ l.chess_minutes }} 分钟</span>
+              </div>
+              <div v-else class="qty-ctrl">
                 <button @click="changeQty(i, -1)" aria-label="减少数量"><Icon name="minus" :size="ICON_SIZE.sm" /></button>
                 <input
                   class="qty-input"

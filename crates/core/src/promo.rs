@@ -15,6 +15,9 @@ pub struct CartLine {
     pub member_price_cents: Option<i64>,
     pub is_gift: bool,
     pub applied_promos: Vec<i64>,
+    /// 养生服务行指定的技师；零售与餐饮为空。
+    #[serde(default)]
+    pub technician_id: Option<i64>,
 }
 
 impl CartLine {
@@ -34,6 +37,7 @@ impl CartLine {
             member_price_cents: None,
             is_gift: false,
             applied_promos: vec![],
+            technician_id: None,
         })
     }
 

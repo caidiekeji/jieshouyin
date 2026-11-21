@@ -171,6 +171,8 @@ mod tests {
             "category_template",
             "service_table",
             "table_session",
+            "technician",
+            "technician_shift",
         ];
         for t in tables {
             let n: i32 = conn

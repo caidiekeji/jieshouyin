@@ -5,6 +5,8 @@ import { api, type CartLine, type ServiceTable } from '../api'
 const props = defineProps<{
   activeTableId: number | null
   cart: CartLine[]
+  /** 当前已识别的会员，开台时一并绑定，恢复桌台沿用会员价。 */
+  memberId: number | null
   /** 建/删桌台需 product.edit：店员只开台点菜，不见管理入口。 */
   canManage: boolean
 }>()
@@ -18,6 +20,9 @@ const tables = ref<ServiceTable[]>([])
 const busy = ref(false)
 const showCreate = ref(false)
 const form = ref({ code: '', name: '', zone: '大厅', seats: 4 })
+/** 转台/并台的待选目标模式；设置后下一次点桌台即执行迁移。 */
+const actionMode = ref<'transfer' | 'merge' | null>(null)
+const actionSource = ref<ServiceTable | null>(null)
 const nowTick = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -53,14 +58,59 @@ function elapsed(t: ServiceTable): string {
 
 async function pick(t: ServiceTable) {
   if (busy.value) return
+  if (actionMode.value && actionSource.value) {
+    await runAction(t)
+    return
+  }
   busy.value = true
   try {
     if (t.status === 'FREE') {
-      const opened = await api.openServiceTable(t.table_id, '[]')
+      const opened = await api.openServiceTable(t.table_id, '[]', props.memberId)
       emit('select', opened, [])
     } else {
       emit('select', t, linesOf(t))
     }
+    await load()
+  } catch (e) {
+    emit('error', String(e))
+  } finally {
+    busy.value = false
+  }
+}
+
+function startAction(mode: 'transfer' | 'merge', t: ServiceTable) {
+  actionMode.value = mode
+  actionSource.value = t
+}
+
+function cancelAction() {
+  actionMode.value = null
+  actionSource.value = null
+}
+
+/** 转台只选空闲桌；并台选另一张占用桌，当前桌作为源桌并入目标。 */
+async function runAction(target: ServiceTable) {
+  const source = actionSource.value
+  const mode = actionMode.value
+  if (!source || !mode) return
+  if (mode === 'transfer' && target.status !== 'FREE') {
+    emit('error', '转台请选择空闲桌台')
+    return
+  }
+  if (mode === 'merge' && (target.status !== 'OCCUPIED' || target.table_id === source.table_id)) {
+    emit('error', '并台请选择另一张已开台桌')
+    return
+  }
+  const label = mode === 'transfer' ? '转台' : '并台'
+  if (!window.confirm(`${label}：${source.code} → ${target.code}？`)) return
+  busy.value = true
+  try {
+    const updated =
+      mode === 'transfer'
+        ? await api.transferServiceTable(source.table_id, target.table_id)
+        : await api.mergeServiceTables(target.table_id, source.table_id)
+    cancelAction()
+    emit('select', updated, linesOf(updated))
     await load()
   } catch (e) {
     emit('error', String(e))
@@ -131,6 +181,11 @@ onUnmounted(() => {
         {{ showCreate ? '收起' : '＋ 新增桌台' }}
       </button>
     </div>
+    <div v-if="actionMode" class="action-hint">
+      <span v-if="actionMode === 'transfer'">转台：点击空闲桌台作为目标</span>
+      <span v-else>并台：点击另一张已开台桌台，当前 {{ actionSource?.code }} 并入目标</span>
+      <button class="link" @click="cancelAction">取消</button>
+    </div>
     <div v-if="showCreate" class="create-row">
       <input v-model="form.code" class="input input-sm" placeholder="桌号 A01" maxlength="12" />
       <input v-model="form.name" class="input input-sm" placeholder="名称 大厅1号桌" maxlength="20" />
@@ -149,14 +204,18 @@ onUnmounted(() => {
           <strong>{{ t.code }}</strong>
           <span>{{ t.zone || '未分区' }} · {{ t.seats }}座</span>
         </header>
-        <p>{{ t.name }}</p>
+        <p>{{ t.name }}<span v-if="t.member_phone" class="member-tag">会员 {{ t.member_phone }}</span></p>
         <div class="card-foot">
           <span v-if="t.status === 'OCCUPIED'" class="occupied">用餐中 · {{ elapsed(t) }}</span>
           <span v-else class="free">空闲</span>
           <span class="count">{{ itemCount(t) }} 件</span>
         </div>
         <div class="card-actions" @click.stop>
-          <button v-if="t.status === 'OCCUPIED'" class="link danger" @click="clear(t)">清台</button>
+          <template v-if="t.status === 'OCCUPIED'">
+            <button class="link" @click="startAction('transfer', t)">转台</button>
+            <button class="link" @click="startAction('merge', t)">并台</button>
+            <button class="link danger" @click="clear(t)">清台</button>
+          </template>
           <button v-else-if="canManage" class="link" @click="remove(t)">删除</button>
         </div>
       </article>
@@ -251,6 +310,30 @@ onUnmounted(() => {
 }
 .card-actions {
   margin-top: 4px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.action-hint {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: #fff3d8;
+  border: 1px solid #f0d39a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #8a4b12;
+}
+.member-tag {
+  color: #2f6b4f;
+  background: #e8f4ec;
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  font-size: 11px;
 }
 .link {
   border: 0;

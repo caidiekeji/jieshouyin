@@ -41,7 +41,47 @@ export interface ServiceTable {
   status: string
   session_id: number | null
   opened_at: string | null
+  member_id: number | null
+  member_phone: string | null
   cart_json: string
+  /** 已下发后厨的购物车快照 */
+  sent_json: string
+}
+
+/** 厨打返回的本次新增出品行 */
+export interface KitchenItem {
+  sku_id: number
+  name: string
+  unit: string
+  qty: number
+}
+
+/** 棋牌计时账单 */
+export interface ChessFee {
+  elapsed_minutes: number
+  billable_minutes: number
+  /** 房费 SKU 的每分钟单价（分） */
+  minute_cents: number
+  fee_cents: number
+}
+
+/** 养生技师与日排班 */
+export interface Technician {
+  technician_id: number
+  name: string
+  phone: string | null
+  /** 万分比：1200 = 12% */
+  commission_bps: number
+  status: number
+  on_duty: boolean
+}
+
+export interface TechnicianCommission {
+  technician_id: number
+  name: string
+  service_lines: number
+  service_qty: number
+  commission_cents: number
 }
 
 export interface CartLine {
@@ -53,6 +93,11 @@ export interface CartLine {
   name?: string
   image_path?: string | null
   image_url?: string | null
+  /** 养生服务行指定技师；餐饮/零售为空 */
+  technician_id?: number | null
+  /** 棋牌计时生成的临时房费行，仅前端用于展示与结算 */
+  is_chess_fee?: boolean
+  chess_minutes?: number
 }
 
 /** 收银台报价：后端口径的应收金额（原价 − 促销 − 券） */
@@ -400,10 +445,42 @@ export const api = {
     }),
   deleteServiceTable: (tableId: number) =>
     invoke<void>('delete_service_table', { tableId }),
-  openServiceTable: (tableId: number, cartJson: string) =>
-    invoke<ServiceTable>('open_service_table', { tableId, cartJson }),
+  openServiceTable: (tableId: number, cartJson: string, memberId: number | null = null) =>
+    invoke<ServiceTable>('open_service_table', { tableId, cartJson, memberId }),
   saveServiceTableCart: (tableId: number, cartJson: string) =>
     invoke<void>('save_service_table_cart', { tableId, cartJson }),
+  submitServiceTableOrder: (tableId: number, scene: string) =>
+    invoke<KitchenItem[]>('submit_service_table_order', { tableId, scene }),
+  returnServiceTableLine: (
+    tableId: number,
+    scene: string,
+    skuId: number,
+    qty: number,
+    reason: string
+  ) =>
+    invoke<ServiceTable>('return_service_table_line', {
+      tableId,
+      scene,
+      skuId,
+      qty,
+      reason,
+    }),
+  mergeServiceTables: (targetId: number, sourceId: number) =>
+    invoke<ServiceTable>('merge_service_tables', { targetId, sourceId }),
+  transferServiceTable: (tableId: number, targetId: number) =>
+    invoke<ServiceTable>('transfer_service_table', { tableId, targetId }),
+  chessTableFee: (tableId: number) => invoke<ChessFee>('chess_table_fee', { tableId }),
+  printKitchenTicket: (tableId: number) =>
+    invoke<string>('print_kitchen_ticket', { tableId }),
+  // 养生技师：日排班、服务行指定、折后实收提成
+  createTechnician: (name: string, phone: string | null, commissionBps: number) =>
+    invoke<number>('create_technician', { name, phone, commissionBps }),
+  setTechnicianShift: (technicianId: number, businessDate: string, onDuty: boolean) =>
+    invoke<void>('set_technician_shift', { technicianId, businessDate, onDuty }),
+  listTechnicians: (businessDate: string) =>
+    invoke<Technician[]>('list_technicians', { businessDate }),
+  technicianCommission: (fromDate: string, toDate: string) =>
+    invoke<TechnicianCommission[]>('technician_commission', { fromDate, toDate }),
   closeServiceTable: (tableId: number, force = false) =>
     invoke<void>('close_service_table', { tableId, force }),
   parkCart: (cartJson: string, remark: string | null) =>

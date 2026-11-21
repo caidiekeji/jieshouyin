@@ -30,7 +30,7 @@ use checkout_core::promo::{Promotion, Scope as PromoScope};
 use checkout_core::rbac::{self, Session};
 use checkout_core::time::{format_utc, parse_rfc3339};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Timelike, Utc};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Emitter, Manager, State};
@@ -269,15 +269,16 @@ pub fn delete_service_table(table_id: i64, state: State<'_, AppState>) -> Result
     checkout_core::service::delete_table(&conn, table_id)
 }
 
-/// 开台：购物车快照随会话保存，会员可在结算时再识别。
+/// 开台：购物车快照随会话保存；开台时已识别的会员一并绑定，恢复桌台时沿用会员价。
 #[tauri::command]
 pub fn open_service_table(
     table_id: i64,
     cart_json: String,
+    member_id: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<checkout_core::service::ServiceTable> {
     let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
-    checkout_core::service::open_table(&conn, table_id, &cart_json)
+    checkout_core::service::open_table(&conn, table_id, &cart_json, member_id)
 }
 
 /// 点单过程中保存购物车快照；同一桌只保留最新一份。
@@ -314,6 +315,202 @@ pub fn close_service_table(table_id: i64, force: bool, state: State<'_, AppState
         )?;
     }
     Ok(())
+}
+
+/// 餐饮下单：记录本次新增菜品并返回后厨出品行，前端据此打印厨打单。
+#[tauri::command]
+pub fn submit_service_table_order(
+    table_id: i64,
+    scene: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::service::KitchenItem>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::service::submit_order(&conn, table_id, &scene)
+}
+
+/// 已下单退菜：需作废权限，写审计；M0017 前的退菜按购物车行删除处理。
+#[tauri::command]
+pub fn return_service_table_line(
+    table_id: i64,
+    scene: String,
+    sku_id: i64,
+    qty: i64,
+    reason: String,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::service::ServiceTable> {
+    let (operator_id, conn) = admin_guard(&state, PERM_POS_VOID)?;
+    let table = checkout_core::service::return_sent(&conn, table_id, &scene, sku_id, qty)?;
+    checkout_core::rbac::audit_operation(
+        &conn,
+        "table_return_dish",
+        Some(operator_id),
+        None,
+        serde_json::json!({"table_id": table_id, "sku_id": sku_id, "qty": qty, "reason": reason}),
+        &now_str(),
+    )?;
+    Ok(table)
+}
+
+/// 并台：source 并入 target，仅餐饮且两桌都已开台。
+#[tauri::command]
+pub fn merge_service_tables(
+    target_id: i64,
+    source_id: i64,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::service::ServiceTable> {
+    let (operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    let table = checkout_core::service::merge_tables(&conn, target_id, source_id)?;
+    checkout_core::rbac::audit_operation(
+        &conn,
+        "table_merge",
+        Some(operator_id),
+        None,
+        serde_json::json!({"target_id": target_id, "source_id": source_id}),
+        &now_str(),
+    )?;
+    Ok(table)
+}
+
+/// 转台：整桌会话迁到同场景空闲桌，保留开台时间、购物车、会员与已下单快照。
+#[tauri::command]
+pub fn transfer_service_table(
+    table_id: i64,
+    target_id: i64,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::service::ServiceTable> {
+    let (operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    let table = checkout_core::service::transfer_table(&conn, table_id, target_id)?;
+    checkout_core::rbac::audit_operation(
+        &conn,
+        "table_transfer",
+        Some(operator_id),
+        None,
+        serde_json::json!({"table_id": table_id, "target_id": target_id}),
+        &now_str(),
+    )?;
+    Ok(table)
+}
+
+/// 棋牌计时取费：最低 60 分钟，超出后按分钟折算，金额由后端计算。
+#[tauri::command]
+pub fn chess_table_fee(
+    table_id: i64,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::service::ChessFee> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::service::chess_fee(&conn, table_id)
+}
+
+/// 厨打：打印该桌最后一次“下单”新增的出品行，复用当前网络打印机。
+/// 未配置打印机时明确提示，不把失败写进小票重打队列（重打队列按订单号组织）。
+#[tauri::command]
+pub fn print_kitchen_ticket(table_id: i64, state: State<'_, AppState>) -> Result<String> {
+    use checkout_core::escpos::{render_receipt, Template};
+    use serde_json::json;
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    let (code, ticket_json): (String, String) = conn
+        .query_row(
+            "SELECT t.code, COALESCE(s.last_ticket_json,'[]')
+             FROM service_table t
+             JOIN table_session s ON s.table_id=t.table_id AND s.status='OPEN'
+             WHERE t.table_id=?1 AND t.scene='DINING'",
+            [table_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| CoreError::Validation("桌台未开台或无厨打内容".into()))?;
+    let items: Vec<checkout_core::service::KitchenItem> = serde_json::from_str(&ticket_json)?;
+    if items.is_empty() {
+        return Ok("本次没有新增菜品，无需厨打".into());
+    }
+    let item_text = items
+        .iter()
+        .map(|i| format!("{}  x{} {}", i.name, i.qty, i.unit))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let total_qty: i64 = items.iter().map(|i| i.qty).sum();
+    let template = Template {
+        template_id: "kitchen_default".into(),
+        paper_width_mm: 58,
+        sections: json!({
+            "header": [
+                {"type":"text","content":"后厨出品单","align":"center","bold":true,"size":2},
+                {"type":"text","content":"桌台 {{table_code}}","align":"center","bold":true},
+                {"type":"text","content":"{{created_at}}","align":"center"}
+            ],
+            "items": [
+                {"type":"divider","char":"-"},
+                {"type":"text","content":"{{items}}","size":1}
+            ],
+            "summary": [
+                {"type":"divider","char":"-"},
+                {"type":"text","content":"合计 {{total_qty}} 份","align":"right","bold":true}
+            ],
+            "footer": [
+                {"type":"feed","lines":3},
+                {"type":"cut","mode":"partial"}
+            ]
+        }),
+    };
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("table_code".into(), code);
+    vars.insert("created_at".into(), now_str());
+    vars.insert("items".into(), item_text);
+    vars.insert("total_qty".into(), total_qty.to_string());
+    let bytes = render_receipt(&template, &vars)?;
+    let host = cfg_get(&conn, CFG_PRINT_HOST)?.unwrap_or_default();
+    if host.trim().is_empty() {
+        return Ok("未配置打印机地址，厨打未发送（请在设置中填写打印机 IP）".into());
+    }
+    let port = cfg_get(&conn, CFG_PRINT_PORT)?
+        .and_then(|s| s.trim().parse::<u16>().ok())
+        .unwrap_or(DEFAULT_PRINT_PORT);
+    match checkout_core::printer::send_bytes(&host, port, &bytes) {
+        Ok(()) => Ok("厨打已发送".into()),
+        Err(e) => Ok(format!("厨打发送失败: {e}")),
+    }
+}
+
+/// 技师档案：新建需商品编辑权限，比例以万分比保存（1200=12%）。
+#[tauri::command]
+pub fn create_technician(
+    name: String,
+    phone: Option<String>,
+    commission_bps: i64,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::technician::create_technician(&conn, &name, phone.as_deref(), commission_bps)
+}
+
+/// 日排班：on_duty=true 在班，false 休息。日期为营业日 YYYY-MM-DD。
+#[tauri::command]
+pub fn set_technician_shift(
+    technician_id: i64,
+    business_date: String,
+    on_duty: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::technician::set_shift(&conn, technician_id, &business_date, on_duty)
+}
+
+#[tauri::command]
+pub fn list_technicians(
+    business_date: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::technician::Technician>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::technician::list_technicians(&conn, &business_date)
+}
+
+#[tauri::command]
+pub fn technician_commission(
+    from_date: String,
+    to_date: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::technician::TechnicianCommission>> {
+    let (_op, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
+    checkout_core::technician::commission_report(&conn, &from_date, &to_date)
 }
 
 #[tauri::command]
@@ -687,6 +884,8 @@ fn consume_sensitive(
 pub struct CartLineInput {
     pub sku_id: i64,
     pub qty: i64,
+    /// 养生服务行指定技师；服务端校验技师在册，结算时按该技师比例计提。
+    pub technician_id: Option<i64>,
 }
 
 /// 服务端权威单价：一律取 sku.sale_price_cents，不信任客户端传价
@@ -763,6 +962,21 @@ fn plan_amounts(
                 .optional()?
                 .flatten();
             cl.member_price_cents = mp;
+        }
+        if let Some(tid) = l.technician_id {
+            let (is_service, tech_ok): (i64, i64) = conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM sku WHERE sku_id=?1 AND is_service=1),
+                        (SELECT COUNT(*) FROM technician WHERE technician_id=?2 AND status=1)",
+                params![l.sku_id, tid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            if is_service == 0 {
+                return Err(CoreError::Validation("只有服务项目可以指定技师".into()));
+            }
+            if tech_ok == 0 {
+                return Err(CoreError::Validation("指定的技师不存在或已停用".into()));
+            }
+            cl.technician_id = Some(tid);
         }
         cart_lines.push(cl);
     }
@@ -2466,6 +2680,7 @@ fn calc_refund_amounts(
             line_total_cents: line_total,
             discount_cents: discount,
             member_price_cents: None,
+            technician_id: None,
             is_gift: false,
             applied_promos: Vec::new(),
         };
@@ -4814,6 +5029,16 @@ pub fn run() {
             delete_service_table,
             open_service_table,
             save_service_table_cart,
+            submit_service_table_order,
+            return_service_table_line,
+            merge_service_tables,
+            transfer_service_table,
+            chess_table_fee,
+            print_kitchen_ticket,
+            create_technician,
+            set_technician_shift,
+            list_technicians,
+            technician_commission,
             close_service_table,
             member_prices,
             parse_weigh_barcode,
