@@ -478,11 +478,17 @@ fn load_active_promotions(conn: &Connection, now: &str) -> Result<Vec<Promotion>
             "SINGLE_ITEM" => PromoScope::SINGLE_ITEM,
             _ => PromoScope::ORDER_LEVEL,
         };
-        let cond: serde_json::Value =
-            serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or(serde_json::json!({}));
-        let act: serde_json::Value =
-            serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or(serde_json::json!({}));
-        Ok(Promotion {
+        let cond_s: String = r.get(5)?;
+        let act_s: String = r.get(6)?;
+        // 坏 JSON 的规则直接跳过：不能当成“无门槛无优惠”的规则参与互斥判断，
+        // 也不能因为一条脏配置让整单无法结算。
+        let (Ok(cond), Ok(act)) = (
+            serde_json::from_str::<serde_json::Value>(&cond_s),
+            serde_json::from_str::<serde_json::Value>(&act_s),
+        ) else {
+            return Ok(None);
+        };
+        Ok(Some(Promotion {
             promotion_id: pid,
             scope,
             priority: r.get(2)?,
@@ -500,11 +506,13 @@ fn load_active_promotions(conn: &Connection, now: &str) -> Result<Vec<Promotion>
                 .and_then(|v| v.as_array())
                 .map(|a| a.iter().filter_map(|x| x.as_i64()).collect())
                 .unwrap_or_default(),
-        })
+        }))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        out.push(row?);
+        if let Some(p) = row? {
+            out.push(p);
+        }
     }
     Ok(out)
 }

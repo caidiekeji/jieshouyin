@@ -53,7 +53,8 @@ fn industry_meta(id: &str) -> Option<(&'static str, &'static str, &'static str, 
         )),
         INDUSTRY_RESTAURANT => Some((
             "餐饮门店",
-            "菜品按中餐小吃饮品分类，支持堂食外带",
+            // 当前 POS 没有桌台/开台/厨打能力，描述不能承诺“堂食外带桌台管理”。
+            "餐饮档口零售（菜品按份售卖，暂不含桌台开台与厨打）",
             "份",
             true,
         )),

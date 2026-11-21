@@ -161,13 +161,21 @@ pub fn run_report(conn: &Connection, id: &str, from: &str, to: &str) -> Result<R
 // ==================== 销售域（8 张）====================
 
 fn sales_daily(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    // 唯一口径：销售额 = 实收 − 已发生退款（PROCESSING/COMPLETED），
+    // 退款额直接取退款流水，不再只看 status='REFUNDED' 的整单。
     let mut stmt = conn.prepare(
         "SELECT business_date, COUNT(DISTINCT order_no),
-                COALESCE(SUM(pay_cents),0), COALESCE(SUM(discount_cents),0),
-                COALESCE(SUM(CASE WHEN status='REFUNDED' THEN pay_cents ELSE 0 END),0)
-         FROM sales_order
-         WHERE status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
-           AND business_date BETWEEN ?1 AND ?2
+                COALESCE(SUM(pay_cents - refunded),0), COALESCE(SUM(discount_cents),0),
+                COALESCE(SUM(refunded),0)
+         FROM (
+             SELECT o.order_no, o.business_date, o.pay_cents, o.discount_cents,
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=o.order_no
+                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+             FROM sales_order o
+             WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND o.business_date BETWEEN ?1 AND ?2
+         )
          GROUP BY business_date ORDER BY business_date",
     )?;
     let raw = stmt
@@ -216,9 +224,16 @@ fn sales_daily(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> 
 fn sales_trend(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     let mut stmt = conn.prepare(
         "SELECT business_date, COUNT(DISTINCT order_no),
-                COALESCE(SUM(pay_cents),0), COALESCE(SUM(total_cents),0)
-         FROM sales_order
-         WHERE status IN ('COMPLETED','PARTIAL_REFUND') AND business_date BETWEEN ?1 AND ?2
+                COALESCE(SUM(pay_cents - refunded),0), COALESCE(SUM(total_cents),0)
+         FROM (
+             SELECT o.order_no, o.business_date, o.pay_cents, o.total_cents,
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=o.order_no
+                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+             FROM sales_order o
+             WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND o.business_date BETWEEN ?1 AND ?2
+         )
          GROUP BY business_date ORDER BY business_date",
     )?;
     let raw = stmt
