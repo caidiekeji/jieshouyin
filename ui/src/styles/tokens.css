@@ -6,10 +6,10 @@
  * component  组件层：在组件 <style> 内声明局部变量，引用语义层。
  *
  * 推导依据：B 端收银工作台——操作密集、扫读为主、色彩克制、动效极低。
- * 配色范式：对标 Square 的「沉稳主体 + 单一撞色强调」，主体取 Starbucks 森林绿。
- *   - 主体墨绿（forest）：顶栏、导航、品牌承载信息密度，沉稳权威；
+ * 配色范式：对标 Square 的「沉稳主体 + 单一撞色强调」，主体取暖石墨。
+ *   - 主体石墨（slate）：顶栏、导航、品牌承载信息密度，沉稳克制；
  *   - 撞色朱橙（ember）：收款/金额/选中/主行动一眼跳出，商业温度；
- *   - 绿橙在色环上对撞，冷暖分明，全程避开蓝紫。
+ *   - 石墨与朱橙一冷一暖，全程避开蓝紫与墨绿。
  *   - 暖中性（ink）：内容区背景与正文，掺暖调避免纯灰的 AI 味。
  * ============================================================ */
 
@@ -28,18 +28,18 @@
   --p-brand-800: #9a350b;
   --p-brand-900: #7a2e0e;
 
-  /* 主体墨绿阶（forest）：顶栏、导航、品牌标识的承载色，与朱橙撞色。
-     取自 Starbucks 森林绿，沉稳不张扬；0/900 同时是亮/暗两极。 */
-  --p-forest-50: #ebf5ef;
-  --p-forest-100: #cbe8d7;
-  --p-forest-200: #9ed3b5;
-  --p-forest-300: #6bb98d;
-  --p-forest-400: #3d9c69;
-  --p-forest-500: #1f7d50;
-  --p-forest-600: #136340;
-  --p-forest-700: #0e4e33;
-  --p-forest-800: #0a3b27;
-  --p-forest-900: #072b1d;
+  /* 主体石墨阶（slate）：顶栏、导航、品牌标识的承载色，与朱橙撞色。
+     暖调深灰，不带绿相也不带蓝相；50/900 是亮/暗两极。 */
+  --p-slate-50: #f5f4f2;
+  --p-slate-100: #e9e6e1;
+  --p-slate-200: #d3cec7;
+  --p-slate-300: #b3aca2;
+  --p-slate-400: #8e8579;
+  --p-slate-500: #6b6359;
+  --p-slate-600: #514a41;
+  --p-slate-700: #3c362f;
+  --p-slate-800: #2a251f;
+  --p-slate-900: #1b1713;
 
   /* 暖中性阶（ink）：内容区背景与正文，掺暖调而非纯灰；0/900 是亮/暗两极画布。 */
   --p-ink-0: #ffffff;
@@ -186,12 +186,12 @@
   --brand-subtle: var(--p-brand-50);
   --brand-border: var(--p-brand-300);
 
-  /* 主体色（墨绿）：顶栏、导航、品牌标识 */
-  --chrome: var(--p-forest-700);
-  --chrome-hover: var(--p-forest-600);
-  --chrome-active: var(--p-forest-500);
+  /* 主体色（石墨）：顶栏、导航、品牌标识 */
+  --chrome: var(--p-slate-800);
+  --chrome-hover: var(--p-slate-700);
+  --chrome-active: var(--p-slate-600);
   --on-chrome: var(--p-ink-0);
-  --chrome-subtle: var(--p-forest-50);
+  --chrome-subtle: var(--p-slate-50);
 
   /* 语义色生命周期 */
   --danger: var(--p-danger-500);
@@ -240,11 +240,11 @@
   --brand-border: var(--p-brand-700);
 
   /* 主体色：暗底下提亮保证顶栏与内容区可辨 */
-  --chrome: var(--p-forest-600);
-  --chrome-hover: var(--p-forest-500);
-  --chrome-active: var(--p-forest-400);
+  --chrome: var(--p-slate-700);
+  --chrome-hover: var(--p-slate-600);
+  --chrome-active: var(--p-slate-500);
   --on-chrome: var(--p-ink-0);
-  --chrome-subtle: var(--p-forest-900);
+  --chrome-subtle: var(--p-slate-900);
 
   /* 语义色：文字色提亮，淡底转深色 */
   --danger: var(--p-danger-500);

@@ -367,7 +367,7 @@ h2 { font-size: var(--font-lg); }
 .tab-row { display: flex; gap: var(--space-2); }
 /* 子页面内容流：父级 main-simple 提供骨架，此层只做纵向分组 */
 .page-body { display: flex; flex-direction: column; gap: var(--space-4); }
-/* 统一分段页签：三页共用，选中态取主体墨绿（与左栏导航同语义），不使用金额撞色 */
+/* 统一分段页签：三页共用，选中态取主体石墨（与左栏导航同语义），不使用金额撞色 */
 .seg {
   display: inline-flex; gap: var(--space-1); padding: var(--space-1);
   background: var(--surface-subtle); border: var(--border-width) solid var(--border);
