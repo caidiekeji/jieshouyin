@@ -152,7 +152,7 @@ function intOrZero(raw: string, label: string): number {
 }
 
 /** 服务项目不计库存：切换时清掉称重与库存字段，避免提交互斥组合。 */
-function toggleService() {
+function onServiceToggle() {
   if (form.value.isService) {
     form.value.isWeighed = false
     form.value.initialQty = 0
@@ -326,7 +326,7 @@ onMounted(reload)
         </label>
         <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
         <label class="checkbox-label">
-          <input v-model="form.isService" type="checkbox" @change="toggleService" /> 服务项目（不计库存）
+          <input v-model="form.isService" type="checkbox" @change="onServiceToggle" /> 服务项目（不计库存）
         </label>
         <label class="checkbox-label">
           <input v-model="form.isWeighed" type="checkbox" :disabled="form.isService" /> 称重商品（按克计价）
