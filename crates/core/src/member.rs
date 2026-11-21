@@ -13,6 +13,8 @@ pub const POINTS: &str = "POINTS";
 pub const GROWTH: &str = "GROWTH";
 
 /// 写一条资产流水（不可变、幂等）。返回是否真的写入（重复幂等键返回 false）。
+/// 不自行开启事务：调用方负责把同一业务的多条流水放在一个事务里，
+/// 否则"扣赠送成功、扣本金失败"会留下半扣状态。
 #[allow(clippy::too_many_arguments)]
 pub fn append_asset_log(
     conn: &Connection,
@@ -43,18 +45,16 @@ pub fn append_asset_log(
     let new_balance = current + change;
     // 注意：透支管控在 deduct/refund_mirror 等高层操作中执行；
     // append_asset_log 是不可变流水投影原语，只负责幂等记账。
-    let tx = conn.unchecked_transaction()?;
-    tx.execute(
+    conn.execute(
         "INSERT INTO member_asset_log(member_id,asset_type,change_amount,balance_after,reason,ref_order_no,idempotency_key,created_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
         params![member_id, asset_type, change, new_balance, reason, ref_order_no, idempotency_key, now],
     )?;
-    tx.execute(
+    conn.execute(
         "INSERT INTO member_asset(member_id,asset_type,balance,version) VALUES (?1,?2,?3,1)
          ON CONFLICT(member_id,asset_type) DO UPDATE SET balance=excluded.balance, version=member_asset.version+1",
         params![member_id, asset_type, new_balance],
     )?;
-    tx.commit()?;
     Ok(true)
 }
 
@@ -171,10 +171,27 @@ pub fn refund_mirror(
             "退款额超出原单储值扣减总额，拒绝执行".into(),
         ));
     }
-    let bonus_back = refund_amount.min(original.bonus_cents);
-    let principal_back = (refund_amount - bonus_back).min(original.principal_cents);
+    // 累计上限：同一订单多次部分退货时，回补总额不得超过原扣减构成。
+    let refunded_bonus: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(change_amount),0) FROM member_asset_log
+         WHERE member_id=?1 AND asset_type=?2 AND reason='REFUND' AND ref_order_no=?3",
+        params![member_id, BONUS, order_no],
+        |r| r.get(0),
+    )?;
+    let refunded_principal: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(change_amount),0) FROM member_asset_log
+         WHERE member_id=?1 AND asset_type=?2 AND reason='REFUND' AND ref_order_no=?3",
+        params![member_id, PRINCIPAL, order_no],
+        |r| r.get(0),
+    )?;
+    let bonus_left = (original.bonus_cents - refunded_bonus).max(0);
+    let principal_left = (original.principal_cents - refunded_principal).max(0);
+    let bonus_back = refund_amount.min(bonus_left);
+    let principal_back = (refund_amount - bonus_back).min(principal_left);
     if bonus_back + principal_back != refund_amount {
-        return Err(CoreError::Other("镜像回补超限：程序错误".into()));
+        return Err(CoreError::Validation(format!(
+            "累计退款超出原单剩余可回补额度（剩余赠送 {bonus_left}，剩余本金 {principal_left}）"
+        )));
     }
     let now = format_utc(&Utc::now());
     if bonus_back > 0 {
@@ -355,6 +372,16 @@ mod tests {
         recharge(&c, 1, "R1", 10000, 2000).unwrap();
         let d = deduct(&c, 1, "ORD1", 2000).unwrap();
         assert!(refund_mirror(&c, 1, "RF1", "ORD1", 3000, d).is_err());
+    }
+
+    #[test]
+    fn mirror_refund_cumulative_cap() {
+        let c = setup();
+        recharge(&c, 1, "R1", 10000, 2000).unwrap();
+        let d = deduct(&c, 1, "ORD1", 2000).unwrap();
+        refund_mirror(&c, 1, "RF1", "ORD1", 1500, d).unwrap();
+        // 剩余可回补仅 500，再次按 1500 部分退货必须拒绝
+        assert!(refund_mirror(&c, 1, "RF2", "ORD1", 1500, d).is_err());
     }
 
     #[test]

@@ -114,34 +114,52 @@ pub fn create_stocktake(
     Ok(())
 }
 
-/// 实盘录入。
+/// 实盘录入。仅 DRAFT / DIFF_REVIEW 可改数；已审批任务不得回写。
 pub fn record_count(conn: &Connection, task_no: &str, counts: &[(i64, i64)]) -> Result<()> {
-    let task_id: i64 = conn.query_row(
-        "SELECT stocktake_id FROM stocktake WHERE task_no=?1",
+    let (task_id, status): (i64, String) = conn.query_row(
+        "SELECT stocktake_id, status FROM stocktake WHERE task_no=?1",
         [task_no],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    if !matches!(status.as_str(), "DRAFT" | "DIFF_REVIEW") {
+        return Err(CoreError::Validation(format!(
+            "盘点单状态 {status} 不可录入实盘数"
+        )));
+    }
+    let tx = conn.unchecked_transaction()?;
     for (sku, counted) in counts {
-        conn.execute(
+        let affected = tx.execute(
             "UPDATE stocktake_item SET counted_qty=?1, diff_qty=?1 - book_qty, reason='COUNT'
              WHERE stocktake_id=?2 AND sku_id=?3",
             params![counted, task_id, sku],
         )?;
+        if affected == 0 {
+            return Err(CoreError::Validation(format!(
+                "盘点单不含 SKU {sku}，拒绝录入"
+            )));
+        }
     }
-    conn.execute(
+    tx.execute(
         "UPDATE stocktake SET status='DIFF_REVIEW' WHERE stocktake_id=?1",
         [task_id],
     )?;
+    tx.commit()?;
     Ok(())
 }
 
 /// 审批调账（§10.4）：产生 ADJUST 事件，不覆盖库存。
+/// 只有 DIFF_REVIEW 可审批；ADJUSTED 重复审批必须报错（否则重复调账）。
 pub fn approve_stocktake(conn: &Connection, task_no: &str, approver_id: i64) -> Result<()> {
-    let task_id: i64 = conn.query_row(
-        "SELECT stocktake_id FROM stocktake WHERE task_no=?1",
+    let (task_id, status): (i64, String) = conn.query_row(
+        "SELECT stocktake_id, status FROM stocktake WHERE task_no=?1",
         [task_no],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    if status != "DIFF_REVIEW" {
+        return Err(CoreError::Validation(format!(
+            "盘点单状态 {status} 不可审批（需先录入实盘数）"
+        )));
+    }
     let items: Vec<(i64, i64, i64)> = {
         let mut stmt = conn.prepare(
             "SELECT sku_id, book_qty, COALESCE(counted_qty, book_qty) FROM stocktake_item WHERE stocktake_id=?1",
@@ -168,10 +186,14 @@ pub fn approve_stocktake(conn: &Connection, task_no: &str, approver_id: i64) -> 
             )?;
         }
     }
-    tx.execute(
-        "UPDATE stocktake SET status='ADJUSTED', approver_id=?1, finished_at=?2 WHERE stocktake_id=?3",
+    let affected = tx.execute(
+        "UPDATE stocktake SET status='ADJUSTED', approver_id=?1, finished_at=?2
+         WHERE stocktake_id=?3 AND status='DIFF_REVIEW'",
         params![approver_id, format_utc(&Utc::now()), task_id],
     )?;
+    if affected != 1 {
+        return Err(CoreError::Validation("盘点单已被处理，拒绝重复审批".into()));
+    }
     tx.commit()?;
     Ok(())
 }

@@ -41,15 +41,24 @@ pub fn generate_order_no(store_id: &str, device_id: &str) -> String {
     format!("{store_id}{device_id}{millis}{rand:04}")
 }
 
-/// 业务日（§14.0）：本地时间减 cutoff。默认 00:00，即本地日期。
-/// 这里以 UTC 存储，传入已按门店时区偏移后的 DateTime 与 cutoff。
-pub fn business_date(local_dt: &DateTime<Utc>, cutoff_hour: u32) -> String {
-    let adjusted = if local_dt.hour() < cutoff_hour {
-        *local_dt - chrono::Duration::days(1)
+/// 业务日（§14.0）：门店本地时间减 cutoff。默认 00:00，即本地日期。
+/// 调用方必须先把 UTC 转换到门店时区，再取本地日期与小时传给 `business_date_at`。
+pub fn business_date_at(
+    local_date: chrono::NaiveDate,
+    local_hour: u32,
+    cutoff_hour: u32,
+) -> String {
+    let date = if local_hour < cutoff_hour {
+        local_date - chrono::Duration::days(1)
     } else {
-        *local_dt
+        local_date
     };
-    adjusted.format("%Y-%m-%d").to_string()
+    date.format("%Y-%m-%d").to_string()
+}
+
+/// 兼容入口：调用方保证传入的时间已是门店本地时间。
+pub fn business_date(local_dt: &DateTime<Utc>, cutoff_hour: u32) -> String {
+    business_date_at(local_dt.date_naive(), local_dt.hour(), cutoff_hour)
 }
 
 /// tx A：订单 + 明细落库（PENDING_PAYMENT）。不扣库存、不扣储值。
@@ -88,13 +97,25 @@ pub fn begin_order(
 
 /// tx B：所有渠道 SUCCESS 后提交。订单 → COMPLETED + 库存 SALE + sync_queue。
 pub fn commit_order(tx: &Connection, order_no: &str, cashier_id: i64) -> Result<()> {
-    let status: String = tx.query_row(
-        "SELECT status FROM sales_order WHERE order_no=?1",
+    let (status, pay_cents): (String, i64) = tx.query_row(
+        "SELECT status, pay_cents FROM sales_order WHERE order_no=?1",
         [order_no],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     if status != "PENDING_PAYMENT" {
         return Err(CoreError::Validation(format!("订单状态 {status} 不可提交")));
+    }
+    // 完工不变式：已确认收款必须覆盖应付，否则不得扣库存、不得置 COMPLETED。
+    let paid: i64 = tx.query_row(
+        "SELECT COALESCE(SUM(amount_cents),0) FROM payment_record
+         WHERE order_no=?1 AND status='SUCCESS'",
+        [order_no],
+        |r| r.get(0),
+    )?;
+    if paid < pay_cents {
+        return Err(CoreError::Money(format!(
+            "已确认收款 {paid} 不足应付 {pay_cents}，拒绝完成订单"
+        )));
     }
     let items: Vec<(i64, i64)> = {
         let mut stmt =
@@ -118,10 +139,13 @@ pub fn commit_order(tx: &Connection, order_no: &str, cashier_id: i64) -> Result<
             neg,
         )?;
     }
-    tx.execute(
-        "UPDATE sales_order SET status='COMPLETED' WHERE order_no=?1",
+    let updated = tx.execute(
+        "UPDATE sales_order SET status='COMPLETED' WHERE order_no=?1 AND status='PENDING_PAYMENT'",
         [order_no],
     )?;
+    if updated != 1 {
+        return Err(CoreError::Validation("订单状态已变化，完成失败".into()));
+    }
     tx.execute(
         "INSERT INTO sync_queue(op_id,op_type,payload_json,created_at) VALUES (?1,'ORDER_COMPLETED',?2,?3)",
         params![format!("{order_no}:completed"), json!({"order_no": order_no}).to_string(), format_utc(&Utc::now())],
@@ -146,56 +170,38 @@ pub fn cancel_order(tx: &Connection, order_no: &str) -> Result<()> {
     Ok(())
 }
 
-/// 作废（§5.5）：仅 PENDING_PAYMENT 或当日现金 COMPLETED；扫码已支付单拒绝。
-pub fn void_order(
-    tx: &Connection,
-    order_no: &str,
-    paid_via_scan: bool,
-    is_today: bool,
-    operator_id: i64,
-) -> Result<()> {
+/// 作废（§5.5）：只允许未支付订单。已支付订单必须走退货退款，
+/// 否则会出现"库存回滚但钱未退、券未回退、流水仍 SUCCESS"的资金断层。
+pub fn void_order(tx: &Connection, order_no: &str) -> Result<()> {
     let status: String = tx.query_row(
         "SELECT status FROM sales_order WHERE order_no=?1",
         [order_no],
         |r| r.get(0),
     )?;
-    if paid_via_scan {
+    if status != "PENDING_PAYMENT" {
         return Err(CoreError::Validation(
-            "扫码已支付订单只能退款，不能作废".into(),
+            "已支付订单不能作废，请走退货退款".into(),
         ));
     }
-    let allowed = status == "PENDING_PAYMENT" || (status == "COMPLETED" && is_today);
-    if !allowed {
-        return Err(CoreError::Validation("该订单不满足作废条件".into()));
+    // 未支付 = 没有任何已确认收款；有 SUCCESS 流水说明钱已到账，只能退款。
+    let paid: i64 = tx.query_row(
+        "SELECT COALESCE(SUM(amount_cents),0) FROM payment_record
+         WHERE order_no=?1 AND status='SUCCESS'",
+        [order_no],
+        |r| r.get(0),
+    )?;
+    if paid != 0 {
+        return Err(CoreError::Validation(format!(
+            "订单已有 {paid} 分已确认收款，不能作废，请走退货退款"
+        )));
     }
-    if status == "COMPLETED" {
-        let items: Vec<(i64, i64)> = {
-            let mut stmt = tx.prepare(
-                "SELECT sku_id, qty FROM sales_order_item WHERE order_no=?1 AND is_gift=0",
-            )?;
-            let rows = stmt.query_map([order_no], |r| Ok((r.get(0)?, r.get(1)?)))?;
-            let mut v = Vec::new();
-            for row in rows {
-                v.push(row?);
-            }
-            v
-        };
-        for (sku, qty) in items {
-            apply_event(
-                tx,
-                sku,
-                qty,
-                TransType::VOID,
-                Some(order_no),
-                Some(operator_id),
-                true,
-            )?;
-        }
-    }
-    tx.execute(
-        "UPDATE sales_order SET status='VOIDED' WHERE order_no=?1",
+    let updated = tx.execute(
+        "UPDATE sales_order SET status='VOIDED' WHERE order_no=?1 AND status='PENDING_PAYMENT'",
         [order_no],
     )?;
+    if updated == 0 {
+        return Err(CoreError::Validation("订单状态已变化，作废失败".into()));
+    }
     Ok(())
 }
 
@@ -244,6 +250,30 @@ pub fn create_return(
     operator_id: i64,
 ) -> Result<i64> {
     let refund_total: i64 = refunds.iter().sum();
+    let (status, pay_cents): (String, i64) = tx.query_row(
+        "SELECT status, pay_cents FROM sales_order WHERE order_no=?1",
+        [order_no],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if !matches!(status.as_str(), "COMPLETED" | "PARTIAL_REFUND") {
+        return Err(CoreError::Validation(format!(
+            "订单状态 {status} 不可退货"
+        )));
+    }
+    // 累计退款（含渠道处理中）不得超过订单实收，避免多次部分退货超退。
+    let already: i64 = tx.query_row(
+        "SELECT COALESCE(SUM(amount_cents),0) FROM refund_record
+         WHERE order_no=?1 AND status IN ('PROCESSING','COMPLETED')",
+        [order_no],
+        |r| r.get(0),
+    )?;
+    if already + refund_total > pay_cents {
+        return Err(CoreError::Money(format!(
+            "累计退款 {} 超过订单实收 {}",
+            already + refund_total,
+            pay_cents
+        )));
+    }
     tx.execute(
         "INSERT INTO sales_return(return_no,order_no,member_id,cashier_id,approver_id,refund_total_cents,status,created_at)
          VALUES (?1,?2,?3,?4,?5,?6,'COMPLETED',?7)",
@@ -370,6 +400,15 @@ mod tests {
     }
 
     fn start(c: &Connection, no: &str) {
+        start_inner(c, no, true);
+    }
+
+    /// 未收款订单（作废场景）：没有 SUCCESS 流水。
+    fn start_unpaid(c: &Connection, no: &str) {
+        start_inner(c, no, false);
+    }
+
+    fn start_inner(c: &Connection, no: &str, paid: bool) {
         let lines = vec![CartLine::new(1, 2, 1000).unwrap()];
         let tx = c.unchecked_transaction().unwrap();
         begin_order(
@@ -386,6 +425,15 @@ mod tests {
             "2026-11-17T00:00:00Z",
         )
         .unwrap();
+        // 已确认收款：commit_order 现在校验收款覆盖应付
+        if paid {
+            tx.execute(
+                "INSERT INTO payment_record(order_no,pay_channel,pay_mode,attempt_no,amount_cents,out_trade_no,status,created_at)
+                 VALUES (?1,'CASH','',1,2000,?2,'SUCCESS',?3)",
+                params![no, format!("{no}P1"), "2026-11-17T00:00:00Z"],
+            )
+            .unwrap();
+        }
         tx.commit().unwrap();
     }
 
@@ -433,16 +481,33 @@ mod tests {
     }
 
     #[test]
-    fn scan_paid_order_cannot_void() {
+    fn pending_order_can_void_and_paid_order_cannot() {
         let c = setup();
-        start(&c, "O3");
-        let tx = c.unchecked_transaction().unwrap();
-        let err = void_order(&tx, "O3", true, true, 1).unwrap_err();
-        assert!(err.to_string().contains("退款"));
+        start_unpaid(&c, "O3");
+        {
+            let tx = c.unchecked_transaction().unwrap();
+            void_order(&tx, "O3").unwrap();
+            tx.commit().unwrap();
+        }
+        let status: String = c
+            .query_row("SELECT status FROM sales_order WHERE order_no='O3'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(status, "VOIDED");
     }
 
     #[test]
-    fn void_restores_stock() {
+    fn pending_with_paid_money_cannot_void() {
+        let c = setup();
+        start(&c, "O6");
+        let tx = c.unchecked_transaction().unwrap();
+        let err = void_order(&tx, "O6").unwrap_err();
+        assert!(err.to_string().contains("已确认收款"));
+    }
+
+    #[test]
+    fn void_rejects_paid_order_without_touching_stock() {
         let c = setup();
         start(&c, "O4");
         {
@@ -452,13 +517,13 @@ mod tests {
         }
         {
             let tx = c.unchecked_transaction().unwrap();
-            void_order(&tx, "O4", false, true, 1).unwrap();
-            tx.commit().unwrap();
+            let err = void_order(&tx, "O4").unwrap_err();
+            assert!(err.to_string().contains("退货"));
         }
         let q: i64 = c
             .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(q, 0);
+        assert_eq!(q, 0, "已支付订单作废不得回滚库存");
     }
 
     #[test]

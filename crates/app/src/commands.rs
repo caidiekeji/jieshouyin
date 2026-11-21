@@ -8,7 +8,8 @@ use checkout_core::constants::{
     CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
     CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_ENABLED,
     CFG_POINTS_PER_YUAN, CFG_POINTS_REDEEM_RATE, CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT,
-    CFG_SCAN_GAP_MS, CFG_STORE_NAME, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
+    CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_TIMEZONE, COUPON_UNUSED,
+    DEFAULT_MAX_DISCOUNT_RATIO,
     DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_ENABLED,
     DEFAULT_POINTS_PER_YUAN, DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE,
     ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY,
@@ -27,7 +28,7 @@ use checkout_core::payment::{
 use checkout_core::promo::{Promotion, Scope as PromoScope};
 use checkout_core::rbac::{self, Session};
 use checkout_core::time::parse_rfc3339;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -393,6 +394,24 @@ fn business_cutoff_hour(conn: &Connection) -> u32 {
         .unwrap_or(0)
 }
 
+/// 当前营业日（§14.0）：UTC 先转门店时区（system_config.store_timezone），再按 cutoff 减一天。
+/// 所有"今天/当日"判断、落库与查询都必须走这里，否则跨时区/凌晨单会落到错误的营业日。
+fn business_date_for(conn: &Connection, utc: &DateTime<Utc>) -> Result<String> {
+    let tz_name = cfg_get(conn, CFG_STORE_TIMEZONE)?
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Asia/Shanghai".to_string());
+    let tz: chrono_tz::Tz = tz_name
+        .parse()
+        .map_err(|_| CoreError::Validation(format!("门店时区配置非法: {tz_name}")))?;
+    let local = utc.with_timezone(&tz);
+    Ok(checkout_core::order::business_date_at(
+        local.date_naive(),
+        local.hour(),
+        business_cutoff_hour(conn),
+    ))
+}
+
 /// 会员等级（§8.2 会员价取优需要 level_id）。
 fn member_level(conn: &Connection, member_id: i64) -> Result<Option<i32>> {
     conn.query_row(
@@ -482,7 +501,18 @@ fn consume_sensitive(
 pub struct CartLineInput {
     pub sku_id: i64,
     pub qty: i64,
-    pub unit_price_cents: i64,
+}
+
+/// 服务端权威单价：一律取 sku.sale_price_cents，不信任客户端传价
+/// （否则改包/旧缓存即可任意改价）。SKU 不存在直接拒绝。
+fn sku_sale_price(conn: &Connection, sku_id: i64) -> Result<i64> {
+    conn.query_row(
+        "SELECT sale_price_cents FROM sku WHERE sku_id=?1",
+        [sku_id],
+        |r| r.get(0),
+    )
+    .optional()?
+    .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在，拒绝下单")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -535,7 +565,8 @@ fn plan_amounts(
     // 1. 行 + 会员价装载（§8.2 会员价参与单品取优）
     let mut cart_lines: Vec<checkout_core::promo::CartLine> = Vec::with_capacity(lines.len());
     for l in lines {
-        let mut cl = checkout_core::promo::CartLine::new(l.sku_id, l.qty, l.unit_price_cents)?;
+        let mut cl =
+            checkout_core::promo::CartLine::new(l.sku_id, l.qty, sku_sale_price(conn, l.sku_id)?)?;
         if member_id.is_some() {
             let mp: Option<i64> = conn
                 .query_row(
@@ -766,10 +797,8 @@ pub fn checkout(
     if let Some(note) = &plan.coupon_note {
         return Err(CoreError::Validation(note.clone()));
     }
-    // 券核销（§8.3 第 3 层，§13.7 状态机）：试算已校验可用性，此处只做状态迁移
-    if let Some(code) = coupon_key {
-        checkout_core::member::transition_coupon(&conn, code, "LOCKED")?;
-    }
+    // 券核销（§8.3 第 3 层，§13.7 状态机）：试算已校验可用性，
+    // 锁定与订单落库必须同一事务，否则落库失败会留下永久 LOCKED 的券。
     let cart_lines = plan.cart_lines;
     let total = plan.total;
     let discount = plan.discount;
@@ -791,8 +820,7 @@ pub fn checkout(
     }
 
     let order_no = checkout_core::order::generate_order_no("STORE", "POS1");
-    let cutoff = business_cutoff_hour(&conn);
-    let biz = checkout_core::order::business_date(&now_dt, cutoff);
+    let biz = business_date_for(&conn, &now_dt)?;
     let shift_id: i64 = *state
         .current_shift
         .lock()
@@ -816,6 +844,9 @@ pub fn checkout(
             &biz,
             &now,
         )?;
+        if let Some(code) = coupon_key {
+            checkout_core::member::transition_coupon(&tx, code, "LOCKED")?;
+        }
         for applied in &plan.applied {
             tx.execute(
                 "INSERT INTO order_promotion(order_no,promotion_id,discount_cents,detail_json)
@@ -875,8 +906,7 @@ pub fn checkout(
             && (p.channel == PAY_WECHAT || p.channel == PAY_ALIPAY)
     });
 
-    // 支付执行。领域扣款函数自带事务，须在普通 conn 上调用；
-    // 流水状态更新走单一事务。
+    // 支付执行：每个渠道的「扣款 + 流水置成功」各自成事务，避免半状态。
     let mut native_code_url: Option<String> = None;
     for (i, p) in payments.iter().enumerate() {
         let channel = match p.channel.as_str() {
@@ -901,12 +931,16 @@ pub fn checkout(
                 }
                 let mid = member_id
                     .ok_or_else(|| CoreError::Validation("储值支付需先识别会员".into()))?;
-                let d = checkout_core::member::deduct(&conn, mid, &order_no, net)?;
-                conn.execute(
+                // 扣款与流水置成功必须同一事务：否则储值已扣、流水仍 PENDING，
+                // 崩溃恢复会把已付订单当作未付再次收银。
+                let tx = conn.unchecked_transaction()?;
+                let d = checkout_core::member::deduct(&tx, mid, &order_no, net)?;
+                tx.execute(
                     "UPDATE payment_record SET status='SUCCESS', sv_bonus_cents=?1, sv_principal_cents=?2, paid_at=?3
                      WHERE order_no=?4 AND out_trade_no=?5",
                     rusqlite::params![d.bonus_cents, d.principal_cents, now, order_no, out_trade_no],
                 )?;
+                tx.commit()?;
             }
             PayChannel::WECHAT | PayChannel::ALIPAY => {
                 let is_native = p.mode.as_deref() == Some(PAY_MODE_NATIVE);
@@ -935,7 +969,9 @@ pub fn checkout(
                     CFG_MICROPAY_TIMEOUT_S,
                     DEFAULT_MICROPAY_TIMEOUT_S as i64,
                 ) as u64;
-                let out = run_micropay(&state.gateway, &req, poll, timeout, &mut |_ms| {})?;
+                let out = run_micropay(&state.gateway, &req, poll, timeout, &mut |ms| {
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                })?;
                 match out.state {
                     PaymentState::SUCCESS => {
                         conn.execute(
@@ -1003,10 +1039,13 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<i64> {
         return Ok(0);
     }
     let now = now_str();
+    // 整个资产收口（储值补扣、积分、券、订单提交）必须原子：
+    // 任何一步失败都不能留下"已扣储值但订单未完成"的半状态。
+    let tx = conn.unchecked_transaction()?;
 
-    // PENDING 储值流水补扣（领域函数自带事务）
+    // PENDING 储值流水补扣（与流水置成功同事务，见 member::append_asset_log 约定）
     let pending_sv: Vec<(i64, i64, String)> = {
-        let mut stmt = conn.prepare(
+        let mut stmt = tx.prepare(
             "SELECT pay_id, amount_cents, out_trade_no FROM payment_record
              WHERE order_no=?1 AND pay_channel='STORED_VALUE' AND status='PENDING'",
         )?;
@@ -1016,9 +1055,9 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<i64> {
     let mut bonus_used: i64 = 0;
     for (_pay_id, amount, out_trade_no) in pending_sv {
         let mid = member_id.ok_or_else(|| CoreError::Validation("储值支付需先识别会员".into()))?;
-        let d = checkout_core::member::deduct(conn, mid, order_no, amount)?;
+        let d = checkout_core::member::deduct(&tx, mid, order_no, amount)?;
         bonus_used += d.bonus_cents;
-        conn.execute(
+        tx.execute(
             "UPDATE payment_record SET status='SUCCESS', sv_bonus_cents=?1, sv_principal_cents=?2, paid_at=?3
              WHERE order_no=?4 AND out_trade_no=?5",
             rusqlite::params![d.bonus_cents, d.principal_cents, now, order_no, out_trade_no],
@@ -1028,11 +1067,11 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<i64> {
     // 积分累积（§13.4）：受「启用会员积分」开关控制；赠送金抵扣部分不计分。
     let mut points_earned: i64 = 0;
     if let Some(mid) = member_id {
-        if points_enabled(conn) {
-            let per_yuan = cfg_i64(conn, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN).max(0);
+        if points_enabled(&tx) {
+            let per_yuan = cfg_i64(&tx, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN).max(0);
             let payable = total - discount;
             points_earned = checkout_core::member::accrue_points(
-                conn,
+                &tx,
                 mid,
                 order_no,
                 payable - bonus_used,
@@ -1042,7 +1081,6 @@ fn finalize_order_assets(conn: &Connection, order_no: &str) -> Result<i64> {
     }
 
     // 券 UNUSED→REDEEMED + 订单提交
-    let tx = conn.unchecked_transaction()?;
     if let Some(code) = coupon_code.as_deref() {
         checkout_core::member::transition_coupon(&tx, code, "REDEEMED")?;
     }
@@ -1814,9 +1852,11 @@ pub fn recharge_member(
         return Err(CoreError::Validation("充值金额非法".into()));
     }
     let recharge_no = gen_no("RC");
-    checkout_core::member::recharge(&conn, member_id, &recharge_no, principal_cents, bonus_cents)?;
+    // 入账与审计同事务：不存在"钱充了但无审计"的账。
+    let tx = conn.unchecked_transaction()?;
+    checkout_core::member::recharge(&tx, member_id, &recharge_no, principal_cents, bonus_cents)?;
     checkout_core::rbac::audit_operation(
-        &conn,
+        &tx,
         "recharge_member",
         Some(operator_id),
         None,
@@ -1828,6 +1868,7 @@ pub fn recharge_member(
         }),
         &now_str(),
     )?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -2094,26 +2135,14 @@ pub fn void_order_cmd(
     let approver_id = auth.approver_id;
     drop(session);
     drop(license);
-    let paid_via_scan: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM payment_record WHERE order_no=?1 AND pay_channel IN ('WECHAT','ALIPAY') AND status='SUCCESS'",
-        [&order_no],
-        |r| r.get(0),
-    )?;
-    let biz: String = conn.query_row(
-        "SELECT business_date FROM sales_order WHERE order_no=?1",
-        [&order_no],
-        |r| r.get(0),
-    )?;
-    let cutoff = business_cutoff_hour(&conn);
-    let today = checkout_core::order::business_date(&now_dt, cutoff);
     {
         let tx = conn.unchecked_transaction()?;
-        checkout_core::order::void_order(
-            &tx,
-            &order_no,
-            paid_via_scan > 0,
-            biz == today,
-            operator_id,
+        checkout_core::order::void_order(&tx, &order_no)?;
+        // 待支付单作废：释放锁定券、关闭未完成支付流水，避免券卡死与流水悬空。
+        release_order_coupon(&tx, &order_no)?;
+        tx.execute(
+            "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND status IN ('PENDING','USERPAYING')",
+            [&order_no],
         )?;
         checkout_core::rbac::audit_operation(
             &tx,
@@ -2318,6 +2347,48 @@ pub fn refund_order(
                 }
             }
         }
+        // 会员资产回补与退款单据同事务：退款落库成功=储值/积分已回补，
+        // 不会出现"退货已记、钱没回会员"的悬空状态。
+        if let Some(mid) = member_id {
+            if orig_bonus > 0 || orig_principal > 0 {
+                let original = checkout_core::member::Deduction {
+                    bonus_cents: orig_bonus,
+                    principal_cents: orig_principal,
+                };
+                let sv_share: i64 = checkout_core::payment::route_refund(
+                    &[(PayChannel::STORED_VALUE, orig_bonus + orig_principal)],
+                    total,
+                )?
+                .first()
+                .map(|(_, a)| *a)
+                .unwrap_or(0);
+                if sv_share > 0 {
+                    checkout_core::member::refund_mirror(
+                        &tx,
+                        mid,
+                        &format!("{return_no}:SV"),
+                        &order_no,
+                        sv_share,
+                        original,
+                    )?;
+                }
+            }
+            // 积分扣回（§13.4）：按退款额整元回收
+            let per_yuan = cfg_i64(&tx, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN);
+            if per_yuan > 0 && total >= 100 {
+                let points_back = -(total / 100 * per_yuan);
+                checkout_core::member::append_asset_log(
+                    &tx,
+                    mid,
+                    checkout_core::member::POINTS,
+                    points_back,
+                    "REFUND_POINTS",
+                    Some(&order_no),
+                    &format!("REFUND:{return_no}:POINTS"),
+                    &now_str(),
+                )?;
+            }
+        }
         checkout_core::rbac::audit_operation(
             &tx,
             "refund_order",
@@ -2368,47 +2439,6 @@ pub fn refund_order(
         }
     }
 
-    // 会员资产回补（领域函数自带事务，事务提交后在普通 conn 上执行）
-    if let Some(mid) = member_id {
-        if orig_bonus > 0 || orig_principal > 0 {
-            let original = checkout_core::member::Deduction {
-                bonus_cents: orig_bonus,
-                principal_cents: orig_principal,
-            };
-            let sv_share: i64 = checkout_core::payment::route_refund(
-                &[(PayChannel::STORED_VALUE, orig_bonus + orig_principal)],
-                total,
-            )?
-            .first()
-            .map(|(_, a)| *a)
-            .unwrap_or(0);
-            if sv_share > 0 {
-                checkout_core::member::refund_mirror(
-                    &conn,
-                    mid,
-                    &format!("{return_no}:SV"),
-                    &order_no,
-                    sv_share,
-                    original,
-                )?;
-            }
-        }
-        // 积分扣回（§13.4）：按退款额整元回收
-        let per_yuan = cfg_i64(&conn, CFG_POINTS_PER_YUAN, DEFAULT_POINTS_PER_YUAN);
-        if per_yuan > 0 && total >= 100 {
-            let points_back = -(total / 100 * per_yuan);
-            let _ = checkout_core::member::append_asset_log(
-                &conn,
-                mid,
-                checkout_core::member::POINTS,
-                points_back,
-                "REFUND_POINTS",
-                Some(&order_no),
-                &format!("REFUND:{return_no}:POINTS"),
-                &now_str(),
-            )?;
-        }
-    }
     Ok(total)
 }
 
@@ -3386,8 +3416,8 @@ pub fn qr_svg(text: String) -> Result<String> {
 }
 
 /// 崩溃恢复扫描（§23）：PENDING_PAYMENT 订单向渠道查单收敛。
-/// 有 SUCCESS 流水 → 资产收口补提交；Native 待支付 → 查单成功收口否则关单作废；
-/// 纯本地未支付 → 作废。全部留审计。返回处理单数。
+/// 收口只看「已确认金额 + 待补扣储值」是否覆盖应付；未覆盖且渠道未明确失败的一律保持原状，
+/// 绝不作废（顾客可能已扣款）。全部处理留审计。返回处理单数。
 pub fn recover_pending_orders(
     conn: &Connection,
     gateway: &checkout_core::payment::RoutingGateway,
@@ -3411,101 +3441,117 @@ pub fn recover_pending_orders(
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
-        let has_success = records.iter().any(|(_, _, _, st)| st == "SUCCESS");
-        if has_success {
-            // 支付已确认但崩溃在提交前 → 补收口
-            let _ = finalize_order_assets(conn, &order_no)?;
+        let payable: i64 = conn.query_row(
+            "SELECT total_cents - discount_cents FROM sales_order WHERE order_no=?1",
+            [&order_no],
+            |r| r.get(0),
+        )?;
+        let confirmed: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(amount_cents),0) FROM payment_record
+             WHERE order_no=?1 AND status='SUCCESS'",
+            [&order_no],
+            |r| r.get(0),
+        )?;
+        let sv_pending: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(amount_cents),0) FROM payment_record
+             WHERE order_no=?1 AND pay_channel=?2 AND status='PENDING'",
+            rusqlite::params![order_no, PAY_STORED_VALUE],
+            |r| r.get(0),
+        )?;
+        // 收口口径 = 已确认支付 + 待补扣储值，必须覆盖应付才允许提交。
+        if payable > 0 && confirmed + sv_pending >= payable {
+            finalize_order_assets(conn, &order_no)?;
             recovered += 1;
             continue;
         }
-        let native = records
-            .iter()
-            .find(|(_, mode, otn, st)| {
-                mode == PAY_MODE_NATIVE && st == "PENDING" && !otn.is_empty()
-            })
-            .map(|(ch, _, otn, _)| (ch.clone(), otn.clone()));
-        match native {
-            Some((ch, otn)) => {
-                let channel = match ch.as_str() {
-                    PAY_WECHAT => PayChannel::WECHAT,
-                    PAY_ALIPAY => PayChannel::ALIPAY,
-                    _ => PayChannel::CASH,
-                };
-                let gw = gateway.of_channel(channel);
-                let settled = match gw.query(&otn) {
-                    Ok(PaymentState::SUCCESS) => {
-                        conn.execute(
-                            "UPDATE payment_record SET status='SUCCESS', paid_at=?1 WHERE order_no=?2 AND out_trade_no=?3",
-                            rusqlite::params![now_str(), order_no, otn],
-                        )?;
-                        true
-                    }
-                    _ => false,
-                };
-                if settled {
-                    let _ = finalize_order_assets(conn, &order_no)?;
-                } else {
-                    let _ = gw.cancel(&otn);
+
+        // 未决扫码流水逐条查单：只有渠道明确 CLOSED/FAILED 才算未支付。
+        // 查单失败、USERPAYING、部分已付一律保持原状，绝不贸然作废（顾客可能已扣款）。
+        let mut unresolved = confirmed > 0;
+        for (ch, _mode, otn, st) in &records {
+            if st != "PENDING" || otn.is_empty() {
+                continue;
+            }
+            let channel = match ch.as_str() {
+                PAY_WECHAT => PayChannel::WECHAT,
+                PAY_ALIPAY => PayChannel::ALIPAY,
+                _ => continue,
+            };
+            let gw = gateway.of_channel(channel);
+            match gw.query(otn) {
+                Ok(PaymentState::SUCCESS) => {
                     conn.execute(
-                        "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
+                        "UPDATE payment_record SET status='SUCCESS', paid_at=?1
+                         WHERE order_no=?2 AND out_trade_no=?3",
+                        rusqlite::params![now_str(), order_no, otn],
+                    )?;
+                }
+                Ok(PaymentState::FAILED(_)) | Ok(PaymentState::CLOSED) => {
+                    conn.execute(
+                        "UPDATE payment_record SET status='CLOSED'
+                         WHERE order_no=?1 AND out_trade_no=?2",
                         rusqlite::params![order_no, otn],
                     )?;
-                    release_order_coupon(conn, &order_no)?;
-                    void_pending_order_system(conn, &order_no)?;
                 }
-                recovered += 1;
-            }
-            None => {
-                // 纯本地渠道未支付 → 作废
-                for (_, _, otn, st) in &records {
-                    if st == "PENDING" && !otn.is_empty() {
-                        conn.execute(
-                            "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
-                            rusqlite::params![order_no, otn],
-                        )?;
-                    }
-                }
-                release_order_coupon(conn, &order_no)?;
-                void_pending_order_system(conn, &order_no)?;
-                recovered += 1;
+                Ok(PaymentState::USERPAYING) | Err(_) => unresolved = true,
             }
         }
+
+        // 查单后金额已覆盖 → 收口（不再回到作废分支）
+        if payable > 0 {
+            let now_confirmed: i64 = conn.query_row(
+                "SELECT COALESCE(SUM(amount_cents),0) FROM payment_record
+                 WHERE order_no=?1 AND status='SUCCESS'",
+                [&order_no],
+                |r| r.get(0),
+            )?;
+            if now_confirmed + sv_pending >= payable {
+                finalize_order_assets(conn, &order_no)?;
+                recovered += 1;
+                continue;
+            }
+        }
+
+        if unresolved {
+            checkout_core::rbac::audit_operation(
+                conn,
+                "recovery_unresolved",
+                None,
+                None,
+                serde_json::json!({"order_no": order_no}),
+                &now_str(),
+            )?;
+            continue;
+        }
+
+        // 全部流水均已明确未支付 → 释放券并作废
+        release_order_coupon(conn, &order_no)?;
+        void_pending_order_system(conn, &order_no)?;
+        recovered += 1;
     }
     Ok(recovered)
 }
 
-/// 系统级作废待支付订单（恢复扫描专用）：走领域 void_order，当日外订单直接关闭并审计。
+/// 系统级作废待支付订单（恢复扫描专用）：只允许未支付订单，
+/// 由领域 void_order 统一守卫，不再按"是否当日"降级为直接改状态（绕过审计与库存约束）。
 fn void_pending_order_system(conn: &Connection, order_no: &str) -> Result<()> {
-    let biz: String = conn.query_row(
-        "SELECT business_date FROM sales_order WHERE order_no=?1",
-        [order_no],
-        |r| r.get(0),
-    )?;
-    let cutoff = business_cutoff_hour(conn);
-    let today = checkout_core::order::business_date(&parse_rfc3339(&now_str())?, cutoff);
     let tx = conn.unchecked_transaction()?;
-    let result = checkout_core::order::void_order(&tx, order_no, false, biz == today, 0);
-    match result {
-        Ok(()) => {
-            tx.commit()?;
-        }
-        Err(_) => {
-            // 非当日待支付单：恢复扫描按系统动作直接关闭并审计（§23）
-            tx.rollback()?;
-            conn.execute(
-                "UPDATE sales_order SET status='CANCELED' WHERE order_no=?1 AND status='PENDING_PAYMENT'",
-                [order_no],
-            )?;
-            checkout_core::rbac::audit_operation(
-                conn,
-                "recovery_void_order",
-                None,
-                None,
-                serde_json::json!({"order_no": order_no, "method": "direct_close"}),
-                &now_str(),
-            )?;
-        }
-    }
+    checkout_core::order::void_order(&tx, order_no)?;
+    // 未完成流水一并关闭，避免 VOIDED 订单挂着 PENDING 流水被后续扫描反复处理。
+    tx.execute(
+        "UPDATE payment_record SET status='CLOSED'
+         WHERE order_no=?1 AND status IN ('PENDING','USERPAYING')",
+        [order_no],
+    )?;
+    checkout_core::rbac::audit_operation(
+        &tx,
+        "recovery_void_order",
+        None,
+        None,
+        serde_json::json!({"order_no": order_no, "method": "void_order"}),
+        &now_str(),
+    )?;
+    tx.commit()?;
     Ok(())
 }
 
