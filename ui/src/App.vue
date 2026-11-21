@@ -103,8 +103,8 @@ function atLeast(role: Role): boolean {
 }
 
 // 设置中心子页：左侧导航 + 右侧内容，避免九张卡片堆一屏
-type SettingsTab = 'overview' | 'appearance' | 'staff' | 'system' | 'payment' | 'points' | 'recon' | 'coupon' | 'print'
-type SettingsIcon = 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'star' | 'report' | 'ticket' | 'print'
+type SettingsTab = 'overview' | 'appearance' | 'staff' | 'system' | 'payment' | 'points' | 'recon' | 'print'
+type SettingsIcon = 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'star' | 'report' | 'print'
 const settingsTab = ref<SettingsTab>('overview')
 const settingsTabs: Array<{ id: SettingsTab; label: string; icon: SettingsIcon; minRole: Role }> = [
   { id: 'overview', label: '门店概览', icon: 'store', minRole: 'MANAGER' },
@@ -114,7 +114,6 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; icon: SettingsIcon; 
   { id: 'payment', label: '支付设置', icon: 'wallet', minRole: 'MANAGER' },
   { id: 'points', label: '积分配置', icon: 'star', minRole: 'MANAGER' },
   { id: 'recon', label: '渠道对账', icon: 'report', minRole: 'MANAGER' },
-  { id: 'coupon', label: '优惠券', icon: 'ticket', minRole: 'MANAGER' },
   { id: 'print', label: '打印队列', icon: 'print', minRole: 'MANAGER' },
 ]
 const visibleSettingsTabs = computed(() => settingsTabs.filter((t) => atLeast(t.minRole)))
@@ -864,8 +863,8 @@ async function submitCheckout() {
     return
   }
   if (paying.value) return
-  // 券未达门槛时后端会拒绝收款；提前给可行动提示，避免收银员白点一次收款
-  if (quote.value?.coupon_reason === 'BELOW_THRESHOLD') {
+  // 券未达门槛 / 专属券未识别会员时后端会拒绝收款；提前给可行动提示，避免白点
+  if (couponRecoverable.value) {
     showToast(couponHint.value, true)
     return
   }
@@ -1171,6 +1170,11 @@ function openCouponDialog() {
   couponDialogOpen.value = true
 }
 
+/** 券有效但当前条件未满足：门槛不足 / 专属券未识别会员。二者均可恢复，保留券码待条件满足自动生效。 */
+const couponRecoverable = computed(
+  () => quote.value?.coupon_reason === 'BELOW_THRESHOLD' || quote.value?.coupon_reason === 'MEMBER_MISMATCH'
+)
+
 /** 券提示：未达门槛给可行动的凑单差额，券本身无效则显示后端原文案 */
 const couponHint = computed(() => {
   const q = quote.value
@@ -1198,8 +1202,8 @@ async function applyCouponDialog() {
     return
   }
   const reason = quote.value?.coupon_reason
-  if (reason === 'BELOW_THRESHOLD') {
-    // 主流做法：门槛不满足 = 券从未被应用，券仍有效 → 保留券码供凑单后自动生效，不清空
+  if (couponRecoverable.value) {
+    // 可恢复状态：门槛不足 / 专属券未识别会员。券本身有效 → 保留券码，待条件满足后报价自动生效
     showToast(couponHint.value)
     return
   }
@@ -1656,42 +1660,6 @@ async function doRefund() {
   }
 }
 
-// ===== 优惠券管理（§13.7）=====
-const coupons = ref<import('./api').CouponRow[]>([])
-const couponForm = ref({ discountYuan: '', minOrderYuan: '', validUntil: '' })
-async function loadCoupons() {
-  try {
-    coupons.value = await api.listCoupons()
-  } catch (e) {
-    showToast(String(e), true)
-  }
-}
-async function addCoupon() {
-  const discount = Number(couponForm.value.discountYuan)
-  const minOrder = Number(couponForm.value.minOrderYuan || '0')
-  if (!Number.isFinite(discount) || discount <= 0) {
-    showToast('优惠金额须大于 0 元', true)
-    return
-  }
-  if (!Number.isFinite(minOrder) || minOrder < 0) {
-    showToast('用券门槛不能为负数', true)
-    return
-  }
-  try {
-    await api.issueCoupon(
-      memberId.value,
-      Math.round(discount * CENTS_PER_YUAN),
-      Math.round(minOrder * CENTS_PER_YUAN),
-      couponForm.value.validUntil.trim() || null
-    )
-    couponForm.value = { discountYuan: '', minOrderYuan: '', validUntil: '' }
-    showToast('优惠券已发放')
-    await loadCoupons()
-  } catch (e) {
-    showToast(String(e), true)
-  }
-}
-
 // ===== 员工管理 =====
 interface UserRowUI { user_id: number; username: string; role_name: string; status: number }
 const users = ref<UserRowUI[]>([])
@@ -1785,7 +1753,7 @@ const memberDialogInput = ref<HTMLInputElement | null>(null)
 const couponDialogInput = ref<HTMLInputElement | null>(null)
 watch(memberDialogOpen, (open) => { if (open) void nextTick(() => memberDialogInput.value?.focus()) })
 watch(couponDialogOpen, (open) => { if (open) void nextTick(() => couponDialogInput.value?.focus()) })
-function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadCoupons(); loadPaymentSettings(); loadIndustries(); loadStoreProfile() }
+function goSettings() { view.value = 'settings'; loadUsers(); loadConfigs(); loadPrintQueue(); loadPaymentSettings(); loadIndustries(); loadStoreProfile() }
 function doLogout() {
   api.logout()
   view.value = 'login'
@@ -2000,8 +1968,8 @@ function doLogout() {
               <button
                 class="btn pay-quick"
                 :class="{
-                  active: !!couponCode && quote?.coupon_reason !== 'BELOW_THRESHOLD',
-                  pending: quote?.coupon_reason === 'BELOW_THRESHOLD',
+                  active: !!couponCode && !couponRecoverable,
+                  pending: couponRecoverable,
                 }"
                 @click="openCouponDialog"
               >
@@ -2009,7 +1977,7 @@ function doLogout() {
               </button>
               <button v-if="couponCode" class="btn ghost pay-quick" @click="clearCoupon"><Icon name="close" :size="ICON_SIZE.sm" />清除券</button>
             </div>
-            <span v-if="couponHint" class="small" :class="quote?.coupon_reason === 'BELOW_THRESHOLD' ? 'warning-text' : 'muted'">{{ couponHint }}</span>
+            <span v-if="couponHint" class="small" :class="couponRecoverable ? 'warning-text' : 'muted'">{{ couponHint }}</span>
             <span v-if="memberBalances" class="member-balance-inline">
               本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
             </span>
@@ -2509,28 +2477,6 @@ function doLogout() {
                   <td class="num-cell">{{ formatMoney(d.local_amount_cents) }}</td>
                   <td class="num-cell">{{ formatMoney(d.channel_amount_cents) }}</td>
                   <td class="muted small">{{ d.detail }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- 优惠券 -->
-          <div v-else-if="settingsTab === 'coupon'" class="card wide">
-            <h3>优惠券管理</h3>
-            <div class="op-form">
-              <input v-model="couponForm.discountYuan" class="input" type="number" placeholder="优惠额(元)" />
-              <input v-model="couponForm.minOrderYuan" class="input" type="number" placeholder="门槛(元)" />
-              <input v-model="couponForm.validUntil" class="input" type="datetime-local" placeholder="有效期" />
-              <button class="btn" @click="addCoupon">发券</button>
-            </div>
-            <table v-if="coupons.length" class="tbl">
-              <thead><tr><th>券码</th><th class="num-cell">优惠额</th><th class="num-cell">门槛</th><th>状态</th></tr></thead>
-              <tbody>
-                <tr v-for="c in coupons" :key="c.coupon_code">
-                  <td class="mono">{{ c.coupon_code }}</td>
-                  <td class="num-cell">¥{{ formatMoney(c.discount_cents) }}</td>
-                  <td class="num-cell">¥{{ formatMoney(c.min_order_cents) }}</td>
-                  <td>{{ c.status }}</td>
                 </tr>
               </tbody>
             </table>

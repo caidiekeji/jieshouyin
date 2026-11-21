@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { api, formatMoney, type MemberRow, type PromotionRow } from '../api'
+import { api, formatMoney, type CouponRow, type MemberRow, type PromotionRow } from '../api'
 import Icon from './Icon.vue'
 import {
   CENTS_PER_YUAN,
@@ -12,7 +12,7 @@ import {
   TOAST_DURATION_MS,
 } from '../constants'
 
-const tab = ref<'member' | 'promo'>('member')
+const tab = ref<'member' | 'promo' | 'coupon'>('member')
 const err = ref('')
 const okMsg = ref('')
 
@@ -150,9 +150,59 @@ async function togglePromo(p: PromotionRow) {
   }
 }
 
+// ===== 优惠券 =====
+const coupons = ref<CouponRow[]>([])
+/** 发放对象：空字符串表示通用券，否则为会员 ID（字符串存 select 值） */
+const couponForm = ref({ memberId: '', discountYuan: '', minOrderYuan: '', validUntil: '' })
+
+async function reloadCoupons() {
+  try {
+    coupons.value = await api.listCoupons()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+async function addCoupon() {
+  const discount = parseFloat(couponForm.value.discountYuan)
+  const minOrder = parseFloat(couponForm.value.minOrderYuan || '0')
+  if (!Number.isFinite(discount) || discount <= 0) {
+    fail('优惠金额须大于 0 元')
+    return
+  }
+  if (!Number.isFinite(minOrder) || minOrder < 0) {
+    fail('用券门槛不能为负数')
+    return
+  }
+  // 归属必须显式选择：避免沿用收银台当前识别会员导致发错对象
+  if (couponForm.value.memberId === '') {
+    fail('请选择发放对象：指定会员或通用券')
+    return
+  }
+  const memberId = couponForm.value.memberId === 'ALL' ? null : Number(couponForm.value.memberId)
+  if (memberId != null && !Number.isInteger(memberId)) {
+    fail('会员选择无效，请重新选择')
+    return
+  }
+  try {
+    const code = await api.issueCoupon(
+      memberId,
+      Math.round(discount * CENTS_PER_YUAN),
+      Math.round(minOrder * CENTS_PER_YUAN),
+      couponForm.value.validUntil.trim() || null
+    )
+    couponForm.value = { memberId: '', discountYuan: '', minOrderYuan: '', validUntil: '' }
+    done(`优惠券 ${code} 已发放`)
+    await reloadCoupons()
+  } catch (e) {
+    fail(e)
+  }
+}
+
 onMounted(() => {
   reloadMembers()
   reloadPromos()
+  reloadCoupons()
 })
 </script>
 
@@ -163,6 +213,7 @@ onMounted(() => {
       <div class="seg" role="tablist">
         <button :class="['seg-btn', { active: tab === 'member' }]" role="tab" :aria-selected="tab === 'member'" @click="tab = 'member'">会员管理</button>
         <button :class="['seg-btn', { active: tab === 'promo' }]" role="tab" :aria-selected="tab === 'promo'" @click="tab = 'promo'">促销规则</button>
+        <button :class="['seg-btn', { active: tab === 'coupon' }]" role="tab" :aria-selected="tab === 'coupon'" @click="tab = 'coupon'">优惠券</button>
       </div>
     </div>
 
@@ -281,6 +332,59 @@ onMounted(() => {
               <td><button class="btn btn-sm ghost" @click="togglePromo(p)">{{ p.status === 1 ? '停用' : '启用' }}</button></td>
             </tr>
             <tr v-if="!promos.length"><td colspan="7" class="empty">暂无促销规则，用上方表单创建第一条</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- 优惠券 -->
+    <template v-else-if="tab === 'coupon'">
+      <div class="card">
+        <h3>发放优惠券</h3>
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">发放对象</span>
+            <select v-model="couponForm.memberId" class="input">
+              <option value="" disabled>请选择发放对象</option>
+              <option value="ALL">通用券（所有人可用）</option>
+              <option v-for="m in members" :key="m.member_id" :value="String(m.member_id)">
+                专属 · {{ m.name || m.phone || m.member_code }}
+              </option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">优惠金额（元）</span>
+            <input v-model="couponForm.discountYuan" class="input" type="number" min="0.01" step="0.01" placeholder="如 20" />
+          </label>
+          <label class="field">
+            <span class="field-label">使用门槛（元）</span>
+            <input v-model="couponForm.minOrderYuan" class="input" type="number" min="0" step="0.01" placeholder="0 为无门槛" />
+          </label>
+          <label class="field">
+            <span class="field-label">有效期至</span>
+            <input v-model="couponForm.validUntil" class="input" type="datetime-local" />
+          </label>
+        </div>
+        <p class="muted small">专属券仅发放对象识别为会员后可用；通用券任何人可用。有效期留空表示不设截止。</p>
+        <button class="btn primary" @click="addCoupon">发券</button>
+      </div>
+
+      <div class="card">
+        <h3>券列表</h3>
+        <table class="tbl">
+          <thead>
+            <tr><th>券码</th><th>发放对象</th><th class="num-cell">优惠额</th><th class="num-cell">门槛</th><th>有效期至</th><th>状态</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in coupons" :key="c.coupon_code">
+              <td class="mono">{{ c.coupon_code }}</td>
+              <td>{{ c.member_name ?? '通用券' }}</td>
+              <td class="num-cell">¥{{ formatMoney(c.discount_cents) }}</td>
+              <td class="num-cell">¥{{ formatMoney(c.min_order_cents) }}</td>
+              <td>{{ c.valid_until ?? '不限' }}</td>
+              <td>{{ c.status }}</td>
+            </tr>
+            <tr v-if="!coupons.length"><td colspan="6" class="empty">暂无优惠券，用上方表单发放第一张</td></tr>
           </tbody>
         </table>
       </div>

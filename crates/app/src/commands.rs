@@ -515,7 +515,7 @@ struct AmountPlan {
     payable: i64,
     /// 券不可用等提示（不参与金额试算，界面据此提示）。
     coupon_note: Option<String>,
-    /// 券不可用原因码（机器可判）：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / BELOW_THRESHOLD。
+    /// 券不可用原因码（机器可判）：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / MEMBER_MISMATCH / BELOW_THRESHOLD。
     /// 券生效或未用券为 None；前端据此区分「券本身无效」与「未达门槛」，只有前者才清除券码。
     coupon_reason: Option<&'static str>,
     /// 未达用券门槛时的差额（分），供收银台做凑单引导；仅 BELOW_THRESHOLD 时有值。
@@ -564,12 +564,12 @@ fn plan_amounts(
     let mut coupon_reason: Option<&'static str> = None;
     let mut coupon_shortfall_cents: Option<i64> = None;
     if let Some(code) = coupon_code.map(str::trim).filter(|c| !c.is_empty()) {
-        let coupon: Option<(i64, i64, String, Option<String>, Option<String>)> = conn
+        let coupon: Option<(i64, i64, Option<i64>, String, Option<String>, Option<String>)> = conn
             .query_row(
-                "SELECT discount_cents,min_order_cents,status,valid_from,valid_until
+                "SELECT discount_cents,min_order_cents,member_id,status,valid_from,valid_until
                  FROM coupon WHERE coupon_code=?1",
                 [code],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
             )
             .optional()?;
         match coupon {
@@ -577,9 +577,12 @@ fn plan_amounts(
                 coupon_note = Some("优惠券不存在".into());
                 coupon_reason = Some("NOT_FOUND");
             }
-            Some((amount, min_order, status, valid_from, valid_until)) => {
+            Some((amount, min_order, coupon_member, status, valid_from, valid_until)) => {
                 let expired = valid_until.as_deref().map(|v| v < now).unwrap_or(false);
                 let not_started = valid_from.as_deref().map(|v| v > now).unwrap_or(false);
+                // 专属券必须识别对应会员才可用；通用券（member_id 为 NULL）任何人可用。
+                // 报价与结算共用本函数，归属校验同时覆盖两端，避免「专属券被陌生人核销」。
+                let owner_mismatch = coupon_member.is_some() && coupon_member != member_id;
                 if status != COUPON_UNUSED {
                     coupon_note = Some("优惠券不可用".into());
                     coupon_reason = Some("DISABLED");
@@ -589,6 +592,9 @@ fn plan_amounts(
                 } else if not_started {
                     coupon_note = Some("优惠券尚未生效".into());
                     coupon_reason = Some("NOT_STARTED");
+                } else if owner_mismatch {
+                    coupon_note = Some("此券为会员专属券，请识别对应会员后使用".into());
+                    coupon_reason = Some("MEMBER_MISMATCH");
                 } else {
                     let after_promo: i64 = cart_lines.iter().map(|l| l.payable()).sum();
                     if after_promo < min_order {
@@ -625,7 +631,7 @@ pub struct OrderQuote {
     pub payable_cents: i64,
     /// 券不可用等提示（不阻断报价）。
     pub coupon_note: Option<String>,
-    /// 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / BELOW_THRESHOLD；券生效或未用券为 None。
+    /// 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / MEMBER_MISMATCH / BELOW_THRESHOLD；券生效或未用券为 None。
     pub coupon_reason: Option<String>,
     /// 未达门槛差额（分），仅 BELOW_THRESHOLD 时有值，供收银台凑单引导。
     pub coupon_shortfall_cents: Option<i64>,
@@ -2895,6 +2901,8 @@ pub fn retry_print(order_no: String, state: State<'_, AppState>) -> Result<Strin
 pub struct CouponRow {
     pub coupon_code: String,
     pub member_id: Option<i64>,
+    /// 归属会员名（通用券为 None），仅用于列表展示归属。
+    pub member_name: Option<String>,
     pub discount_cents: i64,
     pub min_order_cents: i64,
     pub status: String,
@@ -2905,17 +2913,19 @@ pub struct CouponRow {
 pub fn list_coupons(state: State<'_, AppState>) -> Result<Vec<CouponRow>> {
     let (_op, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     let mut stmt = conn.prepare(
-        "SELECT coupon_code,member_id,discount_cents,min_order_cents,status,valid_until
-         FROM coupon ORDER BY coupon_id DESC",
+        "SELECT c.coupon_code,c.member_id,m.name,c.discount_cents,c.min_order_cents,c.status,c.valid_until
+         FROM coupon c LEFT JOIN member m ON c.member_id=m.member_id
+         ORDER BY c.coupon_id DESC",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok(CouponRow {
             coupon_code: r.get(0)?,
             member_id: r.get(1)?,
-            discount_cents: r.get(2)?,
-            min_order_cents: r.get(3)?,
-            status: r.get(4)?,
-            valid_until: r.get(5)?,
+            member_name: r.get(2)?,
+            discount_cents: r.get(3)?,
+            min_order_cents: r.get(4)?,
+            status: r.get(5)?,
+            valid_until: r.get(6)?,
         })
     })?;
     let mut out = Vec::new();

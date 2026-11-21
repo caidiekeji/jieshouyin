@@ -44,7 +44,7 @@ export interface OrderQuote {
   payable_cents: number
   /** 券不可用等提示（不阻断报价） */
   coupon_note: string | null
-  /** 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / BELOW_THRESHOLD；券生效或未用券为 null */
+  /** 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / MEMBER_MISMATCH / BELOW_THRESHOLD；券生效或未用券为 null */
   coupon_reason: string | null
   /** 未达门槛差额（分），仅 BELOW_THRESHOLD 时有值 */
   coupon_shortfall_cents: number | null
@@ -281,6 +281,8 @@ export interface ReportResult {
 export interface CouponRow {
   coupon_code: string
   member_id: number | null
+  /** 归属会员名；通用券为 null */
+  member_name: string | null
   discount_cents: number
   min_order_cents: number
   status: string
@@ -478,6 +480,7 @@ export const api = {
   setConfig: (key: string, value: string) => invoke<void>('set_config', { key, value }),
   // 券管理（§13.7）
   listCoupons: () => invoke<CouponRow[]>('list_coupons'),
+  /** memberId 为 null 表示通用券（任何人可用）；传入会员 ID 则为该会员专属券 */
   issueCoupon: (
     memberId: number | null,
     discountCents: number,
