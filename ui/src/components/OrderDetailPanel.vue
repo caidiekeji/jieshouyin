@@ -122,6 +122,7 @@ function search() {
         <div class="field"><span class="field-label">下单时间</span><span class="field-value mono">{{ detail.header.created_at }}</span></div>
         <div class="field"><span class="field-label">收银员编号</span><span class="field-value mono">{{ detail.header.cashier_id }}</span></div>
         <div class="field"><span class="field-label">会员</span><span class="field-value">{{ detail.header.member_name || '散客' }}</span></div>
+        <div v-if="detail.header.table_code" class="field"><span class="field-label">桌台/包间</span><span class="field-value mono">{{ detail.header.table_code }}</span></div>
       </div>
     </div>
 

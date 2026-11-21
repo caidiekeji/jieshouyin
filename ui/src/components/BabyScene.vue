@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, formatMoney, type ProductHit } from '../api'
 
 const emit = defineEmits<{ add: [product: ProductHit]; error: [message: string] }>()
@@ -12,19 +12,21 @@ function add(product: ProductHit) {
   emit('add', product)
 }
 
-const filtered = computed(() => {
-  if (group.value === '全部') return products.value.slice(0, 24)
-  return products.value.filter((p) => p.category_group.includes(group.value)).slice(0, 24)
-})
+const filtered = computed(() => products.value.slice(0, 24))
 
 async function load() {
   try {
-    products.value = await api.lookup('', 200)
+    products.value = await api.lookup(
+      '',
+      200,
+      group.value === '全部' ? undefined : group.value
+    )
   } catch (e) {
     emit('error', String(e))
   }
 }
 
+watch(group, load)
 onMounted(load)
 </script>
 

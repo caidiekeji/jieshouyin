@@ -143,6 +143,7 @@ export interface OrderSummary {
   status: string
   item_count: number
   refunded_cents: number
+  table_code: string | null
 }
 
 /** 订单明细行 */
@@ -343,8 +344,12 @@ export const api = {
   logout: () => invoke<void>('logout'),
   /** 恢复界面角色：未登录或会话过期返回 null。 */
   currentSession: () => invoke<{ user_id: number; role_name: string } | null>('current_session'),
-  lookup: (keyword: string, limit?: number) =>
-    invoke<ProductHit[]>('lookup_product', { keyword, limit: limit ?? null }),
+  lookup: (keyword: string, limit?: number, categoryGroup?: string) =>
+    invoke<ProductHit[]>('lookup_product', {
+      keyword,
+      limit: limit ?? null,
+      categoryGroup: categoryGroup ?? null,
+    }),
   /** 批量取 SKU 会员价（识别会员后刷新购物车行） */
   memberPrices: (skuIds: number[]) =>
     invoke<{ sku_id: number; member_price_cents: number | null }[]>('member_prices', { skuIds }),

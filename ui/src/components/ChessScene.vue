@@ -28,8 +28,7 @@ async function load() {
 
 async function loadFees() {
   try {
-    const all = await api.lookup('', 200)
-    feeProducts.value = all.filter((p) => p.category_group.includes('房费') || p.category_name.includes('房费'))
+    feeProducts.value = await api.lookup('', 200, '房费')
   } catch (e) {
     emit('error', String(e))
   }

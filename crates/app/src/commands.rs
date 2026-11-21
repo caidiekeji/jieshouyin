@@ -416,9 +416,12 @@ pub struct ProductHit {
 pub fn lookup_product(
     keyword: String,
     limit: Option<i64>,
+    category_group: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<ProductHit>> {
     let limit = limit.unwrap_or(20).clamp(1, 200);
+    let group = category_group.unwrap_or_default();
+    let group = group.trim().to_string();
     let conn = state
         .conn
         .lock()
@@ -432,11 +435,13 @@ pub fn lookup_product(
          FROM sku s JOIN spu p ON p.spu_id=s.spu_id
          LEFT JOIN category c ON c.category_id=p.category_id
          LEFT JOIN category pc ON pc.category_id=c.parent_id
-         WHERE p.status=1 AND (s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1)
+         WHERE p.status=1
+           AND (s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1)
+           AND (?4 = '' OR COALESCE(pc.name, c.name, '') = ?4)
          ORDER BY (s.barcode = ?2) DESC LIMIT ?3",
     )?;
     use rusqlite::params;
-    let rows = stmt.query_map(params![pattern, keyword, limit], |r| {
+    let rows = stmt.query_map(params![pattern, keyword, limit, group], |r| {
         Ok(ProductHit {
             sku_id: r.get(0)?,
             spu_name: r.get(1)?,
@@ -1456,12 +1461,28 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
     };
 
     // 订单真实数据
-    let (total, discount, pay, created, member_id): (i64, i64, i64, String, Option<i64>) = conn
+    let (total, discount, pay, created, member_id, table_code): (
+        i64,
+        i64,
+        i64,
+        String,
+        Option<i64>,
+        Option<String>,
+    ) = conn
         .query_row(
-            "SELECT total_cents,discount_cents,pay_cents,created_at,member_id
+            "SELECT total_cents,discount_cents,pay_cents,created_at,member_id,table_code
              FROM sales_order WHERE order_no=?1",
             [order_no],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
         )?;
     let member_phone: String = match member_id {
         Some(mid) => conn
@@ -1543,6 +1564,7 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
     vars.insert("order_no".into(), order_no.to_string());
     vars.insert("created_at".into(), created);
     vars.insert("member_phone".into(), member_phone);
+    vars.insert("table_code".into(), table_code.unwrap_or_default());
     vars.insert("subtotal".into(), cents_to_yuan(total));
     vars.insert("discount_total".into(), cents_to_yuan(discount));
     vars.insert("pay_total".into(), cents_to_yuan(pay));

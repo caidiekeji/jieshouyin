@@ -21,6 +21,8 @@ pub struct OrderSummary {
     pub item_count: i64,
     /// 已退金额合计。
     pub refunded_cents: i64,
+    /// 桌台/包间编号；普通零售订单为空。
+    pub table_code: Option<String>,
 }
 
 /// 订单明细行。
@@ -96,7 +98,8 @@ pub fn list_orders(
                 COALESCE(m.name,''), o.total_cents, o.discount_cents, o.pay_cents, o.status,
                 (SELECT COUNT(*) FROM sales_order_item i WHERE i.order_no=o.order_no),
                 COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
-                          WHERE r.order_no=o.order_no AND r.status IN ('PROCESSING','COMPLETED')),0)
+                          WHERE r.order_no=o.order_no AND r.status IN ('PROCESSING','COMPLETED')),0),
+                o.table_code
          FROM sales_order o
          LEFT JOIN member m ON m.member_id=o.member_id
          WHERE (?1 IS NULL OR o.business_date=?1)
@@ -122,6 +125,7 @@ pub fn list_orders(
             status: r.get(9)?,
             item_count: r.get(10)?,
             refunded_cents: r.get(11)?,
+            table_code: r.get(12)?,
         })
     })?;
     let mut out = Vec::new();
@@ -140,7 +144,8 @@ pub fn order_detail(conn: &Connection, order_no: &str) -> Result<Option<OrderDet
                     COALESCE(m.name,''), o.total_cents, o.discount_cents, o.pay_cents, o.status,
                     (SELECT COUNT(*) FROM sales_order_item i WHERE i.order_no=o.order_no),
                     COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
-                              WHERE r.order_no=o.order_no AND r.status IN ('PROCESSING','COMPLETED')),0)
+                              WHERE r.order_no=o.order_no AND r.status IN ('PROCESSING','COMPLETED')),0),
+                    o.table_code
              FROM sales_order o
              LEFT JOIN member m ON m.member_id=o.member_id
              WHERE o.order_no=?1",
@@ -164,6 +169,7 @@ pub fn order_detail(conn: &Connection, order_no: &str) -> Result<Option<OrderDet
                     status: r.get(9)?,
                     item_count: r.get(10)?,
                     refunded_cents: r.get(11)?,
+                    table_code: r.get(12)?,
                 })
             },
         )

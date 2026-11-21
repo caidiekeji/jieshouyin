@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, formatMoney, type ProductHit } from '../api'
 
 const emit = defineEmits<{ add: [product: ProductHit]; error: [message: string] }>()
@@ -8,9 +8,7 @@ const services = ref<ProductHit[]>([])
 const group = ref('推拿理疗')
 const groups = ['推拿理疗', '艾灸', '拔罐刮痧', '足疗', '套餐', '养生产品']
 
-const filtered = computed(() =>
-  services.value.filter((p) => p.category_group.includes(group.value)).slice(0, 30)
-)
+const filtered = computed(() => services.value.slice(0, 30))
 
 function add(p: ProductHit) {
   emit('add', p)
@@ -18,12 +16,13 @@ function add(p: ProductHit) {
 
 async function load() {
   try {
-    services.value = await api.lookup('', 200)
+    services.value = await api.lookup('', 200, group.value)
   } catch (e) {
     emit('error', String(e))
   }
 }
 
+watch(group, load)
 onMounted(load)
 </script>
 
