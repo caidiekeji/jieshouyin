@@ -345,8 +345,7 @@ pub fn create_return(
         )?;
         let remaining_before = line_qty - already;
         let kept = if remaining_before > 0 {
-            (commission as i128 * (remaining_before - qty) as i128
-                + remaining_before as i128 / 2)
+            (commission as i128 * (remaining_before - qty) as i128 + remaining_before as i128 / 2)
                 / remaining_before as i128
         } else {
             0

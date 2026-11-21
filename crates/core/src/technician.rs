@@ -37,9 +37,7 @@ pub fn create_technician(
 ) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 20 {
-        return Err(CoreError::Validation(
-            "技师姓名必填且不超过 20 字".into(),
-        ));
+        return Err(CoreError::Validation("技师姓名必填且不超过 20 字".into()));
     }
     if !(0..=10000).contains(&commission_bps) {
         return Err(CoreError::Validation("提成比例需在 0–100%".into()));

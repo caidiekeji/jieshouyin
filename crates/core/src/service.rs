@@ -292,12 +292,7 @@ pub fn submit_order(conn: &Connection, table_id: i64, scene: &str) -> Result<Vec
     conn.execute(
         "UPDATE table_session SET sent_json=?1, last_ticket_json=?2, updated_at=?3
          WHERE table_id=?4 AND status='OPEN'",
-        params![
-            cart_json,
-            ticket_json,
-            format_utc(&Utc::now()),
-            table_id
-        ],
+        params![cart_json, ticket_json, format_utc(&Utc::now()), table_id],
     )?;
     Ok(additions)
 }
@@ -342,23 +337,14 @@ pub fn return_sent(
     conn.execute(
         "UPDATE table_session SET cart_json=?1, sent_json=?2, updated_at=?3
          WHERE table_id=?4 AND status='OPEN'",
-        params![
-            cart_json,
-            sent_json,
-            format_utc(&Utc::now()),
-            table_id
-        ],
+        params![cart_json, sent_json, format_utc(&Utc::now()), table_id],
     )?;
     table_view(conn, table_id)
 }
 
 /// 整桌并台：source 并入 target，目标保留开台时间与会员，源桌释放。
 /// 仅餐饮支持，且两桌都必须在开台状态；已下单快照一并合并，避免厨房重复出品。
-pub fn merge_tables(
-    conn: &Connection,
-    target_id: i64,
-    source_id: i64,
-) -> Result<ServiceTable> {
+pub fn merge_tables(conn: &Connection, target_id: i64, source_id: i64) -> Result<ServiceTable> {
     if target_id == source_id {
         return Err(CoreError::Validation("不能并入同一桌台".into()));
     }
@@ -505,7 +491,8 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
 }
 
 fn parse_lines(json: &str) -> Result<Vec<serde_json::Value>> {
-    serde_json::from_str(json).map_err(|_| CoreError::Validation("桌台购物车不是合法 JSON 数组".into()))
+    serde_json::from_str(json)
+        .map_err(|_| CoreError::Validation("桌台购物车不是合法 JSON 数组".into()))
 }
 
 fn qty_map(lines: &[serde_json::Value]) -> std::collections::HashMap<i64, i64> {
@@ -733,10 +720,20 @@ mod tests {
         seed_dish(&c);
         let target = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None).unwrap();
         let source = create_table(&c, SCENE_DINING, "A02", "大厅 2 号", "大厅", 4, None).unwrap();
-        open_table(&c, target, r#"[{"sku_id":1,"qty":1,"unit_price_cents":1000}]"#, None)
-            .unwrap();
-        open_table(&c, source, r#"[{"sku_id":1,"qty":2,"unit_price_cents":1000}]"#, None)
-            .unwrap();
+        open_table(
+            &c,
+            target,
+            r#"[{"sku_id":1,"qty":1,"unit_price_cents":1000}]"#,
+            None,
+        )
+        .unwrap();
+        open_table(
+            &c,
+            source,
+            r#"[{"sku_id":1,"qty":2,"unit_price_cents":1000}]"#,
+            None,
+        )
+        .unwrap();
         submit_order(&c, source, SCENE_DINING).unwrap();
         let merged = merge_tables(&c, target, source).unwrap();
         assert!(merged.cart_json.contains(r#""qty":3"#));
@@ -749,7 +746,8 @@ mod tests {
     fn chess_fee_charges_minimum_hour_then_by_minute() {
         let c = setup();
         seed_dish(&c);
-        c.execute("UPDATE sku SET sale_price_cents=150", []).unwrap();
+        c.execute("UPDATE sku SET sale_price_cents=150", [])
+            .unwrap();
         let id = create_table(&c, SCENE_CHESS, "B01", "包间 1", "二楼", 6, Some(1)).unwrap();
         open_table(&c, id, "[]", None).unwrap();
         let fee = chess_fee(&c, id).unwrap();
