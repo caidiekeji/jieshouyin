@@ -206,7 +206,11 @@ async function selectSceneTable(table: ServiceTable, lines: CartLine[]) {
   activeTable.value = table
   couponCode.value = ''
   clearMember()
-  cart.value = lines.map((l) => ({ ...l, member_price_cents: null }))
+  cart.value = lines.map((l) => ({
+    ...l,
+    name: l.name || `商品 ${l.sku_id}`,
+    member_price_cents: null,
+  }))
   showToast(`已选中 ${table.code}${lines.length ? '，继续点单' : '，可以点单'}`)
 }
 
