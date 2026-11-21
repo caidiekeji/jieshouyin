@@ -124,6 +124,8 @@ pub fn set_store_name(conn: &Connection, name: &str) -> Result<()> {
 
 /// 选定行业并把该行业的分类模板写入 category 表。
 /// 幂等：已存在的同名同级分类不重复插入，重复选定无副作用。
+/// 切换行业时，旧行业遗留的“空一级分类”会被停用（status=0）：
+/// 只有既无在售商品、也无在售子分类的一级分类才隐藏，避免误伤用户自建分类。
 pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
     if industry_meta(industry).is_none() {
         return Err(CoreError::Validation(format!("未知行业: {industry}")));
@@ -137,19 +139,28 @@ pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
     drop(stmt);
 
     let mut inserted = 0usize;
-    for path in paths {
+    let mut roots: Vec<String> = Vec::new();
+    for path in &paths {
         let mut parent: Option<i64> = None;
         for name in path.split('/').filter(|s| !s.trim().is_empty()) {
             let name = name.trim();
-            let existing: Option<i64> = conn
+            if parent.is_none() {
+                roots.push(name.to_string());
+            }
+            let existing: Option<(i64, i64)> = conn
                 .query_row(
-                    "SELECT category_id FROM category WHERE name=?1 AND parent_id IS ?2 AND status=1",
+                    "SELECT category_id, status FROM category WHERE name=?1 AND parent_id IS ?2",
                     params![name, parent],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .ok();
             parent = match existing {
-                Some(id) => Some(id),
+                Some((id, 0)) => {
+                    // 切回旧行业时复用并重新启用在售分类，避免同名重复建。
+                    conn.execute("UPDATE category SET status=1 WHERE category_id=?1", [id])?;
+                    Some(id)
+                }
+                Some((id, _)) => Some(id),
                 None => {
                     conn.execute(
                         "INSERT INTO category(parent_id,name) VALUES (?1,?2)",
@@ -161,8 +172,41 @@ pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
             };
         }
     }
+    hide_stale_roots(conn, &roots)?;
     cfg_set(conn, CFG_INDUSTRY, industry)?;
     Ok(inserted)
+}
+
+/// 停用不属于当前模板、且整棵子树都没有在售商品/子分类的一级分类。
+/// 有占用的旧分类保持原状，交给用户在分类管理里显式处理。
+fn hide_stale_roots(conn: &Connection, roots: &[String]) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "SELECT category_id, name FROM category WHERE parent_id IS NULL AND status=1",
+    )?;
+    let active: Vec<(i64, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(stmt);
+    for (id, name) in active {
+        if roots.iter().any(|r| r == &name) {
+            continue;
+        }
+        let occupied: i64 = conn.query_row(
+            "WITH RECURSIVE sub(id) AS (
+                 SELECT ?1
+                 UNION ALL
+                 SELECT c.category_id FROM category c JOIN sub ON c.parent_id=sub.id
+             )
+             SELECT (SELECT COUNT(*) FROM spu WHERE status=1 AND category_id IN (SELECT id FROM sub))
+                  + (SELECT COUNT(*) FROM category WHERE status=1 AND parent_id IN (SELECT id FROM sub))",
+            [id],
+            |r| r.get(0),
+        )?;
+        if occupied == 0 {
+            conn.execute("UPDATE category SET status=0 WHERE category_id=?1", [id])?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -209,6 +253,64 @@ mod tests {
             )
             .unwrap();
         assert_eq!(parent, "食品饮料");
+    }
+
+    #[test]
+    fn switching_industry_hides_only_empty_old_roots() {
+        let c = setup();
+        apply_industry(&c, INDUSTRY_SUPERMARKET).unwrap();
+        apply_industry(&c, INDUSTRY_CLOTHING).unwrap();
+        let status: i64 = c
+            .query_row(
+                "SELECT status FROM category WHERE name='食品饮料' AND parent_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, 0, "旧行业空分类应被停用");
+        let active: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM category WHERE status=1 AND parent_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let expected: i64 = c
+            .query_row(
+                "SELECT COUNT(DISTINCT substr(path,1,instr(path,'/')-1)) FROM category_template
+                 WHERE industry=?1 AND instr(path,'/')>0",
+                [INDUSTRY_CLOTHING],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(active, expected);
+    }
+
+    #[test]
+    fn switching_industry_keeps_root_with_products() {
+        let c = setup();
+        apply_industry(&c, INDUSTRY_SUPERMARKET).unwrap();
+        let food: i64 = c
+            .query_row(
+                "SELECT category_id FROM category WHERE name='食品饮料' AND parent_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        c.execute(
+            "INSERT INTO spu(category_id,spu_name,spu_code,status) VALUES (?1,'自有商品','T-1',1)",
+            [food],
+        )
+        .unwrap();
+        apply_industry(&c, INDUSTRY_CLOTHING).unwrap();
+        let status: i64 = c
+            .query_row(
+                "SELECT status FROM category WHERE category_id=?1",
+                [food],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, 1, "有商品占用的旧分类不能自动隐藏");
     }
 
     #[test]

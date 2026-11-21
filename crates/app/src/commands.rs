@@ -28,8 +28,8 @@ use checkout_core::payment::{
 };
 use checkout_core::promo::{Promotion, Scope as PromoScope};
 use checkout_core::rbac::{self, Session};
-use checkout_core::time::parse_rfc3339;
-use chrono::{DateTime, Timelike, Utc};
+use checkout_core::time::{format_utc, parse_rfc3339};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Timelike, Utc};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -248,6 +248,7 @@ pub fn get_license(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
 
 #[tauri::command]
 pub fn activate(token: String, state: State<'_, AppState>) -> Result<LicenseSnapshot> {
+    ensure_production_key()?;
     let svc = build_license_service(&state);
     let conn = state
         .conn
@@ -786,7 +787,7 @@ pub fn quote_order(
 /// 授权门禁只校验 entitlement，任何非 UNACTIVATED 状态不阻断 pos.core。
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn checkout(
+pub async fn checkout(
     lines: Vec<CartLineInput>,
     payments: Vec<PaymentInput>,
     member_id: Option<i64>,
@@ -1297,7 +1298,7 @@ pub fn daily_report(date: String, state: State<'_, AppState>) -> Result<DailyRep
 
 /// 打印：用订单真实数据渲染 ESC/POS 字节流并发往网络打印机，失败入重打队列，不阻断（§7）。
 #[tauri::command]
-pub fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<String> {
+pub async fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<String> {
     let conn = state
         .conn
         .lock()
@@ -2678,6 +2679,14 @@ pub fn refund_order(
     let mut channel_failed = false;
     let mut channel_pending = false;
     for (refund_no, channel, amt, out_trade_no) in scan_refunds {
+        // 0 元退款仅做账务登记，不调用渠道：无资金可退，直接终态，避免渠道全额退款语义。
+        if amt <= 0 {
+            conn.execute(
+                "UPDATE refund_record SET status='COMPLETED', updated_at=?1 WHERE refund_no=?2",
+                rusqlite::params![now_str(), refund_no],
+            )?;
+            continue;
+        }
         if let Some(otn) = out_trade_no {
             let gw = state.gateway.of_channel(channel);
             match gw.refund(&otn, &refund_no, amt) {
@@ -3057,7 +3066,7 @@ pub fn cashier_report(
     Ok(out)
 }
 
-// ===== 统一报表中心（§14 扩展）：33 张报表共用一个命令 =====
+// ===== 统一报表中心（§14 扩展）：34 张报表共用一个命令 =====
 
 /// 报表清单：按分组返回全部报表元数据，前端据此渲染左侧导航。
 #[tauri::command]
@@ -3284,7 +3293,7 @@ pub fn print_retries(state: State<'_, AppState>) -> Result<Vec<String>> {
 /// 手动重打：复用自动打印同一渲染/发送路径（真实订单变量 + 打印机），
 /// 只有确认送达才出队；失败保留 PENDING 供再次重打（PRT-06）。
 #[tauri::command]
-pub fn retry_print(order_no: String, state: State<'_, AppState>) -> Result<String> {
+pub async fn retry_print(order_no: String, state: State<'_, AppState>) -> Result<String> {
     let (_op, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     let msg = print_receipt_inner(&conn, &order_no)?;
     if msg == "小票已打印" {
@@ -3338,6 +3347,9 @@ pub fn list_coupons(state: State<'_, AppState>) -> Result<Vec<CouponRow>> {
 }
 
 /// 发券（§13.7）：状态机从 UNUSED 起。
+/// 单个操作员每日手工发券上限（防止无审批批量刷券）。
+const DAILY_COUPON_ISSUE_LIMIT: i64 = 50;
+
 #[tauri::command]
 pub fn issue_coupon(
     member_id: Option<i64>,
@@ -3346,7 +3358,7 @@ pub fn issue_coupon(
     valid_until: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String> {
-    let (_op, conn) = admin_guard(&state, PERM_MEMBER_MANAGE)?;
+    let (operator_id, conn) = admin_guard(&state, PERM_MEMBER_MANAGE)?;
     if discount_cents <= 0 || min_order_cents < 0 {
         return Err(CoreError::Validation("券额度/门槛非法".into()));
     }
@@ -3355,7 +3367,79 @@ pub fn issue_coupon(
             "券面额不能高于使用门槛（否则等于无条件大额折扣）".into(),
         ));
     }
-    let code = format!("CP{}", Utc::now().timestamp_millis());
+    if let Some(mid) = member_id {
+        let exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM member WHERE member_id=?1",
+            [mid],
+            |r| r.get(0),
+        )?;
+        if exists == 0 {
+            return Err(CoreError::Validation(format!("会员 {mid} 不存在")));
+        }
+    }
+    // 前端 datetime-local 不带时区：按门店时区（UTC+8）解释后统一存 UTC RFC3339，
+    // 避免字符串比较时把本地时间当 UTC 用，券提前/延后 8 小时失效。
+    let valid_until = match valid_until.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        Some(v) => {
+            let utc = if let Ok(dt) = parse_rfc3339(v) {
+                dt
+            } else if let Ok(ndt) = NaiveDateTime::parse_from_str(v, "%Y-%m-%dT%H:%M:%S") {
+                ndt.and_local_timezone(FixedOffset::east_opt(8 * 3600).unwrap())
+                    .single()
+                    .ok_or_else(|| CoreError::Validation("券有效期时区非法".into()))?
+                    .with_timezone(&Utc)
+            } else if let Ok(ndt) = NaiveDateTime::parse_from_str(v, "%Y-%m-%dT%H:%M") {
+                ndt.and_local_timezone(FixedOffset::east_opt(8 * 3600).unwrap())
+                    .single()
+                    .ok_or_else(|| CoreError::Validation("券有效期时区非法".into()))?
+                    .with_timezone(&Utc)
+            } else if let Ok(d) = NaiveDate::parse_from_str(v, "%Y-%m-%d") {
+                d.and_hms_opt(23, 59, 59)
+                    .unwrap()
+                    .and_local_timezone(FixedOffset::east_opt(8 * 3600).unwrap())
+                    .single()
+                    .ok_or_else(|| CoreError::Validation("券有效期时区非法".into()))?
+                    .with_timezone(&Utc)
+            } else {
+                return Err(CoreError::Validation(
+                    "券有效期格式非法，应为 YYYY-MM-DDTHH:mm".into(),
+                ));
+            };
+            if utc <= Utc::now() {
+                return Err(CoreError::Validation("券有效期必须晚于当前时间".into()));
+            }
+            Some(format_utc(&utc))
+        }
+        None => None,
+    };
+    let today = now_str();
+    let prefix = &today[..10];
+    let issued_today: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM operation_audit
+         WHERE command='issue_coupon' AND operator_id=?1 AND created_at LIKE ?2",
+        rusqlite::params![operator_id, format!("{prefix}%")],
+        |r| r.get(0),
+    )?;
+    if issued_today >= DAILY_COUPON_ISSUE_LIMIT {
+        return Err(CoreError::AmountLimitExceeded(format!(
+            "今日发券已达上限 {DAILY_COUPON_ISSUE_LIMIT} 张，请走审批或明日再发"
+        )));
+    }
+    let code = format!("CP{}-{}", Utc::now().timestamp_millis(), issued_today + 1);
+    checkout_core::rbac::audit_operation(
+        &conn,
+        "issue_coupon",
+        Some(operator_id),
+        None,
+        serde_json::json!({
+            "coupon_code": code,
+            "member_id": member_id,
+            "discount_cents": discount_cents,
+            "min_order_cents": min_order_cents,
+            "valid_until": valid_until,
+        }),
+        &today,
+    )?;
     conn.execute(
         "INSERT INTO coupon(coupon_code,member_id,discount_cents,min_order_cents,status,valid_until)
          VALUES (?1,?2,?3,?4,'UNUSED',?5)",
@@ -3368,12 +3452,14 @@ pub fn issue_coupon(
 
 /// 轮询 Native 支付结果（§6.3）。SUCCESS → 资产收口 + 订单提交。
 #[tauri::command]
-pub fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<CheckoutResult> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    license.gate(ENT_POS_CORE)?;
+pub async fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<CheckoutResult> {
+    {
+        let license = state
+            .license
+            .lock()
+            .map_err(|e| CoreError::Other(e.to_string()))?;
+        license.gate(ENT_POS_CORE)?;
+    }
     {
         let session = state
             .session
@@ -3384,7 +3470,6 @@ pub fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<C
             return Err(CoreError::SessionExpired);
         }
     }
-    drop(license);
     let conn = state
         .conn
         .lock()
@@ -4216,6 +4301,18 @@ fn resolve_activation_endpoint(conn: &Connection) -> Result<String> {
     checkout_core::license::online::normalize_endpoint(&endpoint)
 }
 
+/// 开发/CI 构建未注入正式公钥时，禁止激活：测试向量公钥是公开的，
+/// 用它签发的许可证任何人都能伪造。发布流水线必须注入 CHECKOUT_PUBLIC_KEY。
+fn ensure_production_key() -> Result<()> {
+    if checkout_core::EMBEDDED_KEY_IS_DEV {
+        return Err(CoreError::Validation(
+            "此安装包未内嵌正式授权公钥，不能激活；请使用正式发布版本或注入 CHECKOUT_PUBLIC_KEY 后重新构建"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 /// 在线激活：向激活服务换取签名激活码 → 本地验签 → 落库。
 /// 签发权始终在服务端；客户端只做验签与存储，与离线导入共用同一条链路。
 #[tauri::command]
@@ -4224,6 +4321,7 @@ pub fn activate_online(
     customer_name: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<LicenseSnapshot> {
+    ensure_production_key()?;
     let key = activation_key.trim();
     if key.is_empty() {
         return Err(CoreError::Validation("请输入激活码".into()));

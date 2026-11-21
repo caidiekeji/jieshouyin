@@ -361,7 +361,7 @@ onMounted(reload)
 
     <div v-if="imageSku != null" class="card">
       <h3>商品图片（SKU {{ imageSku }}）</h3>
-      <p class="muted small">两种方式二选一或并存：上传本地文件（存本机），或登记在线图片地址（http/https）。</p>
+      <p class="muted small">两种方式二选一或并存：上传本地文件（存本机），或登记在线图片地址（仅 https）。</p>
       <div class="form-grid">
         <label>上传本地图片<input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="uploadImage" /></label>
         <label>在线图片地址<input v-model="imageUrlDraft" class="input" placeholder="https://…" /></label>

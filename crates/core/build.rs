@@ -12,9 +12,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CHECKOUT_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=ACTIVATION_ENDPOINT");
 
-    let hex_key = env::var("CHECKOUT_PUBLIC_KEY").unwrap_or_else(|_| {
-        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string()
-    });
+    let hex_key = match env::var("CHECKOUT_PUBLIC_KEY") {
+        Ok(k) => k,
+        Err(_) => "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
+    };
+    let is_dev_key = env::var("CHECKOUT_PUBLIC_KEY").is_err();
     let bytes = hex::decode(&hex_key).expect("CHECKOUT_PUBLIC_KEY 必须是 64 位 hex");
     let arr: [u8; 32] = bytes
         .try_into()
@@ -26,7 +28,8 @@ fn main() {
 
     let body = format!(
         "pub const EMBEDDED_PUBLIC_KEY: [u8; 32] = [{}];\n\
-         pub const EMBEDDED_ACTIVATION_ENDPOINT: &str = {:?};\n",
+         pub const EMBEDDED_ACTIVATION_ENDPOINT: &str = {:?};\n\
+         pub const EMBEDDED_KEY_IS_DEV: bool = {is_dev_key};\n",
         items.join(", "),
         endpoint
     );

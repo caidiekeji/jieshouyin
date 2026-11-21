@@ -281,9 +281,16 @@ fn sales_trend(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> 
 fn sales_hourly(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     let mut stmt = conn.prepare(
         "SELECT strftime('%H', datetime(created_at,'+8 hours')) AS hh,
-                COUNT(DISTINCT order_no), COALESCE(SUM(pay_cents),0)
-         FROM sales_order
-         WHERE status IN ('COMPLETED','PARTIAL_REFUND') AND business_date BETWEEN ?1 AND ?2
+                COUNT(DISTINCT order_no), COALESCE(SUM(pay_cents - refunded),0)
+         FROM (
+             SELECT o.order_no, o.created_at, o.pay_cents,
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=o.order_no
+                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+             FROM sales_order o
+             WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND o.business_date BETWEEN ?1 AND ?2
+         )
          GROUP BY hh ORDER BY hh",
     )?;
     let raw = stmt
@@ -1164,11 +1171,19 @@ fn scrap_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult>
 fn member_consumption(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     let mut stmt = conn.prepare(
         "SELECT m.member_id, COALESCE(m.name,COALESCE(m.phone,'会员#'||m.member_id)),
-                COUNT(DISTINCT o.order_no), COALESCE(SUM(o.pay_cents),0),
+                COUNT(DISTINCT o.order_no), COALESCE(SUM(o.pay_cents - o.refunded),0),
                 MAX(o.business_date)
-         FROM sales_order o JOIN member m ON m.member_id=o.member_id
-         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
-         GROUP BY m.member_id, m.name, m.phone ORDER BY SUM(o.pay_cents) DESC",
+         FROM (
+             SELECT so.order_no, so.member_id, so.business_date, so.pay_cents,
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=so.order_no
+                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+             FROM sales_order so
+             WHERE so.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND so.business_date BETWEEN ?1 AND ?2
+         ) o JOIN member m ON m.member_id=o.member_id
+         GROUP BY m.member_id, m.name, m.phone
+         ORDER BY SUM(o.pay_cents - o.refunded) DESC",
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
@@ -1489,11 +1504,19 @@ fn points_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
 fn cashier_performance(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     let mut stmt = conn.prepare(
         "SELECT o.cashier_id, COALESCE(u.username,'收银员#'||o.cashier_id),
-                COUNT(DISTINCT o.order_no), COALESCE(SUM(o.pay_cents),0),
+                COUNT(DISTINCT o.order_no), COALESCE(SUM(o.pay_cents - o.refunded),0),
                 COALESCE(SUM(o.discount_cents),0)
-         FROM sales_order o LEFT JOIN user_account u ON u.user_id=o.cashier_id
-         WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
-         GROUP BY o.cashier_id, u.username ORDER BY SUM(o.pay_cents) DESC",
+         FROM (
+             SELECT so.order_no, so.cashier_id, so.business_date, so.pay_cents, so.discount_cents,
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=so.order_no
+                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+             FROM sales_order so
+             WHERE so.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND so.business_date BETWEEN ?1 AND ?2
+         ) o LEFT JOIN user_account u ON u.user_id=o.cashier_id
+         GROUP BY o.cashier_id, u.username
+         ORDER BY SUM(o.pay_cents - o.refunded) DESC",
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
@@ -1656,11 +1679,18 @@ fn operation_audit(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
 fn store_comparison(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     // 单机单店：按营业日对比核心经营指标，用于日间横向比较。
     let mut stmt = conn.prepare(
-        "SELECT business_date, COUNT(DISTINCT order_no), COALESCE(SUM(pay_cents),0),
-                COALESCE(SUM(discount_cents),0),
-                COALESCE(SUM(CASE WHEN status='REFUNDED' THEN pay_cents ELSE 0 END),0)
-         FROM sales_order
-         WHERE status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED') AND business_date BETWEEN ?1 AND ?2
+        "SELECT business_date, COUNT(DISTINCT order_no),
+                COALESCE(SUM(pay_cents),0), COALESCE(SUM(discount_cents),0),
+                COALESCE(SUM(refunded),0)
+         FROM (
+             SELECT o.order_no, o.business_date, o.pay_cents, o.discount_cents,
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=o.order_no
+                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+             FROM sales_order o
+             WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+               AND o.business_date BETWEEN ?1 AND ?2
+         )
          GROUP BY business_date ORDER BY business_date",
     )?;
     let raw = stmt
@@ -1674,13 +1704,14 @@ fn store_comparison(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let (mut sales, mut orders) = (0i64, 0i64);
+    let (mut sales, mut orders, mut net_total) = (0i64, 0i64, 0i64);
     let rows = raw
         .iter()
         .map(|(d, o, s, disc, rf)| {
             sales += s;
             orders += o;
             let net = s - rf;
+            net_total += net;
             vec![
                 d.clone(),
                 n(*o),
@@ -1705,7 +1736,11 @@ fn store_comparison(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
             ("net", "净收入", "money"),
         ]),
         rows,
-        metrics: vec![m("累计销售", money(sales)), m("累计订单", n(orders))],
+        metrics: vec![
+            m("累计销售", money(sales)),
+            m("累计净收入", money(net_total)),
+            m("累计订单", n(orders)),
+        ],
     })
 }
 
@@ -1928,8 +1963,10 @@ fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
                      WHERE status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                        AND business_date BETWEEN ?1 AND ?2)
                    -
-                   (SELECT COALESCE(SUM(amount_cents),0) FROM refund_record
-                     WHERE date(created_at,'+8 hours') BETWEEN ?1 AND ?2)",
+                   (SELECT COALESCE(SUM(r.amount_cents),0) FROM refund_record r
+                     JOIN sales_order ro ON ro.order_no=r.order_no
+                     WHERE r.status IN ('PROCESSING','COMPLETED')
+                       AND ro.business_date BETWEEN ?1 AND ?2)",
         )?;
         stmt.query_row(params![from, to], |r| r.get(0))?
     };
@@ -2029,6 +2066,14 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
              JOIN sales_order o ON o.order_no=i.order_no
              JOIN sku s ON s.sku_id=i.sku_id
              WHERE o.status IN ('COMPLETED','PARTIAL_REFUND')
+               AND o.business_date BETWEEN ?1 AND ?2
+             GROUP BY o.business_date
+             UNION ALL
+             SELECT o.business_date AS d, -COALESCE(SUM(r.amount_cents),0) AS sales, 0 AS cost
+             FROM refund_record r
+             JOIN sales_order o ON o.order_no=r.order_no
+             WHERE r.status IN ('PROCESSING','COMPLETED')
+               AND o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND o.business_date BETWEEN ?1 AND ?2
              GROUP BY o.business_date
          ) GROUP BY d ORDER BY d",

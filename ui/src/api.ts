@@ -79,7 +79,7 @@ export interface ProductRow {
   alert_qty: number
   /** 本地图片绝对路径（需 convertFileSrc 转可展示地址） */
   image_path: string | null
-  /** 在线图片地址（http/https） */
+  /** 在线图片地址（仅 https） */
   image_url: string | null
 }
 
@@ -266,7 +266,7 @@ export interface ProductSales { sku_id: number; qty: number; sales_cents: number
 export interface CategorySales { category_id: number; category_name: string; qty: number; sales_cents: number }
 export interface CashierSales { cashier_id: number; order_count: number; pay_cents: number }
 
-/** 统一报表中心：元数据 + 通用结果结构（33 张报表共用） */
+/** 统一报表中心：元数据 + 通用结果结构（34 张报表共用） */
 export interface ReportMeta { id: string; title: string; group: string }
 export interface ReportColumn { key: string; label: string; kind: 'money' | 'qty' | 'text' | 'percent' | 'date' }
 export interface ReportMetric { label: string; value: string }
@@ -330,7 +330,10 @@ export const api = {
   memberPrices: (skuIds: number[]) =>
     invoke<{ sku_id: number; member_price_cents: number | null }[]>('member_prices', { skuIds }),
   parseWeigh: (code: string) =>
-    invoke<{ instore_code: string; mode: string; value: number }>('parse_weigh_barcode', { code }),
+    invoke<{ instore_code: string; mode: string; value: { unit: 'GRAMS' | 'CENTS'; value: number } }>(
+      'parse_weigh_barcode',
+      { code },
+    ),
   quoteOrder: (lines: CartLine[], memberId: number | null, couponCode: string | null) =>
     invoke<OrderQuote>('quote_order', { lines, memberId, couponCode }),
   checkout: (
@@ -467,7 +470,7 @@ export const api = {
     invoke<CategorySales[]>('category_report', { from, to }),
   cashierReport: (from: string, to: string) =>
     invoke<CashierSales[]>('cashier_report', { from, to }),
-  // 统一报表中心（33 张报表）
+  // 统一报表中心（34 张报表）
   reportCatalog: () => invoke<ReportMeta[]>('report_catalog'),
   genericReport: (id: string, from: string, to: string) =>
     invoke<ReportResult>('generic_report', { reportId: id, from, to }),

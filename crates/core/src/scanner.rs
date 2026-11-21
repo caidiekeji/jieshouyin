@@ -70,11 +70,19 @@ pub enum WeighMode {
     Weight, // 22 前缀：金额字段为克
 }
 
+/// 称重码里的数量字段：22 前缀是克，24 前缀是分，两者不可混用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "unit", content = "value", rename_all = "UPPERCASE")]
+pub enum WeighValue {
+    Grams(i64),
+    Cents(i64),
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct WeighedCode {
     pub instore_code: String,
     pub mode: WeighMode,
-    pub value: i64,
+    pub value: WeighValue,
 }
 
 /// 解析称重店内码（§15.2）。EAN-13：前缀2 + 商品代码5 + 数量/金额5 + 校验1。
@@ -94,7 +102,11 @@ pub fn parse_weighed_code(code: &str) -> Option<WeighedCode> {
         _ => return None,
     };
     let instore = std::str::from_utf8(&bytes[2..7]).ok()?.to_string();
-    let value: i64 = std::str::from_utf8(&bytes[7..12]).ok()?.parse().ok()?;
+    let raw: i64 = std::str::from_utf8(&bytes[7..12]).ok()?.parse().ok()?;
+    let value = match mode {
+        WeighMode::Weight => WeighValue::Grams(raw),
+        WeighMode::Amount => WeighValue::Cents(raw),
+    };
     Some(WeighedCode {
         instore_code: instore,
         mode,
@@ -104,10 +116,9 @@ pub fn parse_weighed_code(code: &str) -> Option<WeighedCode> {
 
 /// 计算称重行金额。重量模式向上取整到分（保守向店家）；金额模式直接采信。
 pub fn weighed_line_total(unit_price_cents_per_kg: i64, code: &WeighedCode) -> Option<(i64, i64)> {
-    match code.mode {
-        WeighMode::Amount => Some((1, code.value)), // qty=1, unit_price=金额
-        WeighMode::Weight => {
-            let grams = code.value;
+    match code.value {
+        WeighValue::Cents(cents) => Some((1, cents)),
+        WeighValue::Grams(grams) => {
             if grams == 0 || grams > 99999 {
                 return None;
             }
@@ -190,7 +201,7 @@ mod tests {
         let parsed = parse_weighed_code(&code).unwrap();
         assert_eq!(parsed.mode, WeighMode::Amount);
         assert_eq!(parsed.instore_code, "00123");
-        assert_eq!(parsed.value, 1250);
+        assert_eq!(parsed.value, WeighValue::Cents(1250));
         let (qty, total) = weighed_line_total(999999, &parsed).unwrap();
         assert_eq!((qty, total), (1, 1250));
     }

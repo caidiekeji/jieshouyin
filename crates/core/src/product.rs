@@ -415,7 +415,7 @@ pub fn create_product_full(
 
 /// 商品图片：本地上传文件与在线地址两个来源。
 /// 两个来源各自独立登记：设置其中一个不会抹掉另一个（前端按「本地优先」展示）。
-/// 在线地址仅允许 http/https，杜绝 javascript: 等伪协议。
+/// 本地图片文件名登记（None 表示清除），不校验协议。
 pub fn set_product_image_path(
     conn: &Connection,
     sku_id: i64,
@@ -431,23 +431,31 @@ pub fn set_product_image_path(
     Ok(())
 }
 
-/// 登记商品在线图片地址（None 表示清除）。
+/// 登记商品在线图片地址（None/空串表示清除）。
+/// 只接受 https：页面直接渲染用户填写的地址，http 会被 WebView 降级或拦截，
+/// 也避免明文链路被中间人替换成任意资源。
 pub fn set_product_image_url(
     conn: &Connection,
     sku_id: i64,
     image_url: Option<&str>,
 ) -> Result<()> {
-    if let Some(u) = image_url {
-        let t = u.trim();
-        if !t.is_empty() && !(t.starts_with("http://") || t.starts_with("https://")) {
+    let normalized = image_url.map(str::trim).filter(|t| !t.is_empty());
+    if let Some(t) = normalized {
+        if !t.starts_with("https://") {
             return Err(CoreError::Validation(
-                "图片地址必须以 http:// 或 https:// 开头".into(),
+                "图片地址必须以 https:// 开头".into(),
             ));
+        }
+        if t.len() > 2048 {
+            return Err(CoreError::Validation("图片地址过长（上限 2048 字符）".into()));
+        }
+        if t.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(CoreError::Validation("图片地址不能包含空白或控制字符".into()));
         }
     }
     let n = conn.execute(
         "UPDATE sku SET image_url=?1 WHERE sku_id=?2",
-        params![image_url, sku_id],
+        params![normalized, sku_id],
     )?;
     if n == 0 {
         return Err(CoreError::Validation(format!("SKU {sku_id} 不存在")));

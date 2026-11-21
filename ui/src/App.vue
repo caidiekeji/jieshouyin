@@ -87,6 +87,7 @@ const pendingLockAfterSetup = ref(false)
 const locked = ref(false)
 const lockInput = ref('')
 const lockError = ref('')
+const LOCK_HASH_RE = /^[0-9a-f]{64}$/
 
 // ===== 角色与菜单可见性 =====
 // 与后端 M0002 角色种子一致：CASHIER < MANAGER < ADMIN。
@@ -569,22 +570,43 @@ function gotoOrder(no: string) {
 /** 读取本机锁机码；本地存储不可用时保持为空，锁机按钮会引导重设 */
 function loadLockCode() {
   try {
-    lockCode.value = localStorage.getItem(LOCK_CODE_KEY) || ''
+    const stored = localStorage.getItem(LOCK_CODE_KEY) || ''
+    lockCode.value = stored
+    // 历史版本存明文：读取时静默迁移为摘要，旧码仍可继续解锁。
+    if (stored && !LOCK_HASH_RE.test(stored)) {
+      void hashLockCode(stored)
+        .then((digest) => {
+          localStorage.setItem(LOCK_CODE_KEY, digest)
+          lockCode.value = digest
+        })
+        .catch(() => {
+          // 摘要不可用时保留明文比对，不阻断锁屏
+        })
+    }
   } catch {
     lockCode.value = ''
   }
 }
 
+/** 锁机码只在本机保存 SHA-256 摘要，避免 localStorage 明文可见。 */
+async function hashLockCode(code: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code))
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 /** 保存锁机码；若由「锁机」按钮触发的设置，保存后立即进入锁屏 */
-function saveLockCode() {
+async function saveLockCode() {
   const code = lockCodeDraft.value.trim()
   if (!code) {
     showToast('请输入锁机码', true)
     return
   }
   try {
-    localStorage.setItem(LOCK_CODE_KEY, code)
-    lockCode.value = code
+    const digest = await hashLockCode(code)
+    localStorage.setItem(LOCK_CODE_KEY, digest)
+    lockCode.value = digest
     lockCodeDraft.value = ''
     lockSetupOpen.value = false
     const shouldLock = pendingLockAfterSetup.value
@@ -625,9 +647,17 @@ function lockScreen() {
   locked.value = true
 }
 
-/** 解锁：比对锁机码，错误时给出提示并保持锁屏 */
-function unlock() {
-  if (lockInput.value === lockCode.value) {
+/** 解锁：摘要比对（兼容历史明文），错误时给出提示并保持锁屏 */
+async function unlock() {
+  let matched = false
+  try {
+    matched = LOCK_HASH_RE.test(lockCode.value)
+      ? (await hashLockCode(lockInput.value)) === lockCode.value
+      : lockInput.value === lockCode.value
+  } catch {
+    matched = false
+  }
+  if (matched) {
     locked.value = false
     lockInput.value = ''
     lockError.value = ''
@@ -2163,7 +2193,7 @@ async function doLogout() {
 
       <!-- 报表 -->
       <main v-else-if="view === 'report'" class="admin-shell">
-        <!-- 报表中心：后台管理式布局，左栏贴左全高（33 报表 + 工具），右侧内容独立滚动 -->
+        <!-- 报表中心：后台管理式布局，左栏贴左全高（34 报表 + 工具），右侧内容独立滚动 -->
         <aside class="admin-side">
           <div class="admin-side-title">报表中心</div>
           <div v-for="g in reportGroups" :key="g.name" class="report-nav-group">
@@ -2416,7 +2446,7 @@ async function doLogout() {
               <div class="config-row config-row-stacked">
                 <div class="config-label">
                   <strong>锁机码</strong>
-                  <span class="muted small">设置后本机生效，不上传服务器</span>
+                  <span class="muted small">设置后本机生效，不上传服务器；仅保存摘要，但本机文件仍可被读取，不能替代系统账户权限</span>
                 </div>
                 <div class="config-control">
                   <input
@@ -2703,7 +2733,7 @@ async function doLogout() {
       <div v-if="lockSetupOpen" class="modal-mask" @click.self="cancelLockSetup">
         <div class="modal" role="dialog" aria-modal="true" aria-label="设置锁机码">
           <h3>设置锁机码</h3>
-          <p class="muted small">离岗锁屏、或关闭窗口隐藏到托盘后，输入此码解锁。仅保存在本机。</p>
+          <p class="muted small">离岗锁屏、或关闭窗口隐藏到托盘后，输入此码解锁。摘要仅保存在本机，清空浏览器数据会一并清除。</p>
           <input
             v-model="lockCodeDraft"
             class="input mono"
