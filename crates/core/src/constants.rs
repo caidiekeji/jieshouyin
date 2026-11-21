@@ -402,3 +402,28 @@ pub const AUDIT_SHIFT_CLOSE: &str = "close_shift";
 
 // ── 二次授权一次性 nonce TTL 秒数（§12.4，与 rbac 60s 一致）────
 pub const SENSITIVE_AUTH_TTL_SECONDS: i64 = 60;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// 配置清单是手写数组，最容易出现“新增键忘加编辑白名单/重复项”；
+    /// 用测试把两个清单的包含关系与唯一性钉死。
+    #[test]
+    fn config_meta_and_editable_lists_stay_consistent() {
+        let meta_keys: Vec<&str> = CONFIG_META.iter().map(|m| m.0).collect();
+        let unique: HashSet<&str> = meta_keys.iter().copied().collect();
+        assert_eq!(unique.len(), meta_keys.len(), "CONFIG_META 存在重复键");
+
+        let editable: HashSet<&str> = CONFIG_EDITABLE.iter().copied().collect();
+        assert_eq!(
+            editable.len(),
+            CONFIG_EDITABLE.len(),
+            "CONFIG_EDITABLE 存在重复键"
+        );
+        for key in CONFIG_EDITABLE {
+            assert!(unique.contains(key), "可编辑配置 {key} 未出现在 CONFIG_META");
+        }
+    }
+}
