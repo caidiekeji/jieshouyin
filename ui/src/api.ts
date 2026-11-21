@@ -433,6 +433,8 @@ export const api = {
     instoreCode: string | null
   ) =>
     invoke<void>('update_product', { skuId, salePriceCents, alertQty, memberPriceCents, instoreCode }),
+  setProductService: (skuId: number, isService: boolean) =>
+    invoke<void>('set_product_service', { skuId, isService }),
   setProductStatus: (spuId: number, status: number) =>
     invoke<void>('set_product_status', { spuId, status }),
   listCategories: () => invoke<Category[]>('list_categories'),

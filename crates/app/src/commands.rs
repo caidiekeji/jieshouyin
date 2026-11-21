@@ -1704,6 +1704,16 @@ pub fn update_product(
 }
 
 #[tauri::command]
+pub fn set_product_service(
+    sku_id: i64,
+    is_service: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::product::set_product_service(&conn, sku_id, is_service)
+}
+
+#[tauri::command]
 pub fn set_product_status(spu_id: i64, status: i64, state: State<'_, AppState>) -> Result<()> {
     let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::product::set_product_status(&conn, spu_id, status)
@@ -4793,6 +4803,7 @@ pub fn run() {
             create_product,
             list_products,
             update_product,
+            set_product_service,
             set_product_status,
             list_categories,
             create_category,

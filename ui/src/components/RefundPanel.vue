@@ -163,12 +163,13 @@ onMounted(async () => {
       </div>
       <table class="tbl">
         <thead>
-          <tr><th>订单号</th><th>时间</th><th class="num-cell">件数</th><th class="num-cell">实付</th><th class="num-cell">已退</th><th>状态</th><th>操作</th></tr>
+          <tr><th>订单号</th><th>时间</th><th>桌台</th><th class="num-cell">件数</th><th class="num-cell">实付</th><th class="num-cell">已退</th><th>状态</th><th>操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="o in orders" :key="o.order_no">
             <td class="mono">{{ o.order_no }}</td>
             <td>{{ o.created_at }}</td>
+            <td>{{ o.table_code || '—' }}</td>
             <td class="num-cell">{{ o.item_count }}</td>
             <td class="num-cell">¥{{ formatMoney(o.pay_cents) }}</td>
             <td class="num-cell">¥{{ formatMoney(o.refunded_cents) }}</td>
@@ -178,7 +179,7 @@ onMounted(async () => {
               <button class="btn btn-sm ghost" @click="emit('detail', o.order_no)">详情</button>
             </td>
           </tr>
-          <tr v-if="!orders.length"><td colspan="7" class="empty">没有符合条件的订单，试试调整日期或订单号</td></tr>
+          <tr v-if="!orders.length"><td colspan="8" class="empty">没有符合条件的订单，试试调整日期或订单号</td></tr>
         </tbody>
       </table>
     </div>

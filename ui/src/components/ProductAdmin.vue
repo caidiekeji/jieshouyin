@@ -241,6 +241,19 @@ async function saveEdit() {
   }
 }
 
+/** 实体/服务互转：服务项目不计库存，转换前需库存为 0 且不能是称重商品。 */
+async function toggleService(p: ProductRow) {
+  const target = !p.is_service
+  if (target && !window.confirm(`把「${p.name}」设为服务项目？服务项目不计库存，账面库存必须为 0。`)) return
+  try {
+    await api.setProductService(p.sku_id, target)
+    done(target ? '已设为服务项目' : '已转回实体商品')
+    await reload()
+  } catch (e) {
+    fail(e)
+  }
+}
+
 async function toggleStatus(p: ProductRow) {
   try {
     await api.setProductStatus(p.spu_id, p.status === 1 ? 0 : 1)
@@ -366,6 +379,7 @@ onMounted(reload)
               <div class="row-actions">
                 <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
                 <button v-if="!p.is_service" class="btn btn-sm" @click="startAdjust(p)"><Icon name="package" :size="ICON_SIZE.sm" />库存</button>
+                <button class="btn btn-sm ghost" @click="toggleService(p)">{{ p.is_service ? '转实体' : '设为服务' }}</button>
                 <button class="btn btn-sm" @click="startImage(p)"><Icon name="image" :size="ICON_SIZE.sm" />图片</button>
                 <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
               </div>

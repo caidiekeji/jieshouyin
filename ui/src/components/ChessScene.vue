@@ -2,7 +2,12 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, formatMoney, type CartLine, type ProductHit, type ServiceTable } from '../api'
 
-const props = defineProps<{ activeTableId: number | null; cart: CartLine[] }>()
+const props = defineProps<{
+  activeTableId: number | null
+  cart: CartLine[]
+  /** 建/删包间需 product.edit：店员只开台与续费。 */
+  canManage: boolean
+}>()
 const emit = defineEmits<{
   select: [table: ServiceTable, lines: CartLine[]]
   add: [product: ProductHit]
@@ -172,7 +177,7 @@ onUnmounted(() => {
   <section class="chess-board">
     <div class="board-head">
       <div><strong>棋牌包间</strong><span>开台自动带 1 个房费项目，超时用“续费”加钟</span></div>
-      <button class="btn btn-sm ghost" @click="showCreate = !showCreate">
+      <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = !showCreate">
         {{ showCreate ? '收起' : '＋ 新增包间' }}
       </button>
     </div>
@@ -207,7 +212,7 @@ onUnmounted(() => {
         <div class="card-actions" @click.stop>
           <button v-if="r.status === 'OCCUPIED'" class="link" @click="renew(r)">续 1 小时</button>
           <button v-if="r.status === 'OCCUPIED'" class="link danger" @click="clear(r)">清台</button>
-          <button v-else class="link" @click="remove(r)">删除</button>
+          <button v-else-if="canManage" class="link" @click="remove(r)">删除</button>
         </div>
       </article>
       <div v-if="!rooms.length" class="empty-board">

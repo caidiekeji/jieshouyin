@@ -521,6 +521,51 @@ pub fn update_product(
     Ok(())
 }
 
+/// 服务标记切换：服务类不计库存，转服务前必须清零账面库存。
+pub fn set_product_service(conn: &Connection, sku_id: i64, is_service: bool) -> Result<()> {
+    let (weighed, current, qty): (i64, i64, i64) = conn
+        .query_row(
+            "SELECT s.is_weighed, s.is_service, COALESCE(i.qty,0)
+             FROM sku s LEFT JOIN inv_stock i ON i.sku_id=s.sku_id AND i.warehouse_type='STORE'
+             WHERE s.sku_id=?1",
+            [sku_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?
+        .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在")))?;
+    if is_service && weighed != 0 {
+        return Err(CoreError::Validation("称重商品不能设为服务项目".into()));
+    }
+    if is_service && qty != 0 {
+        return Err(CoreError::Validation(format!(
+            "库存需为 0 才能设为服务项目，当前 {qty}"
+        )));
+    }
+    if current == is_service as i64 {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE sku SET is_service=?1 WHERE sku_id=?2",
+        params![is_service as i64, sku_id],
+    )?;
+    if is_service {
+        // 转服务：库存已为 0，移除台账行；历史 inv_trans 保留可追溯。
+        tx.execute(
+            "DELETE FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE' AND qty=0",
+            [sku_id],
+        )?;
+    } else {
+        // 从服务转回实体商品：恢复 0 库存台账行，便于盘点和预警。
+        tx.execute(
+            "INSERT OR IGNORE INTO inv_stock(sku_id,warehouse_type,qty,version) VALUES (?1,'STORE',0,1)",
+            [sku_id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 /// 停用/启用（SPU 级状态；停用后 lookup_product 不再命中——由查询过滤）。
 pub fn set_product_status(conn: &Connection, spu_id: i64, status: i64) -> Result<()> {
     if status != 0 && status != 1 {
@@ -653,6 +698,30 @@ mod tests {
         assert_eq!(stock_rows, 0);
         let rows = list_products(&c, "中式推拿", 10, true).unwrap();
         assert!(rows[0].is_service);
+    }
+
+    #[test]
+    fn convert_product_to_service_requires_zero_stock() {
+        let c = setup();
+        let sku = create_product(&c, 1, "足疗", None, "次", 9900, 0, false, 5, 0, None).unwrap();
+        assert!(set_product_service(&c, sku, true).is_err());
+        adjust_stock(&c, sku, -5, "转服务清零", None).unwrap();
+        set_product_service(&c, sku, true).unwrap();
+        let stock_rows: i64 = c
+            .query_row("SELECT COUNT(*) FROM inv_stock WHERE sku_id=?1", [sku], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stock_rows, 0);
+        set_product_service(&c, sku, false).unwrap();
+        let zero_stock: i64 = c
+            .query_row(
+                "SELECT qty FROM inv_stock WHERE sku_id=?1",
+                [sku],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(zero_stock, 0);
     }
 
     #[test]

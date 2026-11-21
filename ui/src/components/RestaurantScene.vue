@@ -2,7 +2,12 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, type CartLine, type ServiceTable } from '../api'
 
-const props = defineProps<{ activeTableId: number | null; cart: CartLine[] }>()
+const props = defineProps<{
+  activeTableId: number | null
+  cart: CartLine[]
+  /** 建/删桌台需 product.edit：店员只开台点菜，不见管理入口。 */
+  canManage: boolean
+}>()
 const emit = defineEmits<{
   select: [table: ServiceTable, lines: CartLine[]]
   cleared: []
@@ -122,7 +127,7 @@ onUnmounted(() => {
         <strong>餐饮桌台</strong>
         <span class="muted">选中桌台后点菜，结算成功自动清台</span>
       </div>
-      <button class="btn btn-sm ghost" @click="showCreate = !showCreate">
+      <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = !showCreate">
         {{ showCreate ? '收起' : '＋ 新增桌台' }}
       </button>
     </div>
@@ -152,7 +157,7 @@ onUnmounted(() => {
         </div>
         <div class="card-actions" @click.stop>
           <button v-if="t.status === 'OCCUPIED'" class="link danger" @click="clear(t)">清台</button>
-          <button v-else class="link" @click="remove(t)">删除</button>
+          <button v-else-if="canManage" class="link" @click="remove(t)">删除</button>
         </div>
       </article>
       <div v-if="!tables.length" class="empty-board">
