@@ -750,6 +750,31 @@ ALTER TABLE sales_order_item ADD COLUMN technician_id INTEGER REFERENCES technic
 ALTER TABLE sales_order_item ADD COLUMN commission_cents INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// M0018：行业规则配置化——棋牌计费单位/最低/取整、开台会员策略、
+/// 技师提成方式与项目级覆盖、厨打档口路由配置。
+const M0018: &str = r#"
+ALTER TABLE service_table ADD COLUMN fee_unit TEXT;
+ALTER TABLE service_table ADD COLUMN min_minutes INTEGER;
+ALTER TABLE service_table ADD COLUMN round_minutes INTEGER;
+ALTER TABLE technician ADD COLUMN commission_mode TEXT NOT NULL DEFAULT 'PERCENT';
+ALTER TABLE technician ADD COLUMN fixed_cents INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS technician_commission_rule (
+    technician_id  INTEGER NOT NULL REFERENCES technician(technician_id) ON DELETE CASCADE,
+    category_id    INTEGER NOT NULL,
+    mode           TEXT NOT NULL DEFAULT 'PERCENT',
+    bps            INTEGER NOT NULL DEFAULT 0,
+    fixed_cents    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (technician_id, category_id)
+);
+INSERT OR IGNORE INTO system_config(config_key,config_value,updated_at) VALUES
+ ('chess_fee_unit','MINUTE',datetime('now')),
+ ('chess_min_minutes','60',datetime('now')),
+ ('chess_round_minutes','0',datetime('now')),
+ ('table_member_bind','OPTIONAL',datetime('now')),
+ ('table_allow_member_rebind','0',datetime('now')),
+ ('kitchen_print_routes','[]',datetime('now'));
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -836,6 +861,11 @@ pub fn all() -> Vec<Migration> {
             version: 17,
             name: "table_member_kitchen_technician",
             up: M0017,
+        },
+        Migration {
+            version: 18,
+            name: "industry_rules_configurable",
+            up: M0018,
         },
     ]
 }

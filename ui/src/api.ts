@@ -38,6 +38,9 @@ export interface ServiceTable {
   seats: number
   scene: string
   fee_sku_id: number | null
+  fee_unit: 'MINUTE' | 'HOUR' | null
+  min_minutes: number | null
+  round_minutes: number | null
   status: string
   session_id: number | null
   opened_at: string | null
@@ -51,17 +54,27 @@ export interface ServiceTable {
 /** 厨打返回的本次新增出品行 */
 export interface KitchenItem {
   sku_id: number
+  category_id: number
   name: string
   unit: string
   qty: number
+}
+
+/** 厨打档口路由：商品分类绑定独立打印机 */
+export interface KitchenRoute {
+  category_id: number
+  label: string
+  host: string
+  port: number
 }
 
 /** 棋牌计时账单 */
 export interface ChessFee {
   elapsed_minutes: number
   billable_minutes: number
-  /** 房费 SKU 的每分钟单价（分） */
-  minute_cents: number
+  /** 房费 SKU 原价：MINUTE 为每分钟，HOUR 为每小时 */
+  unit_cents: number
+  fee_unit: 'MINUTE' | 'HOUR'
   fee_cents: number
 }
 
@@ -72,8 +85,19 @@ export interface Technician {
   phone: string | null
   /** 万分比：1200 = 12% */
   commission_bps: number
+  commission_mode: 'PERCENT' | 'FIXED'
+  /** FIXED 模式每份提成（分） */
+  fixed_cents: number
   status: number
   on_duty: boolean
+}
+
+export interface TechnicianRule {
+  technician_id: number
+  category_id: number
+  mode: 'PERCENT' | 'FIXED'
+  bps: number
+  fixed_cents: number
 }
 
 export interface TechnicianCommission {
@@ -153,7 +177,7 @@ export interface ConfigRow {
   config_value: string
   label: string
   description: string
-  kind: 'text' | 'number' | 'decimal' | 'switch'
+  kind: 'text' | 'number' | 'decimal' | 'switch' | 'select'
   /** 后端标注是否可在本页直接编辑：false 表示由专属命令管理（如门店名称、所属行业） */
   editable: boolean
 }
@@ -408,14 +432,19 @@ export const api = {
       'parse_weigh_barcode',
       { code },
     ),
-  quoteOrder: (lines: CartLine[], memberId: number | null, couponCode: string | null) =>
-    invoke<OrderQuote>('quote_order', { lines, memberId, couponCode }),
+  quoteOrder: (
+    lines: CartLine[],
+    memberId: number | null,
+    couponCode: string | null,
+    tableId: number | null = null
+  ) => invoke<OrderQuote>('quote_order', { lines, memberId, couponCode, tableId }),
   checkout: (
     lines: CartLine[],
     payments: unknown[],
     memberId: number | null,
     couponCode: string | null,
-    tableCode: string | null = null
+    tableCode: string | null = null,
+    tableId: number | null = null
   ) =>
     invoke<CheckoutResult>('checkout', {
       lines,
@@ -423,6 +452,7 @@ export const api = {
       memberId,
       couponCode,
       tableCode,
+      tableId,
     }),
   // 场景桌台（餐饮/棋牌）
   listServiceTables: (scene: string) =>
@@ -433,7 +463,10 @@ export const api = {
     name: string,
     zone: string,
     seats: number,
-    feeSkuId: number | null
+    feeSkuId: number | null,
+    feeUnit: 'MINUTE' | 'HOUR' | null = null,
+    minMinutes: number | null = null,
+    roundMinutes: number | null = null
   ) =>
     invoke<number>('create_service_table', {
       scene,
@@ -442,11 +475,16 @@ export const api = {
       zone,
       seats,
       feeSkuId,
+      feeUnit,
+      minMinutes,
+      roundMinutes,
     }),
   deleteServiceTable: (tableId: number) =>
     invoke<void>('delete_service_table', { tableId }),
   openServiceTable: (tableId: number, cartJson: string, memberId: number | null = null) =>
     invoke<ServiceTable>('open_service_table', { tableId, cartJson, memberId }),
+  rebindServiceTableMember: (tableId: number, memberId: number) =>
+    invoke<ServiceTable>('rebind_service_table_member', { tableId, memberId }),
   saveServiceTableCart: (tableId: number, cartJson: string) =>
     invoke<void>('save_service_table_cart', { tableId, cartJson }),
   submitServiceTableOrder: (tableId: number, scene: string) =>
@@ -472,9 +510,42 @@ export const api = {
   chessTableFee: (tableId: number) => invoke<ChessFee>('chess_table_fee', { tableId }),
   printKitchenTicket: (tableId: number) =>
     invoke<string>('print_kitchen_ticket', { tableId }),
+  getKitchenRoutes: () => invoke<KitchenRoute[]>('get_kitchen_routes'),
+  setKitchenRoutes: (routes: KitchenRoute[]) =>
+    invoke<void>('set_kitchen_routes', { routesJson: JSON.stringify(routes) }),
   // 养生技师：日排班、服务行指定、折后实收提成
-  createTechnician: (name: string, phone: string | null, commissionBps: number) =>
-    invoke<number>('create_technician', { name, phone, commissionBps }),
+  createTechnician: (
+    name: string,
+    phone: string | null,
+    commissionBps: number,
+    commissionMode: 'PERCENT' | 'FIXED' = 'PERCENT',
+    fixedCents = 0
+  ) =>
+    invoke<number>('create_technician', {
+      name,
+      phone,
+      commissionBps,
+      commissionMode,
+      fixedCents,
+    }),
+  setTechnicianRule: (
+    technicianId: number,
+    categoryId: number,
+    mode: 'PERCENT' | 'FIXED',
+    bps: number,
+    fixedCents: number
+  ) =>
+    invoke<void>('set_technician_rule', {
+      technicianId,
+      categoryId,
+      mode,
+      bps,
+      fixedCents,
+    }),
+  deleteTechnicianRule: (technicianId: number, categoryId: number) =>
+    invoke<void>('delete_technician_rule', { technicianId, categoryId }),
+  listTechnicianRules: (technicianId: number | null) =>
+    invoke<TechnicianRule[]>('list_technician_rules', { technicianId }),
   setTechnicianShift: (technicianId: number, businessDate: string, onDuty: boolean) =>
     invoke<void>('set_technician_shift', { technicianId, businessDate, onDuty }),
   listTechnicians: (businessDate: string) =>

@@ -20,7 +20,16 @@ const rooms = ref<ServiceTable[]>([])
 const feeProducts = ref<ProductHit[]>([])
 const busy = ref(false)
 const showCreate = ref(false)
-const form = ref({ code: '', name: '', zone: '大厅', seats: 4, feeSkuId: null as number | null })
+const form = ref({
+  code: '',
+  name: '',
+  zone: '大厅',
+  seats: 4,
+  feeSkuId: null as number | null,
+  feeUnit: '' as '' | 'MINUTE' | 'HOUR',
+  minMinutes: '' as number | '',
+  roundMinutes: '' as number | '',
+})
 const transferSource = ref<ServiceTable | null>(null)
 const tick = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
@@ -125,7 +134,15 @@ async function runTransfer(target: ServiceTable) {
 async function create() {
   if (busy.value) return
   if (!form.value.feeSkuId) {
-    emit('error', '请选择房费商品（商品单价按“每分钟”维护，例如 1.5 元/分钟）')
+    emit('error', '请选择房费商品，并按“每分钟/每小时”维护好单价')
+    return
+  }
+  if (form.value.minMinutes !== '' && form.value.minMinutes < 0) {
+    emit('error', '最低计费分钟不能为负')
+    return
+  }
+  if (form.value.roundMinutes !== '' && form.value.roundMinutes < 0) {
+    emit('error', '取整分钟不能为负')
     return
   }
   busy.value = true
@@ -136,9 +153,21 @@ async function create() {
       form.value.name,
       form.value.zone,
       form.value.seats,
-      form.value.feeSkuId
+      form.value.feeSkuId,
+      form.value.feeUnit || null,
+      form.value.minMinutes === '' ? null : Number(form.value.minMinutes),
+      form.value.roundMinutes === '' ? null : Number(form.value.roundMinutes)
     )
-    form.value = { code: '', name: '', zone: form.value.zone, seats: 4, feeSkuId: null }
+    form.value = {
+      code: '',
+      name: '',
+      zone: form.value.zone,
+      seats: 4,
+      feeSkuId: null,
+      feeUnit: form.value.feeUnit,
+      minMinutes: form.value.minMinutes,
+      roundMinutes: form.value.roundMinutes,
+    }
     showCreate.value = false
     await load()
   } catch (e) {
@@ -208,6 +237,19 @@ onUnmounted(() => {
           {{ p.spu_name }} ¥{{ formatMoney(p.price_cents) }}
         </option>
       </select>
+      <select v-model="form.feeUnit" class="input input-sm" aria-label="房费计价单位">
+        <option value="">跟随门店配置</option>
+        <option value="MINUTE">单价/分钟</option>
+        <option value="HOUR">单价/小时</option>
+      </select>
+      <label class="muted small">最低
+        <input v-model.number="form.minMinutes" class="input input-xs" type="number" min="0" max="1440" placeholder="跟随" />
+        分钟
+      </label>
+      <label class="muted small">取整
+        <input v-model.number="form.roundMinutes" class="input input-xs" type="number" min="0" max="120" placeholder="跟随" />
+        分钟
+      </label>
       <button class="btn btn-sm primary" :disabled="busy" @click="create">创建</button>
     </div>
     <div class="room-grid">
@@ -221,7 +263,7 @@ onUnmounted(() => {
         <p>{{ r.name }}<span v-if="r.member_phone" class="member-tag">会员 {{ r.member_phone }}</span></p>
         <div class="clock">{{ r.status === 'OCCUPIED' ? elapsed(r) : '待开台' }}</div>
         <div class="card-foot">
-          <span v-if="feeOf(r)" class="fee">{{ feeOf(r)?.spu_name }} ¥{{ formatMoney(feeOf(r)!.price_cents) }}/分钟</span>
+          <span v-if="feeOf(r)" class="fee">{{ feeOf(r)?.spu_name }} ¥{{ formatMoney(feeOf(r)!.price_cents) }}{{ r.fee_unit === 'HOUR' ? '/小时' : r.fee_unit === 'MINUTE' ? '/分钟' : '（单位按门店配置）' }}</span>
           <span v-else class="fee muted">未绑定房费</span>
           <span class="count">{{ itemCount(r) }} 件</span>
         </div>
@@ -283,6 +325,9 @@ onUnmounted(() => {
   padding: 1px 6px;
   margin-left: 6px;
   font-size: 11px;
+}
+.create-row .input-xs {
+  width: 56px;
 }
 .create-row {
   display: grid;

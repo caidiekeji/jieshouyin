@@ -9,7 +9,7 @@ use checkout_core::constants::{
     CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_ENABLED,
     CFG_POINTS_PER_YUAN, CFG_PRINT_AUTO, CFG_PRINT_HOST, CFG_PRINT_PORT, CFG_RECEIPT_QR_BASE,
     CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_NO, CFG_STORE_PHONE, CFG_STORE_TIMEZONE,
-    COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS,
+    CFG_TABLE_ALLOW_REBIND, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS,
     DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_ENABLED, DEFAULT_POINTS_PER_YUAN,
     DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD,
     LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE,
@@ -257,10 +257,24 @@ pub fn create_service_table(
     zone: String,
     seats: i64,
     fee_sku_id: Option<i64>,
+    fee_unit: Option<String>,
+    min_minutes: Option<i64>,
+    round_minutes: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<i64> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
-    checkout_core::service::create_table(&conn, &scene, &code, &name, &zone, seats, fee_sku_id)
+    checkout_core::service::create_table(
+        &conn,
+        &scene,
+        &code,
+        &name,
+        &zone,
+        seats,
+        fee_sku_id,
+        fee_unit.as_deref(),
+        min_minutes,
+        round_minutes,
+    )
 }
 
 #[tauri::command]
@@ -279,6 +293,26 @@ pub fn open_service_table(
 ) -> Result<checkout_core::service::ServiceTable> {
     let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     checkout_core::service::open_table(&conn, table_id, &cart_json, member_id)
+}
+
+/// 换绑会员：需门店开启“允许换绑”，操作写审计。
+#[tauri::command]
+pub fn rebind_service_table_member(
+    table_id: i64,
+    member_id: i64,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::service::ServiceTable> {
+    let (operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    let table = checkout_core::service::rebind_member(&conn, table_id, member_id)?;
+    checkout_core::rbac::audit_operation(
+        &conn,
+        "table_rebind_member",
+        Some(operator_id),
+        None,
+        serde_json::json!({"table_id": table_id, "member_id": member_id}),
+        &now_str(),
+    )?;
+    Ok(table)
 }
 
 /// 点单过程中保存购物车快照；同一桌只保留最新一份。
@@ -422,52 +456,179 @@ pub fn print_kitchen_ticket(table_id: i64, state: State<'_, AppState>) -> Result
     if items.is_empty() {
         return Ok("本次没有新增菜品，无需厨打".into());
     }
-    let item_text = items
-        .iter()
-        .map(|i| format!("{}  x{} {}", i.name, i.qty, i.unit))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let total_qty: i64 = items.iter().map(|i| i.qty).sum();
-    let template = Template {
-        template_id: "kitchen_default".into(),
-        paper_width_mm: 58,
-        sections: json!({
-            "header": [
-                {"type":"text","content":"后厨出品单","align":"center","bold":true,"size":2},
-                {"type":"text","content":"桌台 {{table_code}}","align":"center","bold":true},
-                {"type":"text","content":"{{created_at}}","align":"center"}
-            ],
-            "items": [
-                {"type":"divider","char":"-"},
-                {"type":"text","content":"{{items}}","size":1}
-            ],
-            "summary": [
-                {"type":"divider","char":"-"},
-                {"type":"text","content":"合计 {{total_qty}} 份","align":"right","bold":true}
-            ],
-            "footer": [
-                {"type":"feed","lines":3},
-                {"type":"cut","mode":"partial"}
-            ]
-        }),
-    };
-    let mut vars = std::collections::HashMap::new();
-    vars.insert("table_code".into(), code);
-    vars.insert("created_at".into(), now_str());
-    vars.insert("items".into(), item_text);
-    vars.insert("total_qty".into(), total_qty.to_string());
-    let bytes = render_receipt(&template, &vars)?;
-    let host = cfg_get(&conn, CFG_PRINT_HOST)?.unwrap_or_default();
-    if host.trim().is_empty() {
-        return Ok("未配置打印机地址，厨打未发送（请在设置中填写打印机 IP）".into());
-    }
-    let port = cfg_get(&conn, CFG_PRINT_PORT)?
+    let main_host = cfg_get(&conn, CFG_PRINT_HOST)?.unwrap_or_default();
+    let main_port = cfg_get(&conn, CFG_PRINT_PORT)?
         .and_then(|s| s.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PRINT_PORT);
-    match checkout_core::printer::send_bytes(&host, port, &bytes) {
-        Ok(()) => Ok("厨打已发送".into()),
-        Err(e) => Ok(format!("厨打发送失败: {e}")),
+    // 档口路由：分类 → 独立打印机；未配置或未命中分类时回退主打印机。
+    let routes: Vec<serde_json::Value> = cfg_get(&conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let route_of = |category_id: i64| -> (String, String, u16) {
+        for r in &routes {
+            if r.get("category_id").and_then(|v| v.as_i64()) == Some(category_id) {
+                let label = r
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("档口")
+                    .to_string();
+                let host = r
+                    .get("host")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let port = r
+                    .get("port")
+                    .and_then(|v| v.as_u64())
+                    .map(|p| if p <= 65535 { p as u16 } else { main_port })
+                    .unwrap_or(main_port);
+                if !host.is_empty() {
+                    return (label, host, port);
+                }
+            }
+        }
+        ("后厨".to_string(), main_host.clone(), main_port)
+    };
+    let mut groups: std::collections::BTreeMap<
+        String,
+        (
+            String,
+            String,
+            u16,
+            Vec<&checkout_core::service::KitchenItem>,
+        ),
+    > = std::collections::BTreeMap::new();
+    for item in &items {
+        let (label, host, port) = route_of(item.category_id);
+        groups
+            .entry(format!("{label}|{host}|{port}"))
+            .or_insert((label, host, port, Vec::new()))
+            .3
+            .push(item);
     }
+    let mut sent = Vec::new();
+    let mut skipped = Vec::new();
+    for (_, (label, host, port, group)) in groups {
+        if host.trim().is_empty() {
+            skipped.push(label);
+            continue;
+        }
+        let item_text = group
+            .iter()
+            .map(|i| format!("{}  x{} {}", i.name, i.qty, i.unit))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let total_qty: i64 = group.iter().map(|i| i.qty).sum();
+        let template = Template {
+            template_id: "kitchen_default".into(),
+            paper_width_mm: 58,
+            sections: json!({
+                "header": [
+                    {"type":"text","content":"后厨出品单","align":"center","bold":true,"size":2},
+                    {"type":"text","content":"{{station}} · 桌台 {{table_code}}","align":"center","bold":true},
+                    {"type":"text","content":"{{created_at}}","align":"center"}
+                ],
+                "items": [
+                    {"type":"divider","char":"-"},
+                    {"type":"text","content":"{{items}}","size":1}
+                ],
+                "summary": [
+                    {"type":"divider","char":"-"},
+                    {"type":"text","content":"合计 {{total_qty}} 份","align":"right","bold":true}
+                ],
+                "footer": [
+                    {"type":"feed","lines":3},
+                    {"type":"cut","mode":"partial"}
+                ]
+            }),
+        };
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("station".into(), label.clone());
+        vars.insert("table_code".into(), code.clone());
+        vars.insert("created_at".into(), now_str());
+        vars.insert("items".into(), item_text);
+        vars.insert("total_qty".into(), total_qty.to_string());
+        let bytes = render_receipt(&template, &vars)?;
+        match checkout_core::printer::send_bytes(&host, port, &bytes) {
+            Ok(()) => sent.push(label),
+            Err(e) => skipped.push(format!("{label}发送失败: {e}")),
+        }
+    }
+    if sent.is_empty() {
+        return Ok(if skipped.is_empty() {
+            "没有可发送的厨打内容".into()
+        } else {
+            format!("厨打未发送：{}（请在设置中配置打印机）", skipped.join("；"))
+        });
+    }
+    let mut msg = format!("厨打已发送：{}", sent.join("、"));
+    if !skipped.is_empty() {
+        msg.push_str(&format!("；未发送：{}", skipped.join("；")));
+    }
+    Ok(msg)
+}
+
+/// 读取厨打档口路由（分类 → 打印机）。
+#[tauri::command]
+pub fn get_kitchen_routes(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    let raw = cfg_get(&conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?.unwrap_or_default();
+    Ok(serde_json::from_str(&raw).unwrap_or_default())
+}
+
+/// 保存厨打档口路由。空数组表示全部回退主打印机。
+#[tauri::command]
+pub fn set_kitchen_routes(
+    routes_json: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    let routes: Vec<serde_json::Value> = serde_json::from_str(&routes_json)
+        .map_err(|_| CoreError::Validation("厨打路由必须是 JSON 数组".into()))?;
+    if routes.len() > 50 {
+        return Err(CoreError::Validation("厨打路由最多 50 条".into()));
+    }
+    for r in &routes {
+        let category_id = r
+            .get("category_id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| CoreError::Validation("每条路由必须指定分类".into()))?;
+        let exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM category WHERE category_id=?1",
+            [category_id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            return Err(CoreError::Validation(format!("分类 {category_id} 不存在")));
+        }
+        let host = r
+            .get("host")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if host.is_empty()
+            || host.len() > 64
+            || !host
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+        {
+            return Err(CoreError::Validation(
+                "档口打印机地址只能是 IP/主机名".into(),
+            ));
+        }
+        let port = r.get("port").and_then(|v| v.as_u64()).unwrap_or(9100);
+        if port == 0 || port > 65535 {
+            return Err(CoreError::Validation("档口打印机端口非法".into()));
+        }
+    }
+    let value = serde_json::to_string(&routes)?;
+    conn.execute(
+        "INSERT INTO system_config(config_key,config_value,updated_at) VALUES (?1,?2,?3)
+         ON CONFLICT(config_key) DO UPDATE SET config_value=excluded.config_value, updated_at=excluded.updated_at",
+        rusqlite::params![checkout_core::constants::CFG_KITCHEN_ROUTES, value, now_str()],
+    )?;
+    Ok(())
 }
 
 /// 技师档案：新建需商品编辑权限，比例以万分比保存（1200=12%）。
@@ -476,10 +637,51 @@ pub fn create_technician(
     name: String,
     phone: Option<String>,
     commission_bps: i64,
+    commission_mode: String,
+    fixed_cents: i64,
     state: State<'_, AppState>,
 ) -> Result<i64> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
-    checkout_core::technician::create_technician(&conn, &name, phone.as_deref(), commission_bps)
+    checkout_core::technician::create_technician(
+        &conn,
+        &name,
+        phone.as_deref(),
+        commission_bps,
+        &commission_mode,
+        fixed_cents,
+    )
+}
+
+#[tauri::command]
+pub fn set_technician_rule(
+    technician_id: i64,
+    category_id: i64,
+    mode: String,
+    bps: i64,
+    fixed_cents: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::technician::set_rule(&conn, technician_id, category_id, &mode, bps, fixed_cents)
+}
+
+#[tauri::command]
+pub fn delete_technician_rule(
+    technician_id: i64,
+    category_id: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::technician::delete_rule(&conn, technician_id, category_id)
+}
+
+#[tauri::command]
+pub fn list_technician_rules(
+    technician_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::technician::TechnicianRule>> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::technician::list_rules(&conn, technician_id)
 }
 
 /// 日排班：on_duty=true 在班，false 休息。日期为营业日 YYYY-MM-DD。
@@ -886,6 +1088,8 @@ pub struct CartLineInput {
     pub qty: i64,
     /// 养生服务行指定技师；服务端校验技师在册，结算时按该技师比例计提。
     pub technician_id: Option<i64>,
+    /// 棋牌计时房费行：服务端按桌台当前计费规则重算，不信任客户端单价。
+    pub is_chess_fee: Option<bool>,
 }
 
 /// 服务端权威单价：一律取 sku.sale_price_cents，不信任客户端传价
@@ -945,11 +1149,39 @@ fn plan_amounts(
     lines: &[CartLineInput],
     member_id: Option<i64>,
     coupon_code: Option<&str>,
+    table_id: Option<i64>,
     now: &str,
 ) -> Result<AmountPlan> {
     // 1. 行 + 会员价装载（§8.2 会员价参与单品取优）
     let mut cart_lines: Vec<checkout_core::promo::CartLine> = Vec::with_capacity(lines.len());
+    let mut chess_fee_seen = false;
     for l in lines {
+        if l.is_chess_fee.unwrap_or(false) {
+            if chess_fee_seen {
+                return Err(CoreError::Validation("棋牌房费行只能有一条".into()));
+            }
+            chess_fee_seen = true;
+            let tid = table_id
+                .ok_or_else(|| CoreError::Validation("棋牌房费缺少桌台信息".into()))?;
+            let fee = checkout_core::service::chess_fee(conn, tid)?;
+            let fee_sku: Option<i64> = conn
+                .query_row(
+                    "SELECT fee_sku_id FROM service_table WHERE table_id=?1",
+                    [tid],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten();
+            if fee_sku != Some(l.sku_id) {
+                return Err(CoreError::Validation(
+                    "棋牌房费商品与包间配置不一致".into(),
+                ));
+            }
+            let mut cl = checkout_core::promo::CartLine::new(l.sku_id, 1, fee.fee_cents)?;
+            cl.technician_id = None;
+            cart_lines.push(cl);
+            continue;
+        }
         let mut cl =
             checkout_core::promo::CartLine::new(l.sku_id, l.qty, sku_sale_price(conn, l.sku_id)?)?;
         if member_id.is_some() {
@@ -1091,6 +1323,7 @@ pub fn quote_order(
     lines: Vec<CartLineInput>,
     member_id: Option<i64>,
     coupon_code: Option<String>,
+    table_id: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<OrderQuote> {
     let license = state
@@ -1125,7 +1358,14 @@ pub fn quote_order(
     )?;
     drop(session);
     drop(license);
-    let plan = plan_amounts(&conn, &lines, member_id, coupon_code.as_deref(), &now_str())?;
+    let plan = plan_amounts(
+        &conn,
+        &lines,
+        member_id,
+        coupon_code.as_deref(),
+        table_id,
+        &now_str(),
+    )?;
     let points_earned = estimate_points(&conn, member_id, plan.payable);
     Ok(OrderQuote {
         total_cents: plan.total,
@@ -1149,6 +1389,7 @@ pub async fn checkout(
     member_id: Option<i64>,
     coupon_code: Option<String>,
     table_code: Option<String>,
+    table_id: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<CheckoutResult> {
     let license = state
@@ -1265,7 +1506,14 @@ pub async fn checkout(
     if let Some(code) = coupon_key {
         checkout_core::member::expire_lazy(&conn, code, &now)?;
     }
-    let plan = plan_amounts(&conn, &lines, member_id, coupon_code.as_deref(), &now)?;
+    let plan = plan_amounts(
+        &conn,
+        &lines,
+        member_id,
+        coupon_code.as_deref(),
+        table_id,
+        &now,
+    )?;
     if let Some(note) = &plan.coupon_note {
         return Err(CoreError::Validation(note.clone()));
     }
@@ -3252,9 +3500,40 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
         | CFG_PAY_CHANNEL_SV
         | CFG_PRINT_AUTO
         | CFG_POINTS_ENABLED
+        | CFG_TABLE_ALLOW_REBIND
         | CFG_ALLOW_NEGATIVE_STOCK => {
             if value != "0" && value != "1" {
                 return Err(CoreError::Validation("开关只允许 0 或 1".into()));
+            }
+        }
+        checkout_core::constants::CFG_CHESS_FEE_UNIT => {
+            if value != "MINUTE" && value != "HOUR" {
+                return Err(CoreError::Validation(
+                    "棋牌计费单位只能是 MINUTE 或 HOUR".into(),
+                ));
+            }
+        }
+        checkout_core::constants::CFG_CHESS_MIN_MINUTES => {
+            let n: i64 = value
+                .parse()
+                .map_err(|_| CoreError::Validation("最低计费分钟必须为整数".into()))?;
+            if !(0..=1440).contains(&n) {
+                return Err(CoreError::Validation("最低计费分钟须在 0–1440".into()));
+            }
+        }
+        checkout_core::constants::CFG_CHESS_ROUND_MINUTES => {
+            let n: i64 = value
+                .parse()
+                .map_err(|_| CoreError::Validation("取整分钟必须为整数".into()))?;
+            if !(0..=120).contains(&n) {
+                return Err(CoreError::Validation("取整分钟须在 0–120".into()));
+            }
+        }
+        checkout_core::constants::CFG_TABLE_MEMBER_BIND => {
+            if value != "OPTIONAL" && value != "REQUIRED" {
+                return Err(CoreError::Validation(
+                    "开台会员策略只能是 OPTIONAL 或 REQUIRED".into(),
+                ));
             }
         }
         CFG_POINTS_PER_YUAN => {
@@ -5028,6 +5307,7 @@ pub fn run() {
             create_service_table,
             delete_service_table,
             open_service_table,
+            rebind_service_table_member,
             save_service_table_cart,
             submit_service_table_order,
             return_service_table_line,
@@ -5035,7 +5315,12 @@ pub fn run() {
             transfer_service_table,
             chess_table_fee,
             print_kitchen_ticket,
+            get_kitchen_routes,
+            set_kitchen_routes,
             create_technician,
+            set_technician_rule,
+            delete_technician_rule,
+            list_technician_rules,
             set_technician_shift,
             list_technicians,
             technician_commission,

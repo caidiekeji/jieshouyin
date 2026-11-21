@@ -122,6 +122,18 @@ pub const CFG_PRINT_HOST: &str = "print_host";
 pub const CFG_PRINT_PORT: &str = "print_port";
 /// 结算成功后是否自动打印小票（0 关 / 1 开）。
 pub const CFG_PRINT_AUTO: &str = "print_auto";
+/// 棋牌房费计价单位：MINUTE（单价按分钟）/ HOUR（单价按小时）。默认 MINUTE。
+pub const CFG_CHESS_FEE_UNIT: &str = "chess_fee_unit";
+/// 棋牌最低计费分钟数，默认 60；0 表示不设最低。
+pub const CFG_CHESS_MIN_MINUTES: &str = "chess_min_minutes";
+/// 棋牌超出后取整分钟数，默认 0 表示按实际分钟不取整；10 表示不足 10 分钟按 10 分钟。
+pub const CFG_CHESS_ROUND_MINUTES: &str = "chess_round_minutes";
+/// 开台会员策略：OPTIONAL（可不绑）/ REQUIRED（必须绑定会员才能开台）。
+pub const CFG_TABLE_MEMBER_BIND: &str = "table_member_bind";
+/// 占用中的桌台是否允许换绑会员（1 允许 / 0 禁止）。
+pub const CFG_TABLE_ALLOW_REBIND: &str = "table_allow_member_rebind";
+/// 厨打档口路由：JSON 数组 [{category_id,label,host,port}]；为空时回退主打印机。
+pub const CFG_KITCHEN_ROUTES: &str = "kitchen_print_routes";
 
 // ── 支付渠道开关（§6.1 设置页；'1' 启用 / '0' 停用）────────────
 pub const CFG_PAY_CHANNEL_CASH: &str = "pay_channel_cash_enabled";
@@ -174,10 +186,12 @@ pub const CONFIG_KIND_NUMBER: &str = "number";
 pub const CONFIG_KIND_DECIMAL: &str = "decimal";
 /// 开关（'1' 启用 / '0' 停用）。
 pub const CONFIG_KIND_SWITCH: &str = "switch";
+/// 固定选项下拉（选项由前端按配置键给出）。
+pub const CONFIG_KIND_SELECT: &str = "select";
 
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
-pub const CONFIG_META: [(&str, &str, &str, &str); 28] = [
+pub const CONFIG_META: [(&str, &str, &str, &str); 34] = [
     (
         CFG_STORE_NAME,
         "门店名称",
@@ -346,11 +360,47 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 28] = [
         "小票二维码指向的订单查询地址前缀，留空则二维码只承载订单号",
         CONFIG_KIND_TEXT,
     ),
+    (
+        CFG_CHESS_FEE_UNIT,
+        "棋牌房费计价单位",
+        "MINUTE=单价按每分钟；HOUR=单价按每小时。可在包间建档时单独覆盖",
+        CONFIG_KIND_SELECT,
+    ),
+    (
+        CFG_CHESS_MIN_MINUTES,
+        "棋牌最低计费分钟",
+        "不足该分钟数按该分钟数收费；0 表示不设最低",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_CHESS_ROUND_MINUTES,
+        "棋牌超时取整分钟",
+        "0=按实际分钟；10=不足 10 分钟按 10 分钟计",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_TABLE_MEMBER_BIND,
+        "开台会员绑定策略",
+        "OPTIONAL=可不绑会员；REQUIRED=必须识别会员才能开台",
+        CONFIG_KIND_SELECT,
+    ),
+    (
+        CFG_TABLE_ALLOW_REBIND,
+        "允许桌台换绑会员",
+        "开启后店长可在占用中的桌台上换绑会员，操作写审计",
+        CONFIG_KIND_SWITCH,
+    ),
+    (
+        CFG_KITCHEN_ROUTES,
+        "厨打档口路由",
+        "JSON 配置，分类绑定独立打印机；留空回退打印设置里的主打印机",
+        CONFIG_KIND_TEXT,
+    ),
 ];
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
 /// 未列入的键（门店名称、所属行业）由专属命令管理，界面只读展示，避免点了保存却被拒。
-pub const CONFIG_EDITABLE: [&str; 26] = [
+pub const CONFIG_EDITABLE: [&str; 31] = [
     CFG_STORE_TIMEZONE,
     CFG_BUSINESS_DAY_CUTOFF,
     CFG_SCAN_GAP_MS,
@@ -377,6 +427,11 @@ pub const CONFIG_EDITABLE: [&str; 26] = [
     CFG_STORE_NO,
     CFG_DEVICE_NO,
     CFG_RECEIPT_QR_BASE,
+    CFG_CHESS_FEE_UNIT,
+    CFG_CHESS_MIN_MINUTES,
+    CFG_CHESS_ROUND_MINUTES,
+    CFG_TABLE_MEMBER_BIND,
+    CFG_TABLE_ALLOW_REBIND,
 ];
 
 // ── 配置默认值（与 M0001 种子一致，读取失败时兜底）──────────────

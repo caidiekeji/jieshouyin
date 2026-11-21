@@ -33,6 +33,12 @@ pub struct ServiceTable {
     pub seats: i64,
     pub scene: String,
     pub fee_sku_id: Option<i64>,
+    /// 棋牌计费覆盖：MINUTE / HOUR；空表示跟随门店配置。
+    pub fee_unit: Option<String>,
+    /// 最低计费分钟覆盖；空表示跟随门店配置。
+    pub min_minutes: Option<i64>,
+    /// 超时取整分钟覆盖；空表示跟随门店配置。
+    pub round_minutes: Option<i64>,
     pub status: String,
     pub session_id: Option<i64>,
     pub opened_at: Option<String>,
@@ -47,6 +53,7 @@ pub struct ServiceTable {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KitchenItem {
     pub sku_id: i64,
+    pub category_id: i64,
     pub name: String,
     pub unit: String,
     pub qty: i64,
@@ -57,8 +64,30 @@ pub struct KitchenItem {
 pub struct ChessFee {
     pub elapsed_minutes: i64,
     pub billable_minutes: i64,
-    pub minute_cents: i64,
+    /// 房费 SKU 的原价：MINUTE 为每分钟单价，HOUR 为每小时单价。
+    pub unit_cents: i64,
+    pub fee_unit: String,
     pub fee_cents: i64,
+}
+
+fn cfg_text(conn: &Connection, key: &str, default: &str) -> String {
+    conn.query_row(
+        "SELECT config_value FROM system_config WHERE config_key=?1",
+        [key],
+        |r| r.get::<_, String>(0),
+    )
+    .optional()
+    .ok()
+    .flatten()
+    .filter(|v| !v.trim().is_empty())
+    .unwrap_or_else(|| default.to_string())
+}
+
+fn cfg_i64(conn: &Connection, key: &str, default: i64) -> i64 {
+    cfg_text(conn, key, &default.to_string())
+        .trim()
+        .parse::<i64>()
+        .unwrap_or(default)
 }
 
 fn validate_scene(scene: &str) -> Result<()> {
@@ -96,6 +125,9 @@ pub fn create_table(
     zone: &str,
     seats: i64,
     fee_sku_id: Option<i64>,
+    fee_unit: Option<&str>,
+    min_minutes: Option<i64>,
+    round_minutes: Option<i64>,
 ) -> Result<i64> {
     validate_scene(scene)?;
     let code = code.trim();
@@ -109,6 +141,23 @@ pub fn create_table(
     if !(1..=50).contains(&seats) {
         return Err(CoreError::Validation("桌台座位数需在 1–50".into()));
     }
+    if let Some(unit) = fee_unit {
+        if unit != "MINUTE" && unit != "HOUR" {
+            return Err(CoreError::Validation(
+                "棋牌计费单位只能是 MINUTE 或 HOUR".into(),
+            ));
+        }
+    }
+    if let Some(min) = min_minutes {
+        if !(0..=1440).contains(&min) {
+            return Err(CoreError::Validation("最低计费分钟需在 0–1440".into()));
+        }
+    }
+    if let Some(round) = round_minutes {
+        if !(0..=120).contains(&round) {
+            return Err(CoreError::Validation("取整分钟需在 0–120".into()));
+        }
+    }
     if let Some(sku_id) = fee_sku_id {
         let exists: i64 =
             conn.query_row("SELECT COUNT(*) FROM sku WHERE sku_id=?1", [sku_id], |r| {
@@ -120,9 +169,20 @@ pub fn create_table(
     }
     let now = format_utc(&Utc::now());
     conn.execute(
-        "INSERT INTO service_table(code,scene,name,zone,seats,fee_sku_id,status,created_at)
-         VALUES (?1,?2,?3,?4,?5,?6,'FREE',?7)",
-        params![code, scene, name, zone.trim(), seats, fee_sku_id, now],
+        "INSERT INTO service_table(code,scene,name,zone,seats,fee_sku_id,fee_unit,min_minutes,round_minutes,status,created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'FREE',?10)",
+        params![
+            code,
+            scene,
+            name,
+            zone.trim(),
+            seats,
+            fee_sku_id,
+            fee_unit,
+            min_minutes,
+            round_minutes,
+            now
+        ],
     )
     .map_err(|e| {
         if e.to_string().contains("UNIQUE") {
@@ -170,6 +230,12 @@ pub fn open_table(
     if status != TABLE_FREE {
         return Err(CoreError::Validation("桌台已开台，请直接点单".into()));
     }
+    let bind_mode = cfg_text(conn, crate::constants::CFG_TABLE_MEMBER_BIND, "OPTIONAL");
+    if member_id.is_none() && bind_mode == "REQUIRED" {
+        return Err(CoreError::Validation(
+            "门店设置为开台必须绑定会员，请先识别会员".into(),
+        ));
+    }
     if let Some(mid) = member_id {
         let exists: i64 = conn.query_row(
             "SELECT COUNT(*) FROM member WHERE member_id=?1 AND status=1",
@@ -199,6 +265,36 @@ pub fn open_table(
         [table_id],
     )?;
     tx.commit()?;
+    table_view(conn, table_id)
+}
+
+/// 占用中的桌台换绑会员：门店开启“允许换绑”后才执行，命令层写审计。
+pub fn rebind_member(
+    conn: &Connection,
+    table_id: i64,
+    member_id: i64,
+) -> Result<ServiceTable> {
+    if cfg_text(conn, crate::constants::CFG_TABLE_ALLOW_REBIND, "0") != "1" {
+        return Err(CoreError::Validation(
+            "门店未开启桌台换绑会员，请先在系统配置中开启".into(),
+        ));
+    }
+    let exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM member WHERE member_id=?1 AND status=1",
+        [member_id],
+        |r| r.get(0),
+    )?;
+    if exists == 0 {
+        return Err(CoreError::Validation("会员不存在或已停用".into()));
+    }
+    let changed = conn.execute(
+        "UPDATE table_session SET member_id=?1, updated_at=?2
+         WHERE table_id=?3 AND status='OPEN'",
+        params![member_id, format_utc(&Utc::now()), table_id],
+    )?;
+    if changed == 0 {
+        return Err(CoreError::Validation("桌台未开台".into()));
+    }
     table_view(conn, table_id)
 }
 
@@ -273,16 +369,18 @@ pub fn submit_order(conn: &Connection, table_id: i64, scene: &str) -> Result<Vec
         if add <= 0 {
             continue;
         }
-        let (name, unit): (String, String) = conn
+        let (name, unit, category_id): (String, String, i64) = conn
             .query_row(
-                "SELECT p.spu_name, p.unit FROM sku s JOIN spu p ON p.spu_id=s.spu_id WHERE s.sku_id=?1",
+                "SELECT p.spu_name, p.unit, p.category_id
+                 FROM sku s JOIN spu p ON p.spu_id=s.spu_id WHERE s.sku_id=?1",
                 [sku_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?
             .ok_or_else(|| CoreError::Validation(format!("菜品 {sku_id} 不存在")))?;
         additions.push(KitchenItem {
             sku_id: *sku_id,
+            category_id,
             name,
             unit,
             qty: add,
@@ -454,14 +552,33 @@ pub fn transfer_table(conn: &Connection, table_id: i64, target_id: i64) -> Resul
 
 /// 棋牌计时：最低 60 分钟，之后按实际分钟按房费 SKU 的分钟单价计费。
 pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
-    let (scene, status, fee_sku, opened): (String, String, Option<i64>, Option<String>) = conn
+    let (scene, status, fee_sku, opened, fee_unit, min_minutes, round_minutes): (
+        String,
+        String,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+    ) = conn
         .query_row(
-            "SELECT t.scene,t.status,t.fee_sku_id,s.opened_at
+            "SELECT t.scene,t.status,t.fee_sku_id,s.opened_at,
+                    t.fee_unit,t.min_minutes,t.round_minutes
              FROM service_table t
              LEFT JOIN table_session s ON s.table_id=t.table_id AND s.status='OPEN'
              WHERE t.table_id=?1",
             [table_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            },
         )
         .optional()?
         .ok_or_else(|| CoreError::Validation("桌台不存在".into()))?;
@@ -475,18 +592,37 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
         .with_timezone(&Utc);
     let seconds = (Utc::now() - opened_at).num_seconds().max(0);
     let elapsed_minutes = (seconds + 59) / 60;
-    let billable_minutes = elapsed_minutes.max(CHESS_MIN_BILLABLE_MINUTES);
-    let minute_cents: i64 = conn.query_row(
+    let unit = fee_unit
+        .unwrap_or_else(|| cfg_text(conn, crate::constants::CFG_CHESS_FEE_UNIT, "MINUTE"));
+    let unit = if unit == "HOUR" { "HOUR" } else { "MINUTE" };
+    let min_minutes = min_minutes
+        .unwrap_or_else(|| cfg_i64(conn, crate::constants::CFG_CHESS_MIN_MINUTES, CHESS_MIN_BILLABLE_MINUTES))
+        .max(0);
+    let round_minutes = round_minutes
+        .unwrap_or_else(|| cfg_i64(conn, crate::constants::CFG_CHESS_ROUND_MINUTES, 0))
+        .clamp(0, 120);
+    let mut billable_minutes = elapsed_minutes.max(min_minutes);
+    // 超时取整：不足一个取整单位按一个单位计；0 表示按实际分钟。
+    if round_minutes > 0 {
+        billable_minutes = ((billable_minutes + round_minutes - 1) / round_minutes) * round_minutes;
+    }
+    let unit_cents: i64 = conn.query_row(
         "SELECT sale_price_cents FROM sku WHERE sku_id=?1",
         [fee_sku],
         |r| r.get(0),
     )?;
-    let fee = minute_cents as i128 * billable_minutes as i128;
+    let fee_cents = if unit == "HOUR" {
+        // 小时价按分钟折算，分位四舍五入；金额仍由服务端计算。
+        ((unit_cents as i128 * billable_minutes as i128) + 30) / 60
+    } else {
+        (unit_cents as i128 * billable_minutes as i128)
+    };
     Ok(ChessFee {
         elapsed_minutes,
         billable_minutes,
-        minute_cents,
-        fee_cents: fee as i64,
+        unit_cents,
+        fee_unit: unit.to_string(),
+        fee_cents: fee_cents as i64,
     })
 }
 
@@ -568,7 +704,8 @@ fn merge_lines(
 
 fn table_view(conn: &Connection, table_id: i64) -> Result<ServiceTable> {
     conn.query_row(
-        "SELECT t.table_id, t.code, t.name, t.zone, t.seats, t.scene, t.fee_sku_id, t.status,
+        "SELECT t.table_id, t.code, t.name, t.zone, t.seats, t.scene,
+                t.fee_sku_id, t.fee_unit, t.min_minutes, t.round_minutes, t.status,
                 s.session_id, s.opened_at, s.member_id,
                 (SELECT phone FROM member WHERE member_id=s.member_id),
                 COALESCE(s.cart_json,'[]'), COALESCE(s.sent_json,'[]')
@@ -586,7 +723,8 @@ fn table_view(conn: &Connection, table_id: i64) -> Result<ServiceTable> {
 pub fn list_tables(conn: &Connection, scene: &str) -> Result<Vec<ServiceTable>> {
     validate_scene(scene)?;
     let mut stmt = conn.prepare(
-        "SELECT t.table_id, t.code, t.name, t.zone, t.seats, t.scene, t.fee_sku_id, t.status,
+        "SELECT t.table_id, t.code, t.name, t.zone, t.seats, t.scene,
+                t.fee_sku_id, t.fee_unit, t.min_minutes, t.round_minutes, t.status,
                 s.session_id, s.opened_at, s.member_id,
                 (SELECT phone FROM member WHERE member_id=s.member_id),
                 COALESCE(s.cart_json,'[]'), COALESCE(s.sent_json,'[]')
@@ -610,13 +748,16 @@ fn map_table(r: &rusqlite::Row<'_>) -> rusqlite::Result<ServiceTable> {
         seats: r.get(4)?,
         scene: r.get(5)?,
         fee_sku_id: r.get(6)?,
-        status: r.get(7)?,
-        session_id: r.get(8)?,
-        opened_at: r.get(9)?,
-        member_id: r.get(10)?,
-        member_phone: r.get(11)?,
-        cart_json: r.get(12)?,
-        sent_json: r.get(13)?,
+        fee_unit: r.get(7)?,
+        min_minutes: r.get(8)?,
+        round_minutes: r.get(9)?,
+        status: r.get(10)?,
+        session_id: r.get(11)?,
+        opened_at: r.get(12)?,
+        member_id: r.get(13)?,
+        member_phone: r.get(14)?,
+        cart_json: r.get(15)?,
+        sent_json: r.get(16)?,
     })
 }
 
@@ -634,7 +775,7 @@ mod tests {
     #[test]
     fn open_save_and_close_table() {
         let c = setup();
-        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None).unwrap();
+        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
         c.execute(
             "INSERT INTO spu(category_id,spu_name,spu_code,status) VALUES (1,'测试菜','T-1',1)",
             [],
@@ -659,7 +800,7 @@ mod tests {
     #[test]
     fn cannot_open_occupied_or_delete_occupied() {
         let c = setup();
-        let id = create_table(&c, SCENE_CHESS, "B01", "包间 1", "二楼", 6, None).unwrap();
+        let id = create_table(&c, SCENE_CHESS, "B01", "包间 1", "二楼", 6, None, None, None, None).unwrap();
         open_table(&c, id, "[]", None).unwrap();
         assert!(open_table(&c, id, "[]", None).is_err());
         assert!(delete_table(&c, id).is_err());
@@ -670,8 +811,8 @@ mod tests {
     #[test]
     fn cart_rejects_bad_lines_and_duplicate_code() {
         let c = setup();
-        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None).unwrap();
-        assert!(create_table(&c, SCENE_DINING, "A01", "重复", "大厅", 4, None).is_err());
+        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
+        assert!(create_table(&c, SCENE_DINING, "A01", "重复", "大厅", 4, None, None, None, None).is_err());
         assert!(open_table(&c, id, r#"[{"sku_id":0,"qty":1}]"#, None).is_err());
         assert!(open_table(&c, id, r#"[{"sku_id":1,"qty":0}]"#, None).is_err());
     }
@@ -693,7 +834,7 @@ mod tests {
     fn submit_only_new_items_and_return_sent() {
         let c = setup();
         seed_dish(&c);
-        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None).unwrap();
+        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
         open_table(&c, id, r#"[{"sku_id":1,"qty":1}]"#, None).unwrap();
         let first = submit_order(&c, id, SCENE_DINING).unwrap();
         assert_eq!(first.len(), 1);
@@ -718,8 +859,8 @@ mod tests {
     fn merge_tables_combines_cart_and_sent_snapshot() {
         let c = setup();
         seed_dish(&c);
-        let target = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None).unwrap();
-        let source = create_table(&c, SCENE_DINING, "A02", "大厅 2 号", "大厅", 4, None).unwrap();
+        let target = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
+        let source = create_table(&c, SCENE_DINING, "A02", "大厅 2 号", "大厅", 4, None, None, None, None).unwrap();
         open_table(
             &c,
             target,
@@ -748,7 +889,7 @@ mod tests {
         seed_dish(&c);
         c.execute("UPDATE sku SET sale_price_cents=150", [])
             .unwrap();
-        let id = create_table(&c, SCENE_CHESS, "B01", "包间 1", "二楼", 6, Some(1)).unwrap();
+        let id = create_table(&c, SCENE_CHESS, "B01", "包间 1", "二楼", 6, Some(1), None, None, None).unwrap();
         open_table(&c, id, "[]", None).unwrap();
         let fee = chess_fee(&c, id).unwrap();
         assert_eq!(fee.elapsed_minutes, 0);
@@ -763,5 +904,39 @@ mod tests {
         let fee = chess_fee(&c, id).unwrap();
         assert_eq!(fee.billable_minutes, 90);
         assert_eq!(fee.fee_cents, 90 * 150);
+    }
+
+    #[test]
+    fn chess_fee_respects_table_override_and_rounding() {
+        let c = setup();
+        seed_dish(&c);
+        c.execute("UPDATE sku SET sale_price_cents=6000", []).unwrap();
+        let id = create_table(
+            &c,
+            SCENE_CHESS,
+            "B02",
+            "包间 2",
+            "二楼",
+            6,
+            Some(1),
+            Some("HOUR"),
+            Some(30),
+            Some(10),
+        )
+        .unwrap();
+        open_table(&c, id, "[]", None).unwrap();
+        let fee = chess_fee(&c, id).unwrap();
+        assert_eq!(fee.fee_unit, "HOUR");
+        assert_eq!(fee.billable_minutes, 30);
+        assert_eq!(fee.fee_cents, 3000);
+        let opened = format_utc(&(Utc::now() - chrono::Duration::minutes(41)));
+        c.execute(
+            "UPDATE table_session SET opened_at=?1 WHERE table_id=?2 AND status='OPEN'",
+            params![opened, id],
+        )
+        .unwrap();
+        let fee = chess_fee(&c, id).unwrap();
+        assert_eq!(fee.billable_minutes, 50);
+        assert_eq!(fee.fee_cents, 5000);
     }
 }

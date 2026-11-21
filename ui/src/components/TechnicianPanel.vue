@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { api, formatMoney, type Technician, type TechnicianCommission } from '../api'
+import {
+  api,
+  formatMoney,
+  type Category,
+  type Technician,
+  type TechnicianCommission,
+  type TechnicianRule,
+} from '../api'
 
 const props = defineProps<{
   /** 技师档案与排班需 product.edit；店长维护，收银员只在下拉里选在班技师。 */
@@ -12,7 +19,21 @@ const open = ref(false)
 const busy = ref(false)
 const technicians = ref<Technician[]>([])
 const report = ref<TechnicianCommission[]>([])
-const form = ref({ name: '', percent: 10 })
+const rules = ref<TechnicianRule[]>([])
+const categories = ref<Category[]>([])
+const form = ref({
+  name: '',
+  percent: 10,
+  mode: 'PERCENT' as 'PERCENT' | 'FIXED',
+  fixedYuan: 5,
+})
+const ruleForm = ref({
+  technicianId: 0,
+  categoryId: 0,
+  mode: 'PERCENT' as 'PERCENT' | 'FIXED',
+  percent: 10,
+  fixedYuan: 5,
+})
 const today = ref(localDate(new Date()))
 const month = computed(() => reportMonth())
 
@@ -36,9 +57,19 @@ async function load() {
     technicians.value = await api.listTechnicians(today.value)
     const range = month.value
     report.value = await api.technicianCommission(range.start, range.end)
+    rules.value = await api.listTechnicianRules(null)
+    categories.value = await api.listCategories()
+    if (!ruleForm.value.technicianId && technicians.value.length) {
+      ruleForm.value.technicianId = technicians.value[0].technician_id
+    }
+    if (!ruleForm.value.categoryId && categories.value.length) {
+      ruleForm.value.categoryId = categories.value[0].category_id
+    }
   } catch {
     technicians.value = []
     report.value = []
+    rules.value = []
+    categories.value = []
   }
 }
 
@@ -47,8 +78,14 @@ async function add() {
   if (!name) return
   busy.value = true
   try {
-    await api.createTechnician(name, null, Math.round(form.value.percent * 100))
-    form.value = { name: '', percent: 10 }
+    await api.createTechnician(
+      name,
+      null,
+      Math.round(form.value.percent * 100),
+      form.value.mode,
+      Math.round(form.value.fixedYuan * 100)
+    )
+    form.value = { name: '', percent: 10, mode: form.value.mode, fixedYuan: form.value.fixedYuan }
     await load()
     emit('changed')
   } finally {
@@ -65,6 +102,48 @@ async function toggle(t: Technician) {
   } finally {
     busy.value = false
   }
+}
+
+async function saveRule() {
+  const r = ruleForm.value
+  if (!r.technicianId || !r.categoryId) return
+  busy.value = true
+  try {
+    await api.setTechnicianRule(
+      r.technicianId,
+      r.categoryId,
+      r.mode,
+      Math.round(r.percent * 100),
+      Math.round(r.fixedYuan * 100)
+    )
+    await load()
+  } finally {
+    busy.value = false
+  }
+}
+
+async function removeRule(rule: TechnicianRule) {
+  busy.value = true
+  try {
+    await api.deleteTechnicianRule(rule.technician_id, rule.category_id)
+    await load()
+  } finally {
+    busy.value = false
+  }
+}
+
+function categoryName(id: number): string {
+  return categories.value.find((c) => c.category_id === id)?.name ?? `分类 ${id}`
+}
+
+function technicianName(id: number): string {
+  return technicians.value.find((t) => t.technician_id === id)?.name ?? `技师 ${id}`
+}
+
+function ruleText(r: TechnicianRule): string {
+  return r.mode === 'FIXED'
+    ? `每份 ¥${formatMoney(r.fixed_cents)}`
+    : `${(r.bps / 100).toFixed(1)}%`
 }
 
 onMounted(() => {
@@ -84,23 +163,63 @@ onMounted(() => {
     <div v-if="open" class="tech-body">
       <div class="tech-add">
         <input v-model="form.name" class="input input-sm" placeholder="技师姓名" maxlength="20" />
-        <label class="muted small">
+        <select v-model="form.mode" class="input input-sm" aria-label="提成方式">
+          <option value="PERCENT">按比例</option>
+          <option value="FIXED">每份固定</option>
+        </select>
+        <label v-if="form.mode === 'PERCENT'" class="muted small">
           提成
           <input v-model.number="form.percent" class="input input-xs" type="number" min="0" max="100" step="0.5" />
           %
+        </label>
+        <label v-else class="muted small">
+          每份
+          <input v-model.number="form.fixedYuan" class="input input-xs" type="number" min="0" step="0.5" />
+          元
         </label>
         <button class="btn btn-sm primary" :disabled="busy || !form.name.trim()" @click="add">新增技师</button>
       </div>
       <ul class="tech-list">
         <li v-for="t in technicians" :key="t.technician_id">
           <strong>{{ t.name }}</strong>
-          <span class="muted">{{ (t.commission_bps / 100).toFixed(1) }}%</span>
+          <span class="muted">
+            {{ t.commission_mode === 'FIXED' ? `每份 ¥${formatMoney(t.fixed_cents)}` : `${(t.commission_bps / 100).toFixed(1)}%` }}
+          </span>
           <button class="link" :class="{ on: t.on_duty }" :disabled="busy" @click="toggle(t)">
             {{ t.on_duty ? '在班 · 点此休息' : '休息 · 点此上班' }}
           </button>
         </li>
         <li v-if="!technicians.length" class="muted small">还没有技师，先新增档案。</li>
       </ul>
+      <div class="tech-rules">
+        <div class="muted small">按项目覆盖提成（同技师同分类只有一条，未设置则用技师默认）</div>
+        <div class="tech-add">
+          <select v-model.number="ruleForm.technicianId" class="input input-sm">
+            <option v-for="t in technicians" :key="t.technician_id" :value="t.technician_id">{{ t.name }}</option>
+          </select>
+          <select v-model.number="ruleForm.categoryId" class="input input-sm">
+            <option v-for="c in categories" :key="c.category_id" :value="c.category_id">{{ c.name }}</option>
+          </select>
+          <select v-model="ruleForm.mode" class="input input-sm">
+            <option value="PERCENT">按比例</option>
+            <option value="FIXED">每份固定</option>
+          </select>
+          <label v-if="ruleForm.mode === 'PERCENT'" class="muted small">
+            <input v-model.number="ruleForm.percent" class="input input-xs" type="number" min="0" max="100" step="0.5" />%
+          </label>
+          <label v-else class="muted small">
+            <input v-model.number="ruleForm.fixedYuan" class="input input-xs" type="number" min="0" step="0.5" />元/份
+          </label>
+          <button class="btn btn-sm" :disabled="busy" @click="saveRule">保存规则</button>
+        </div>
+        <ul class="tech-rule-list">
+          <li v-for="r in rules" :key="`${r.technician_id}-${r.category_id}`">
+            {{ technicianName(r.technician_id) }} · {{ categoryName(r.category_id) }} · {{ ruleText(r) }}
+            <button class="link danger" :disabled="busy" @click="removeRule(r)">删除</button>
+          </li>
+          <li v-if="!rules.length" class="muted small">还没有项目级规则。</li>
+        </ul>
+      </div>
       <div class="tech-report">
         <div class="muted small">本月提成（{{ month.start }} ~ {{ month.end }}）</div>
         <table v-if="report.length">
@@ -165,6 +284,20 @@ onMounted(() => {
 }
 .tech-list .on {
   color: #1f8a55;
+}
+.tech-rules {
+  margin: 8px 0;
+  border-top: 1px dashed #d8e0e8;
+  padding-top: 8px;
+}
+.tech-rule-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
 }
 .tech-report table {
   width: 100%;

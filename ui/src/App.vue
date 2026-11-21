@@ -21,6 +21,7 @@ import {
   type ServiceTable,
 } from './api'
 import RestaurantScene from './components/RestaurantScene.vue'
+import KitchenRoutePanel from './components/KitchenRoutePanel.vue'
 import ChessScene from './components/ChessScene.vue'
 import BabyScene from './components/BabyScene.vue'
 import WellnessScene from './components/WellnessScene.vue'
@@ -263,9 +264,9 @@ async function refreshChessFee() {
       ...others,
       {
         sku_id: table.fee_sku_id,
-        qty: fee.billable_minutes,
-        unit_price_cents: fee.minute_cents,
-        name: `包间费 ${fee.billable_minutes} 分钟`,
+        qty: 1,
+        unit_price_cents: fee.fee_cents,
+        name: `包间费 ${fee.billable_minutes} 分钟（${fee.fee_unit === 'HOUR' ? '按小时价折算' : '按分钟价'}）`,
         is_chess_fee: true,
         chess_minutes: fee.billable_minutes,
       },
@@ -1124,6 +1125,24 @@ function setLineQty(index: number, raw: string) {
   line.qty = qty
 }
 
+/** 占用中的桌台换绑会员：后端校验门店开关，成功写审计。 */
+async function rebindTableMember() {
+  const table = activeTable.value
+  if (!table) return
+  if (memberId.value == null) {
+    showToast('请先识别要换绑的会员', true)
+    return
+  }
+  if (!window.confirm(`把桌台 ${table.code} 换绑到当前会员？`)) return
+  try {
+    const updated = await api.rebindServiceTableMember(table.table_id, memberId.value)
+    activeTable.value = updated
+    showToast(`已换绑会员 ${updated.member_phone ?? ''}`)
+  } catch (e) {
+    showToast(`换绑失败：${String(e)}`, true)
+  }
+}
+
 /** 餐饮下单：把新增菜品送后厨并打印厨打单；购物车与失败都不会被静默吞掉。 */
 async function submitTableOrder() {
   const table = activeTable.value
@@ -1187,6 +1206,10 @@ async function returnTableLine(line: CartLine) {
 /** 清空当前购物车：主流 POS 的清空动作，避免逐行减到 0。 */
 function clearCart() {
   if (!cart.value.length) return
+  if (activeTable.value?.scene === 'CHESS') {
+    showToast('棋牌房费按计时自动生成，不能清空购物车', true)
+    return
+  }
   if (Object.keys(tableSentQty.value).length) {
     showToast('本桌已有下厨菜品，请逐项退菜后再清空', true)
     return
@@ -1351,7 +1374,8 @@ async function submitCheckout() {
       payments,
       memberId.value,
       couponCode.value.trim() || null,
-      activeTable.value?.code ?? null
+      activeTable.value?.code ?? null,
+      activeTable.value?.table_id ?? null
     )
     lastOrder.value = r.order_no
     if (r.status === 'PENDING_PAYMENT' && r.code_url) {
@@ -1633,7 +1657,8 @@ async function refreshQuote(opts: { silent?: boolean } = {}): Promise<boolean> {
     const q = await api.quoteOrder(
       cart.value,
       memberId.value,
-      couponCode.value.trim() || null
+      couponCode.value.trim() || null,
+      activeTable.value?.table_id ?? null
     )
     if (seq !== quoteSeq) return false
     quote.value = q
@@ -1834,6 +1859,7 @@ const SYSTEM_CONFIG_GROUPS: Array<{ title: string; hint: string; keys: string[] 
   { title: '收银设备', hint: '扫码枪等外设参数', keys: ['scan_gap_ms'] },
   { title: '经营费用', hint: '利润报表按天均摊的月度固定费用', keys: ['expense_rent_yuan', 'expense_utility_yuan', 'expense_labor_yuan'] },
   { title: '打印设置', hint: '网络打印机地址与结算自动打印', keys: ['print_host', 'print_port', 'print_auto'] },
+  { title: '行业规则', hint: '棋牌房费与桌台会员策略，默认值可被单包间覆盖', keys: ['chess_fee_unit', 'chess_min_minutes', 'chess_round_minutes', 'table_member_bind', 'table_allow_member_rebind'] },
   { title: '激活服务', hint: '在线激活服务地址，留空使用内置服务', keys: ['activation_endpoint'] },
 ]
 const systemConfigGroups = computed(() => {
@@ -1859,6 +1885,22 @@ const systemConfigGroups = computed(() => {
 /** 配置键 → 中文名（复用后端元数据，UI 不硬编码英文键） */
 function configLabel(key: string): string {
   return configs.value.find((c) => c.config_key === key)?.label ?? key
+}
+/** 固定选项配置：值仍以字符串落库，界面不要求用户记枚举。 */
+function configOptions(key: string): Array<{ value: string; label: string }> {
+  if (key === 'chess_fee_unit') {
+    return [
+      { value: 'MINUTE', label: '按分钟计价（单价=每分钟）' },
+      { value: 'HOUR', label: '按小时计价（单价=每小时）' },
+    ]
+  }
+  if (key === 'table_member_bind') {
+    return [
+      { value: 'OPTIONAL', label: '可不绑会员' },
+      { value: 'REQUIRED', label: '必须绑会员才能开台' },
+    ]
+  }
+  return []
 }
 async function loadConfigs() {
   try {
@@ -2378,6 +2420,10 @@ async function doLogout() {
             @cleared="clearActiveTable"
             @error="showSceneError"
           />
+          <KitchenRoutePanel
+            v-if="industry === 'RESTAURANT'"
+            :can-manage="atLeast('MANAGER')"
+          />
           <ChessScene
             v-else-if="industry === 'BOARD_GAME'"
             :active-table-id="activeTable?.table_id ?? null"
@@ -2469,6 +2515,12 @@ async function doLogout() {
         <section class="panel cart-panel">
           <h3>
             购物车 <span class="badge">{{ cart.length }}</span>
+            <button
+              v-if="activeTable"
+              class="btn btn-sm ghost cart-order"
+              :disabled="memberId == null"
+              @click="rebindTableMember"
+            >换绑会员</button>
             <button
               v-if="industry === 'RESTAURANT' && activeTable"
               class="btn btn-sm cart-order"
@@ -2910,6 +2962,15 @@ async function doLogout() {
                     :label="c.label"
                     @update:model-value="toggleConfigSwitch(c.config_key)"
                   />
+                  <select
+                    v-else-if="c.kind === 'select'"
+                    v-model="configDraft[c.config_key]"
+                    class="input"
+                  >
+                    <option v-for="o in configOptions(c.config_key)" :key="o.value" :value="o.value">
+                      {{ o.label }}
+                    </option>
+                  </select>
                   <input
                     v-else
                     v-model="configDraft[c.config_key]"

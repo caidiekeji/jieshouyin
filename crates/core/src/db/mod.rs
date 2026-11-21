@@ -173,6 +173,7 @@ mod tests {
             "table_session",
             "technician",
             "technician_shift",
+            "technician_commission_rule",
         ];
         for t in tables {
             let n: i32 = conn

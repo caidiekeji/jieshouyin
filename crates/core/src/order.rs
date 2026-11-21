@@ -105,6 +105,8 @@ pub fn begin_order(
             crate::technician::line_commission(
                 tx,
                 line.technician_id,
+                line.sku_id,
+                line.qty,
                 line.payable(),
                 line_payable_total,
                 pay_cents,
