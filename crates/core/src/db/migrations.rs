@@ -630,6 +630,96 @@ INSERT OR IGNORE INTO system_config(config_key,config_value,updated_at) VALUES
  ('device_no','POS1',datetime('now'));
 "#;
 
+/// M0015：场景桌台（餐饮开台 / 棋牌包间）与母婴、棋牌、养生分类模板。
+/// 桌台只保存未结算购物车快照，结算仍走统一 checkout，不建第二套金额口径。
+const M0015: &str = r#"
+ALTER TABLE sales_order ADD COLUMN table_code TEXT;
+CREATE TABLE service_table (
+    table_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    code        TEXT    NOT NULL,
+    scene       TEXT    NOT NULL,
+    name        TEXT    NOT NULL,
+    zone        TEXT    NOT NULL DEFAULT '',
+    seats       INTEGER NOT NULL DEFAULT 4,
+    fee_sku_id  INTEGER REFERENCES sku(sku_id),
+    status      TEXT    NOT NULL DEFAULT 'FREE',
+    created_at  TEXT    NOT NULL,
+    UNIQUE(scene, code)
+);
+CREATE INDEX idx_service_table_scene ON service_table(scene, status);
+CREATE TABLE table_session (
+    session_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_id    INTEGER NOT NULL REFERENCES service_table(table_id),
+    cart_json   TEXT    NOT NULL DEFAULT '[]',
+    opened_at   TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'OPEN'
+);
+CREATE UNIQUE INDEX idx_table_session_open ON table_session(table_id) WHERE status='OPEN';
+CREATE INDEX idx_table_session_time ON table_session(opened_at);
+
+INSERT INTO category_template(industry,path,sort_no) VALUES
+ ('BABY','奶粉',1),
+ ('BABY','奶粉/1段',2),
+ ('BABY','奶粉/2段',3),
+ ('BABY','奶粉/3段',4),
+ ('BABY','奶粉/羊奶粉',5),
+ ('BABY','纸尿裤',6),
+ ('BABY','纸尿裤/NB-S码',7),
+ ('BABY','纸尿裤/M-L码',8),
+ ('BABY','纸尿裤/XL-XXL码',9),
+ ('BABY','辅食',10),
+ ('BABY','辅食/米粉',11),
+ ('BABY','辅食/果泥菜泥',12),
+ ('BABY','辅食/面条粥类',13),
+ ('BABY','洗护',14),
+ ('BABY','洗护/沐浴护肤',15),
+ ('BABY','洗护/驱蚊防晒',16),
+ ('BABY','玩具',17),
+ ('BABY','玩具/安抚哄睡',18),
+ ('BABY','玩具/益智早教',19),
+ ('BABY','童装',20),
+ ('BABY','童装/内衣家居',21),
+ ('BABY','童装/外出服',22),
+ ('BABY','孕产',23),
+ ('BABY','孕产/待产用品',24),
+ ('BABY','孕产/喂养用品',25),
+ ('BOARD_GAME','房费',1),
+ ('BOARD_GAME','房费/大厅台',2),
+ ('BOARD_GAME','房费/包间',3),
+ ('BOARD_GAME','茶水饮料',4),
+ ('BOARD_GAME','茶水饮料/茶',5),
+ ('BOARD_GAME','茶水饮料/饮料',6),
+ ('BOARD_GAME','零食',7),
+ ('BOARD_GAME','零食/坚果',8),
+ ('BOARD_GAME','零食/膨化',9),
+ ('BOARD_GAME','烟酒',10),
+ ('BOARD_GAME','烟酒/香烟',11),
+ ('BOARD_GAME','烟酒/酒水',12),
+ ('BOARD_GAME','棋牌用品',13),
+ ('BOARD_GAME','棋牌用品/扑克',14),
+ ('BOARD_GAME','棋牌用品/麻将',15),
+ ('WELLNESS','推拿理疗',1),
+ ('WELLNESS','推拿理疗/肩颈',2),
+ ('WELLNESS','推拿理疗/腰背',3),
+ ('WELLNESS','推拿理疗/全身',4),
+ ('WELLNESS','艾灸',5),
+ ('WELLNESS','艾灸/温和灸',6),
+ ('WELLNESS','艾灸/督脉灸',7),
+ ('WELLNESS','拔罐刮痧',8),
+ ('WELLNESS','拔罐刮痧/拔罐',9),
+ ('WELLNESS','拔罐刮痧/刮痧',10),
+ ('WELLNESS','足疗',11),
+ ('WELLNESS','足疗/中药泡脚',12),
+ ('WELLNESS','足疗/足底按摩',13),
+ ('WELLNESS','套餐',14),
+ ('WELLNESS','套餐/肩颈套餐',15),
+ ('WELLNESS','套餐/全身套餐',16),
+ ('WELLNESS','养生产品',17),
+ ('WELLNESS','养生产品/精油',18),
+ ('WELLNESS','养生产品/艾条',19);
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -701,6 +791,11 @@ pub fn all() -> Vec<Migration> {
             version: 14,
             name: "order_status_guard",
             up: M0014,
+        },
+        Migration {
+            version: 15,
+            name: "service_tables_industry_templates",
+            up: M0015,
         },
     ]
 }

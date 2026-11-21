@@ -138,7 +138,7 @@ pub const CFG_STORE_NO: &str = "store_no";
 pub const CFG_DEVICE_NO: &str = "device_no";
 /// 小票二维码链接前缀（真实可访问的订单查询页）；未配置时二维码只承载单号。
 pub const CFG_RECEIPT_QR_BASE: &str = "receipt_qr_base";
-/// 所属行业标识：SUPERMARKET / CLOTHING / RESTAURANT。
+/// 所属行业标识：SUPERMARKET / CLOTHING / RESTAURANT / BABY / BOARD_GAME / WELLNESS。
 pub const CFG_INDUSTRY: &str = "industry";
 /// 在线激活服务地址。为空时回退到构建时内置的地址。
 pub const CFG_ACTIVATION_ENDPOINT: &str = "activation_endpoint";
@@ -147,10 +147,23 @@ pub const CFG_ACTIVATION_ENDPOINT: &str = "activation_endpoint";
 pub const INDUSTRY_SUPERMARKET: &str = "SUPERMARKET";
 /// 行业标识：服装鞋帽。
 pub const INDUSTRY_CLOTHING: &str = "CLOTHING";
-/// 行业标识：餐饮门店。
+/// 行业标识：餐饮门店（桌台开台点单）。
 pub const INDUSTRY_RESTAURANT: &str = "RESTAURANT";
+/// 行业标识：母婴用品。
+pub const INDUSTRY_BABY: &str = "BABY";
+/// 行业标识：棋牌包间。
+pub const INDUSTRY_BOARD_GAME: &str = "BOARD_GAME";
+/// 行业标识：养生保健服务。
+pub const INDUSTRY_WELLNESS: &str = "WELLNESS";
 /// 全部行业标识（顺序即选择页展示顺序）。
-pub const INDUSTRIES: [&str; 3] = [INDUSTRY_SUPERMARKET, INDUSTRY_CLOTHING, INDUSTRY_RESTAURANT];
+pub const INDUSTRIES: [&str; 6] = [
+    INDUSTRY_SUPERMARKET,
+    INDUSTRY_CLOTHING,
+    INDUSTRY_RESTAURANT,
+    INDUSTRY_BABY,
+    INDUSTRY_BOARD_GAME,
+    INDUSTRY_WELLNESS,
+];
 
 // ── 配置项控件类型（前端据此选择控件，不在前端另立映射）─────────
 /// 文本输入。

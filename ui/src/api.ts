@@ -22,8 +22,26 @@ export interface ProductHit {
   price_cents: number
   member_price_cents: number | null
   is_weighed: boolean
+  category_name: string
+  category_group: string
+  unit: string
   image_path: string | null
   image_url: string | null
+}
+
+/** 场景桌台（餐饮开台 / 棋牌包间） */
+export interface ServiceTable {
+  table_id: number
+  code: string
+  name: string
+  zone: string
+  seats: number
+  scene: string
+  fee_sku_id: number | null
+  status: string
+  session_id: number | null
+  opened_at: string | null
+  cart_json: string
 }
 
 export interface CartLine {
@@ -325,7 +343,8 @@ export const api = {
   logout: () => invoke<void>('logout'),
   /** 恢复界面角色：未登录或会话过期返回 null。 */
   currentSession: () => invoke<{ user_id: number; role_name: string } | null>('current_session'),
-  lookup: (keyword: string) => invoke<ProductHit[]>('lookup_product', { keyword }),
+  lookup: (keyword: string, limit?: number) =>
+    invoke<ProductHit[]>('lookup_product', { keyword, limit: limit ?? null }),
   /** 批量取 SKU 会员价（识别会员后刷新购物车行） */
   memberPrices: (skuIds: number[]) =>
     invoke<{ sku_id: number; member_price_cents: number | null }[]>('member_prices', { skuIds }),
@@ -340,14 +359,43 @@ export const api = {
     lines: CartLine[],
     payments: unknown[],
     memberId: number | null,
-    couponCode: string | null
+    couponCode: string | null,
+    tableCode: string | null = null
   ) =>
     invoke<CheckoutResult>('checkout', {
       lines,
       payments,
       memberId,
       couponCode,
+      tableCode,
     }),
+  // 场景桌台（餐饮/棋牌）
+  listServiceTables: (scene: string) =>
+    invoke<ServiceTable[]>('list_service_tables', { scene }),
+  createServiceTable: (
+    scene: string,
+    code: string,
+    name: string,
+    zone: string,
+    seats: number,
+    feeSkuId: number | null
+  ) =>
+    invoke<number>('create_service_table', {
+      scene,
+      code,
+      name,
+      zone,
+      seats,
+      feeSkuId,
+    }),
+  deleteServiceTable: (tableId: number) =>
+    invoke<void>('delete_service_table', { tableId }),
+  openServiceTable: (tableId: number, cartJson: string) =>
+    invoke<ServiceTable>('open_service_table', { tableId, cartJson }),
+  saveServiceTableCart: (tableId: number, cartJson: string) =>
+    invoke<void>('save_service_table_cart', { tableId, cartJson }),
+  closeServiceTable: (tableId: number, force = false) =>
+    invoke<void>('close_service_table', { tableId, force }),
   parkCart: (cartJson: string, remark: string | null) =>
     invoke<number>('park_cart', { cartJson, remark }),
   listParked: () => invoke<unknown[]>('list_parked'),

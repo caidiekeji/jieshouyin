@@ -169,6 +169,8 @@ mod tests {
             "print_template",
             "print_retry_queue",
             "category_template",
+            "service_table",
+            "table_session",
         ];
         for t in tables {
             let n: i32 = conn

@@ -16,7 +16,12 @@ import {
   type OrderQuote,
   type StoreProfile,
   type IndustryOption,
+  type ServiceTable,
 } from './api'
+import RestaurantScene from './components/RestaurantScene.vue'
+import ChessScene from './components/ChessScene.vue'
+import BabyScene from './components/BabyScene.vue'
+import WellnessScene from './components/WellnessScene.vue'
 import Icon from './components/Icon.vue'
 import ProductAdmin from './components/ProductAdmin.vue'
 import CategoryAdmin from './components/CategoryAdmin.vue'
@@ -136,6 +141,11 @@ const storeProfile = ref<StoreProfile | null>(null)
 const industries = ref<IndustryOption[]>([])
 const pendingIndustry = ref('')
 const storeNameDraft = ref('')
+/** 当前行业场景：决定收银台显示哪套独立操作面板 */
+const industry = computed(() => storeProfile.value?.industry ?? '')
+/** 当前选中的桌台/包间；结算成功后清台 */
+const activeTable = ref<ServiceTable | null>(null)
+let tableSaveTimer: ReturnType<typeof setTimeout> | null = null
 /** 订单详情页当前单号 */
 const orderNo = ref('')
 /** 退款页预置单号（从订单详情跳转时带入） */
@@ -167,6 +177,71 @@ function clearMember() {
   memberBalances.value = null
   for (const l of cart.value) l.member_price_cents = null
 }
+
+/** 桌台购物车落库：点单改动防抖保存，切台/清台前立即冲刷。 */
+function scheduleTableSave() {
+  if (!activeTable.value) return
+  if (tableSaveTimer) clearTimeout(tableSaveTimer)
+  tableSaveTimer = setTimeout(() => {
+    tableSaveTimer = null
+    void flushTableCart()
+  }, 400)
+}
+
+async function flushTableCart() {
+  if (!activeTable.value) return
+  try {
+    await api.saveServiceTableCart(activeTable.value.table_id, JSON.stringify(cart.value))
+  } catch (e) {
+    showToast(`桌台购物车保存失败：${String(e)}`, true)
+  }
+}
+
+async function selectSceneTable(table: ServiceTable, lines: CartLine[]) {
+  if (activeTable.value && activeTable.value.table_id !== table.table_id) await flushTableCart()
+  if (tableSaveTimer) {
+    clearTimeout(tableSaveTimer)
+    tableSaveTimer = null
+  }
+  activeTable.value = table
+  couponCode.value = ''
+  clearMember()
+  cart.value = lines.map((l) => ({ ...l, member_price_cents: null }))
+  showToast(`已选中 ${table.code}${lines.length ? '，继续点单' : '，可以点单'}`)
+}
+
+async function clearActiveTable() {
+  if (!activeTable.value) return
+  if (tableSaveTimer) clearTimeout(tableSaveTimer)
+  tableSaveTimer = null
+  activeTable.value = null
+  cart.value = []
+  clearMember()
+}
+
+/** 结算成功释放桌台；清台失败不回滚已收款的订单，返回需提示的警告。 */
+async function releaseActiveTable(): Promise<string | null> {
+  const table = activeTable.value
+  if (!table) return null
+  activeTable.value = null
+  if (tableSaveTimer) clearTimeout(tableSaveTimer)
+  tableSaveTimer = null
+  try {
+    await api.closeServiceTable(table.table_id, false)
+    return null
+  } catch (e) {
+    return `订单已完成，但桌台 ${table.code} 清台失败：${String(e)}，请手动清台`
+  }
+}
+
+watch(cart, scheduleTableSave, { deep: true })
+watch(industry, () => {
+  activeTable.value = null
+  if (tableSaveTimer) {
+    clearTimeout(tableSaveTimer)
+    tableSaveTimer = null
+  }
+})
 
 // 会员识别 / 优惠券 / 混合支付（§6.5 / §13）
 const memberPhone = ref('')
@@ -275,6 +350,10 @@ function showToast(msg: string, isError = false) {
   toast.value = msg
   toastKind.value = isError ? 'error' : 'info'
   setTimeout(() => (toast.value = ''), isError ? ERROR_DURATION_MS : TOAST_DURATION_MS)
+}
+
+function showSceneError(message: string) {
+  showToast(message, true)
 }
 
 /** 收银成功提示：有积分累计时附上本次积分 */
@@ -1032,7 +1111,8 @@ async function submitCheckout() {
       cart.value,
       payments,
       memberId.value,
-      couponCode.value.trim() || null
+      couponCode.value.trim() || null,
+      activeTable.value?.code ?? null
     )
     lastOrder.value = r.order_no
     if (r.status === 'PENDING_PAYMENT' && r.code_url) {
@@ -1042,11 +1122,15 @@ async function submitCheckout() {
       startNativePolling(r.order_no)
       return
     }
+    const tableWarn = await releaseActiveTable()
     clearMember()
     cart.value = []
     resetPayState()
     cashDialogOpen.value = false
-    showToast(pointsToast(`收银成功：${r.order_no}`, r.points_earned))
+    showToast(
+      pointsToast(`收银成功：${r.order_no}`, r.points_earned) + (tableWarn ? `；${tableWarn}` : ''),
+      !!tableWarn
+    )
   } catch (e) {
     showToast(String(e), true)
   } finally {
@@ -1063,10 +1147,14 @@ function startNativePolling(orderNo: string) {
       if (r.status === 'COMPLETED') {
         stopNativePolling()
         closeNativeDialog()
+        const tableWarn = await releaseActiveTable()
         clearMember()
         cart.value = []
         resetPayState()
-        showToast(pointsToast(`收银成功：${orderNo}`, r.points_earned))
+        showToast(
+          pointsToast(`收银成功：${orderNo}`, r.points_earned) + (tableWarn ? `；${tableWarn}` : ''),
+          !!tableWarn
+        )
       } else if (r.status === 'CLOSED' || r.status.startsWith('FAILED')) {
         stopNativePolling()
         closeNativeDialog()
@@ -1112,10 +1200,14 @@ async function confirmNativeLocal() {
   try {
     const points = await api.confirmNativePay(d.orderNo)
     closeNativeDialog()
+    const tableWarn = await releaseActiveTable()
     clearMember()
     cart.value = []
     resetPayState()
-    showToast(pointsToast(`收银成功：${d.orderNo}`, points))
+    showToast(
+      pointsToast(`收银成功：${d.orderNo}`, points) + (tableWarn ? `；${tableWarn}` : ''),
+      !!tableWarn
+    )
   } catch (e) {
     showToast(String(e), true)
   }
@@ -1989,6 +2081,33 @@ async function doLogout() {
       <!-- 收银 -->
       <main v-if="view === 'pos'" class="pos-layout">
         <section class="panel product-panel">
+          <RestaurantScene
+            v-if="industry === 'RESTAURANT'"
+            :active-table-id="activeTable?.table_id ?? null"
+            :cart="cart"
+            @select="selectSceneTable"
+            @cleared="clearActiveTable"
+            @error="showSceneError"
+          />
+          <ChessScene
+            v-else-if="industry === 'BOARD_GAME'"
+            :active-table-id="activeTable?.table_id ?? null"
+            :cart="cart"
+            @select="selectSceneTable"
+            @add="addToCart"
+            @cleared="clearActiveTable"
+            @error="showSceneError"
+          />
+          <BabyScene
+            v-else-if="industry === 'BABY'"
+            @add="addToCart"
+            @error="showSceneError"
+          />
+          <WellnessScene
+            v-else-if="industry === 'WELLNESS'"
+            @add="addToCart"
+            @error="showSceneError"
+          />
           <div class="search-row scan-search">
             <input
               ref="scanCapture"
@@ -2361,7 +2480,7 @@ async function doLogout() {
                 <button class="btn primary" @click="saveStoreName">保存店名</button>
                 <button class="btn" @click="confirmIndustry">应用行业分类</button>
               </div>
-              <p class="muted small">当前：{{ storeProfile?.industry_name || '未设置' }} · {{ storeProfile?.store_name || '未命名门店' }}。切换行业只新增分类模板，不影响已有商品。</p>
+              <p class="muted small">当前：{{ storeProfile?.industry_name || '未设置' }} · {{ storeProfile?.store_name || '未命名门店' }}。切换行业会新增模板分类并隐藏旧行业里没有商品的空分类；有商品的分类会保留。</p>
             </div>
             <div class="card wide">
               <h3>授权状态</h3>

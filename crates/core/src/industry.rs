@@ -5,8 +5,8 @@
 //! 门店档案（店名 + 行业）落 system_config，界面与票据统一消费。
 
 use crate::constants::{
-    CFG_INDUSTRY, CFG_STORE_NAME, INDUSTRIES, INDUSTRY_CLOTHING, INDUSTRY_RESTAURANT,
-    INDUSTRY_SUPERMARKET,
+    CFG_INDUSTRY, CFG_STORE_NAME, INDUSTRIES, INDUSTRY_BABY, INDUSTRY_BOARD_GAME,
+    INDUSTRY_CLOTHING, INDUSTRY_RESTAURANT, INDUSTRY_SUPERMARKET, INDUSTRY_WELLNESS,
 };
 use crate::error::{CoreError, Result};
 use rusqlite::{params, Connection};
@@ -53,10 +53,28 @@ fn industry_meta(id: &str) -> Option<(&'static str, &'static str, &'static str, 
         )),
         INDUSTRY_RESTAURANT => Some((
             "餐饮门店",
-            // 当前 POS 没有桌台/开台/厨打能力，描述不能承诺“堂食外带桌台管理”。
-            "餐饮档口零售（菜品按份售卖，暂不含桌台开台与厨打）",
+            // 支持开台、点单、结算、清台；不做厨打/并台/口味加料，描述不承诺这些。
+            "餐饮桌台收银（开台点单、结算清台，暂不含厨打与并台）",
             "份",
-            true,
+            false,
+        )),
+        INDUSTRY_BABY => Some((
+            "母婴用品",
+            "奶粉纸尿裤按月龄段分类，辅食洗护玩具一屏直达",
+            "件",
+            false,
+        )),
+        INDUSTRY_BOARD_GAME => Some((
+            "棋牌包间",
+            "包间开台计时、续费与结算，房费茶水一单结清",
+            "小时",
+            false,
+        )),
+        INDUSTRY_WELLNESS => Some((
+            "养生保健",
+            "推拿艾灸等养生项目开单结算，按项目分类快速点选",
+            "次",
+            false,
         )),
         _ => None,
     }
@@ -188,7 +206,7 @@ fn hide_stale_roots(conn: &Connection, roots: &[String]) -> Result<()> {
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(stmt);
     for (id, name) in active {
-        if roots.iter().any(|r| r == &name) {
+        if id == crate::constants::DEFAULT_CATEGORY_ID || roots.iter().any(|r| r == &name) {
             continue;
         }
         let occupied: i64 = conn.query_row(
@@ -228,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn template_seeded_for_three_industries() {
+    fn template_seeded_for_all_industries() {
         let c = setup();
         for ind in INDUSTRIES {
             let n: i64 = c
@@ -290,7 +308,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(active, expected);
+        assert_eq!(active, expected + 1, "应保留未分类根节点");
     }
 
     #[test]

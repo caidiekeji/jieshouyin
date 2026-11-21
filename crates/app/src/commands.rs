@@ -237,6 +237,85 @@ fn admin_guard<'a>(
     Ok((operator_id, conn))
 }
 
+/// 桌台列表：餐饮/棋牌场景各自独立，占用桌带未结算购物车快照。
+#[tauri::command]
+pub fn list_service_tables(
+    scene: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::service::ServiceTable>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::service::list_tables(&conn, &scene)
+}
+
+/// 新建桌台/包间（管理动作）：编码场景内唯一，座位 1–50。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn create_service_table(
+    scene: String,
+    code: String,
+    name: String,
+    zone: String,
+    seats: i64,
+    fee_sku_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::service::create_table(&conn, &scene, &code, &name, &zone, seats, fee_sku_id)
+}
+
+#[tauri::command]
+pub fn delete_service_table(table_id: i64, state: State<'_, AppState>) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::service::delete_table(&conn, table_id)
+}
+
+/// 开台：购物车快照随会话保存，会员可在结算时再识别。
+#[tauri::command]
+pub fn open_service_table(
+    table_id: i64,
+    cart_json: String,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::service::ServiceTable> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::service::open_table(&conn, table_id, &cart_json)
+}
+
+/// 点单过程中保存购物车快照；同一桌只保留最新一份。
+#[tauri::command]
+pub fn save_service_table_cart(
+    table_id: i64,
+    cart_json: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::service::save_cart(&conn, table_id, &cart_json)
+}
+
+/// 清台：结算成功后释放；force=true 表示未结算强清，需作废权限并留审计。
+#[tauri::command]
+pub fn close_service_table(
+    table_id: i64,
+    force: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (operator_id, conn) = admin_guard(
+        &state,
+        if force { PERM_POS_VOID } else { PERM_POS_CHECKOUT },
+    )?;
+    checkout_core::service::close_table(&conn, table_id)?;
+    if force {
+        checkout_core::rbac::audit_operation(
+            &conn,
+            "clear_table_without_checkout",
+            Some(operator_id),
+            None,
+            serde_json::json!({"table_id": table_id}),
+            &now_str(),
+        )?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_license(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
     Ok(state
@@ -322,14 +401,24 @@ pub struct ProductHit {
     /// 会员价：识别会员后按此价展示（结算时由后端与促销取优）。
     pub member_price_cents: Option<i64>,
     pub is_weighed: bool,
+    /// 分类名与一级分组名：行业场景面板按分组分档（如奶粉/纸尿裤）。
+    pub category_name: String,
+    pub category_group: String,
+    pub unit: String,
     /// 商品图片：本地绝对路径（前端 convertFileSrc）或在线地址。
     pub image_path: Option<String>,
     pub image_url: Option<String>,
 }
 
 /// 商品识别（F-01）：条码精确匹配，模糊搜索兜底。停用商品不参与识别。
+/// limit 供行业场景面板一次装载常用商品；仍限制在上限内，避免界面拖库。
 #[tauri::command]
-pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec<ProductHit>> {
+pub fn lookup_product(
+    keyword: String,
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ProductHit>> {
+    let limit = limit.unwrap_or(20).clamp(1, 200);
     let conn = state
         .conn
         .lock()
@@ -337,13 +426,17 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed,
-                s.member_price_cents, s.image_path, s.image_url
+                s.member_price_cents, s.image_path, s.image_url,
+                COALESCE(c.name,'未分类'), p.unit,
+                COALESCE(pc.name, c.name, '未分类')
          FROM sku s JOIN spu p ON p.spu_id=s.spu_id
+         LEFT JOIN category c ON c.category_id=p.category_id
+         LEFT JOIN category pc ON pc.category_id=c.parent_id
          WHERE p.status=1 AND (s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1)
-         ORDER BY (s.barcode = ?2) DESC LIMIT 20",
+         ORDER BY (s.barcode = ?2) DESC LIMIT ?3",
     )?;
     use rusqlite::params;
-    let rows = stmt.query_map(params![pattern, keyword], |r| {
+    let rows = stmt.query_map(params![pattern, keyword, limit], |r| {
         Ok(ProductHit {
             sku_id: r.get(0)?,
             spu_name: r.get(1)?,
@@ -351,6 +444,9 @@ pub fn lookup_product(keyword: String, state: State<'_, AppState>) -> Result<Vec
             price_cents: r.get(3)?,
             is_weighed: r.get::<_, i64>(4)? != 0,
             member_price_cents: r.get(5)?,
+            category_name: r.get(8)?,
+            category_group: r.get(10)?,
+            unit: r.get(9)?,
             image_path: r.get(6)?,
             image_url: r.get(7)?,
         })
@@ -792,6 +888,7 @@ pub async fn checkout(
     payments: Vec<PaymentInput>,
     member_id: Option<i64>,
     coupon_code: Option<String>,
+    table_code: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<CheckoutResult> {
     let license = state
@@ -962,6 +1059,23 @@ pub async fn checkout(
             &biz,
             &now,
         )?;
+        if let Some(tc) = table_code.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            if tc.chars().count() > 12 {
+                return Err(CoreError::Validation("桌台编码过长".into()));
+            }
+            let exists: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM service_table WHERE code=?1 AND status='OCCUPIED'",
+                [tc],
+                |r| r.get(0),
+            )?;
+            if exists == 0 {
+                return Err(CoreError::Validation(format!("桌台 {tc} 不存在或未开台")));
+            }
+            tx.execute(
+                "UPDATE sales_order SET table_code=?1 WHERE order_no=?2",
+                rusqlite::params![tc, order_no],
+            )?;
+        }
         if let Some(code) = coupon_key {
             checkout_core::member::transition_coupon(&tx, code, "LOCKED")?;
         }
@@ -4615,6 +4729,12 @@ pub fn run() {
             logout,
             current_session,
             lookup_product,
+            list_service_tables,
+            create_service_table,
+            delete_service_table,
+            open_service_table,
+            save_service_table_cart,
+            close_service_table,
             member_prices,
             parse_weigh_barcode,
             detect_payment_code,
