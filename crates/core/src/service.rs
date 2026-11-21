@@ -269,11 +269,7 @@ pub fn open_table(
 }
 
 /// 占用中的桌台换绑会员：门店开启“允许换绑”后才执行，命令层写审计。
-pub fn rebind_member(
-    conn: &Connection,
-    table_id: i64,
-    member_id: i64,
-) -> Result<ServiceTable> {
+pub fn rebind_member(conn: &Connection, table_id: i64, member_id: i64) -> Result<ServiceTable> {
     if cfg_text(conn, crate::constants::CFG_TABLE_ALLOW_REBIND, "0") != "1" {
         return Err(CoreError::Validation(
             "门店未开启桌台换绑会员，请先在系统配置中开启".into(),
@@ -592,11 +588,17 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
         .with_timezone(&Utc);
     let seconds = (Utc::now() - opened_at).num_seconds().max(0);
     let elapsed_minutes = (seconds + 59) / 60;
-    let unit = fee_unit
-        .unwrap_or_else(|| cfg_text(conn, crate::constants::CFG_CHESS_FEE_UNIT, "MINUTE"));
+    let unit =
+        fee_unit.unwrap_or_else(|| cfg_text(conn, crate::constants::CFG_CHESS_FEE_UNIT, "MINUTE"));
     let unit = if unit == "HOUR" { "HOUR" } else { "MINUTE" };
     let min_minutes = min_minutes
-        .unwrap_or_else(|| cfg_i64(conn, crate::constants::CFG_CHESS_MIN_MINUTES, CHESS_MIN_BILLABLE_MINUTES))
+        .unwrap_or_else(|| {
+            cfg_i64(
+                conn,
+                crate::constants::CFG_CHESS_MIN_MINUTES,
+                CHESS_MIN_BILLABLE_MINUTES,
+            )
+        })
         .max(0);
     let round_minutes = round_minutes
         .unwrap_or_else(|| cfg_i64(conn, crate::constants::CFG_CHESS_ROUND_MINUTES, 0))
@@ -775,7 +777,19 @@ mod tests {
     #[test]
     fn open_save_and_close_table() {
         let c = setup();
-        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
+        let id = create_table(
+            &c,
+            SCENE_DINING,
+            "A01",
+            "大厅 1 号",
+            "大厅",
+            4,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         c.execute(
             "INSERT INTO spu(category_id,spu_name,spu_code,status) VALUES (1,'测试菜','T-1',1)",
             [],
@@ -800,7 +814,19 @@ mod tests {
     #[test]
     fn cannot_open_occupied_or_delete_occupied() {
         let c = setup();
-        let id = create_table(&c, SCENE_CHESS, "B01", "包间 1", "二楼", 6, None, None, None, None).unwrap();
+        let id = create_table(
+            &c,
+            SCENE_CHESS,
+            "B01",
+            "包间 1",
+            "二楼",
+            6,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         open_table(&c, id, "[]", None).unwrap();
         assert!(open_table(&c, id, "[]", None).is_err());
         assert!(delete_table(&c, id).is_err());
@@ -811,8 +837,32 @@ mod tests {
     #[test]
     fn cart_rejects_bad_lines_and_duplicate_code() {
         let c = setup();
-        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
-        assert!(create_table(&c, SCENE_DINING, "A01", "重复", "大厅", 4, None, None, None, None).is_err());
+        let id = create_table(
+            &c,
+            SCENE_DINING,
+            "A01",
+            "大厅 1 号",
+            "大厅",
+            4,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(create_table(
+            &c,
+            SCENE_DINING,
+            "A01",
+            "重复",
+            "大厅",
+            4,
+            None,
+            None,
+            None,
+            None
+        )
+        .is_err());
         assert!(open_table(&c, id, r#"[{"sku_id":0,"qty":1}]"#, None).is_err());
         assert!(open_table(&c, id, r#"[{"sku_id":1,"qty":0}]"#, None).is_err());
     }
@@ -834,7 +884,19 @@ mod tests {
     fn submit_only_new_items_and_return_sent() {
         let c = setup();
         seed_dish(&c);
-        let id = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
+        let id = create_table(
+            &c,
+            SCENE_DINING,
+            "A01",
+            "大厅 1 号",
+            "大厅",
+            4,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         open_table(&c, id, r#"[{"sku_id":1,"qty":1}]"#, None).unwrap();
         let first = submit_order(&c, id, SCENE_DINING).unwrap();
         assert_eq!(first.len(), 1);
@@ -859,8 +921,32 @@ mod tests {
     fn merge_tables_combines_cart_and_sent_snapshot() {
         let c = setup();
         seed_dish(&c);
-        let target = create_table(&c, SCENE_DINING, "A01", "大厅 1 号", "大厅", 4, None, None, None, None).unwrap();
-        let source = create_table(&c, SCENE_DINING, "A02", "大厅 2 号", "大厅", 4, None, None, None, None).unwrap();
+        let target = create_table(
+            &c,
+            SCENE_DINING,
+            "A01",
+            "大厅 1 号",
+            "大厅",
+            4,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let source = create_table(
+            &c,
+            SCENE_DINING,
+            "A02",
+            "大厅 2 号",
+            "大厅",
+            4,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         open_table(
             &c,
             target,
@@ -889,7 +975,19 @@ mod tests {
         seed_dish(&c);
         c.execute("UPDATE sku SET sale_price_cents=150", [])
             .unwrap();
-        let id = create_table(&c, SCENE_CHESS, "B01", "包间 1", "二楼", 6, Some(1), None, None, None).unwrap();
+        let id = create_table(
+            &c,
+            SCENE_CHESS,
+            "B01",
+            "包间 1",
+            "二楼",
+            6,
+            Some(1),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         open_table(&c, id, "[]", None).unwrap();
         let fee = chess_fee(&c, id).unwrap();
         assert_eq!(fee.elapsed_minutes, 0);
@@ -910,7 +1008,8 @@ mod tests {
     fn chess_fee_respects_table_override_and_rounding() {
         let c = setup();
         seed_dish(&c);
-        c.execute("UPDATE sku SET sale_price_cents=6000", []).unwrap();
+        c.execute("UPDATE sku SET sale_price_cents=6000", [])
+            .unwrap();
         let id = create_table(
             &c,
             SCENE_CHESS,

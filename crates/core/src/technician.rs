@@ -211,8 +211,12 @@ pub fn list_rules(conn: &Connection, technician_id: Option<i64>) -> Result<Vec<T
         })
     };
     let rows = match technician_id {
-        Some(tid) => stmt.query_map([tid], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
-        None => stmt.query_map([], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
+        Some(tid) => stmt
+            .query_map([tid], map)?
+            .collect::<std::result::Result<Vec<_>, _>>()?,
+        None => stmt
+            .query_map([], map)?
+            .collect::<std::result::Result<Vec<_>, _>>()?,
     };
     Ok(rows)
 }

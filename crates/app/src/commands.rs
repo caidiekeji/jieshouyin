@@ -461,9 +461,10 @@ pub fn print_kitchen_ticket(table_id: i64, state: State<'_, AppState>) -> Result
         .and_then(|s| s.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PRINT_PORT);
     // 档口路由：分类 → 独立打印机；未配置或未命中分类时回退主打印机。
-    let routes: Vec<serde_json::Value> = cfg_get(&conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+    let routes: Vec<serde_json::Value> =
+        cfg_get(&conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
     let route_of = |category_id: i64| -> (String, String, u16) {
         for r in &routes {
             if r.get("category_id").and_then(|v| v.as_i64()) == Some(category_id) {
@@ -579,10 +580,7 @@ pub fn get_kitchen_routes(state: State<'_, AppState>) -> Result<Vec<serde_json::
 
 /// 保存厨打档口路由。空数组表示全部回退主打印机。
 #[tauri::command]
-pub fn set_kitchen_routes(
-    routes_json: String,
-    state: State<'_, AppState>,
-) -> Result<()> {
+pub fn set_kitchen_routes(routes_json: String, state: State<'_, AppState>) -> Result<()> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     let routes: Vec<serde_json::Value> = serde_json::from_str(&routes_json)
         .map_err(|_| CoreError::Validation("厨打路由必须是 JSON 数组".into()))?;
@@ -602,11 +600,7 @@ pub fn set_kitchen_routes(
         if exists == 0 {
             return Err(CoreError::Validation(format!("分类 {category_id} 不存在")));
         }
-        let host = r
-            .get("host")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim();
+        let host = r.get("host").and_then(|v| v.as_str()).unwrap_or("").trim();
         if host.is_empty()
             || host.len() > 64
             || !host
@@ -1161,8 +1155,8 @@ fn plan_amounts(
                 return Err(CoreError::Validation("棋牌房费行只能有一条".into()));
             }
             chess_fee_seen = true;
-            let tid = table_id
-                .ok_or_else(|| CoreError::Validation("棋牌房费缺少桌台信息".into()))?;
+            let tid =
+                table_id.ok_or_else(|| CoreError::Validation("棋牌房费缺少桌台信息".into()))?;
             let fee = checkout_core::service::chess_fee(conn, tid)?;
             let fee_sku: Option<i64> = conn
                 .query_row(
@@ -1173,9 +1167,7 @@ fn plan_amounts(
                 .optional()?
                 .flatten();
             if fee_sku != Some(l.sku_id) {
-                return Err(CoreError::Validation(
-                    "棋牌房费商品与包间配置不一致".into(),
-                ));
+                return Err(CoreError::Validation("棋牌房费商品与包间配置不一致".into()));
             }
             let mut cl = checkout_core::promo::CartLine::new(l.sku_id, 1, fee.fee_cents)?;
             cl.technician_id = None;
