@@ -708,18 +708,18 @@ mod tests {
         adjust_stock(&c, sku, -5, "转服务清零", None).unwrap();
         set_product_service(&c, sku, true).unwrap();
         let stock_rows: i64 = c
-            .query_row("SELECT COUNT(*) FROM inv_stock WHERE sku_id=?1", [sku], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM inv_stock WHERE sku_id=?1",
+                [sku],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(stock_rows, 0);
         set_product_service(&c, sku, false).unwrap();
         let zero_stock: i64 = c
-            .query_row(
-                "SELECT qty FROM inv_stock WHERE sku_id=?1",
-                [sku],
-                |r| r.get(0),
-            )
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=?1", [sku], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(zero_stock, 0);
     }
