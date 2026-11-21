@@ -9,6 +9,7 @@ import {
   type LicenseSnapshot,
   type ProductHit,
   type CartLine,
+  type Category,
   type OrderItemRow,
   type ConfigRow,
   type ReportMeta,
@@ -154,6 +155,14 @@ const refundOrderNo = ref('')
 // 收银状态
 const keyword = ref('')
 const products = ref<ProductHit[]>([])
+/** 收银点选区：分类页签与当前分类商品，替代只靠键盘搜索的单一入口 */
+const posCategories = ref<Category[]>([])
+const posProducts = ref<ProductHit[]>([])
+const posCategoryId = ref<number | null>(null)
+const posCatalogBusy = ref(false)
+const posRootCategories = computed(() =>
+  posCategories.value.filter((c) => c.parent_id == null)
+)
 /** 联想查询中：搜索框内显示轻量加载指示，不打断输入 */
 const searchBusy = ref(false)
 /** 收款提交中：按钮禁用防重复提交，保留宽度防抖 */
@@ -938,6 +947,53 @@ function productImageSrc(p: { image_path?: string | null; image_url?: string | n
   return null
 }
 
+async function loadPosCategory(categoryId: number | null) {
+  posCategoryId.value = categoryId
+  try {
+    posProducts.value = await api.posProducts(categoryId)
+  } catch (e) {
+    posProducts.value = []
+    showToast(String(e), true)
+  }
+}
+
+/** 进入收银台即装载分类与首个分类商品；商品/分类变更后回到收银会重新拉取。 */
+async function loadPosCatalog() {
+  if (posCatalogBusy.value) return
+  posCatalogBusy.value = true
+  try {
+    posCategories.value = await api.posCategories()
+    const roots = posCategories.value.filter((c) => c.parent_id == null)
+    const current = roots.find((c) => c.category_id === posCategoryId.value)
+    // 默认落在首个真实经营分类；「未分类」通常为空，不让它占据首屏。
+    const fallback = roots.find((c) => c.category_id !== 1) ?? roots[0]
+    await loadPosCategory(current?.category_id ?? fallback?.category_id ?? null)
+  } catch (e) {
+    showToast(String(e), true)
+  } finally {
+    posCatalogBusy.value = false
+  }
+}
+
+function selectPosCategory(categoryId: number) {
+  if (categoryId === posCategoryId.value) return
+  void loadPosCategory(categoryId)
+}
+
+/** 点选商品：称重商品必须走称重码，点击普通商品直接入车。 */
+function addFromCatalog(p: ProductHit) {
+  if (p.is_weighed) {
+    showToast('称重商品请用称重码扫码入车，避免按件误算', true)
+    focusScan()
+    return
+  }
+  addToCart(p)
+}
+
+watch(view, (v) => {
+  if (v === 'pos') void loadPosCatalog()
+})
+
 function addToCart(p: ProductHit) {
   const existing = cart.value.find((l) => l.sku_id === p.sku_id)
   if (existing) existing.qty += 1
@@ -959,6 +1015,26 @@ function changeQty(index: number, delta: number) {
   const line = cart.value[index]
   line.qty += delta
   if (line.qty <= 0) cart.value.splice(index, 1)
+}
+
+/** 直接改数量：键盘输入比连点加减快，0 视为移除该行。 */
+function setLineQty(index: number, raw: string) {
+  const line = cart.value[index]
+  if (!line) return
+  const qty = Math.floor(Number(raw))
+  if (!Number.isFinite(qty) || qty <= 0) {
+    cart.value.splice(index, 1)
+    return
+  }
+  line.qty = qty
+}
+
+/** 清空当前购物车：主流 POS 的清空动作，避免逐行减到 0。 */
+function clearCart() {
+  if (!cart.value.length) return
+  if (!window.confirm('清空当前购物车的全部商品？')) return
+  cart.value = []
+  showToast('已清空购物车')
 }
 
 /** 付款成功后重置收银台：渠道回现金、清付款码/券/拆分行，回到默认单笔模式。 */
@@ -1877,9 +1953,57 @@ function applyTheme(t: 'light' | 'dark') {
   document.documentElement.dataset.theme = t
   localStorage.setItem('checkoutr-theme', t)
 }
+/** 收银台弹窗打开时，快捷键不得穿透到底层交易。 */
+function posDialogOpen(): boolean {
+  return (
+    lockSetupOpen.value ||
+    memberDialogOpen.value ||
+    couponDialogOpen.value ||
+    cashDialogOpen.value ||
+    parkDialogOpen.value ||
+    !!authDialog.value ||
+    !!nativeDialog.value
+  )
+}
+
+/** 收银快捷键：对齐主流 POS 的单手操作习惯（F2 扫码、F3 会员、Ctrl+G/Q 挂单取单）。 */
+function handlePosShortcut(e: KeyboardEvent): boolean {
+  if (view.value !== 'pos' || e.repeat) return false
+  const key = e.key.toLowerCase()
+  if (e.key === 'F2' && !posDialogOpen()) {
+    e.preventDefault()
+    focusScan()
+    return true
+  }
+  if (e.key === 'F3' && !posDialogOpen()) {
+    e.preventDefault()
+    openMemberDialog()
+    return true
+  }
+  if (e.ctrlKey && !e.altKey && key === 'g' && !posDialogOpen()) {
+    e.preventDefault()
+    void park()
+    return true
+  }
+  if (e.ctrlKey && !e.altKey && key === 'q' && !posDialogOpen()) {
+    e.preventDefault()
+    void openParkDialog()
+    return true
+  }
+  const tag = (e.target as HTMLElement | null)?.tagName
+  const editing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+  if (e.ctrlKey && !e.altKey && key === 'z' && !editing && !posDialogOpen()) {
+    e.preventDefault()
+    clearCart()
+    return true
+  }
+  return false
+}
+
 /** Esc 统一关闭最上层弹窗：收银场景键盘高频，必须能不摸鼠标退出。
  *  授权 / Native 收款弹窗走各自 cancel* 函数，确保挂起的 Promise 与轮询定时器一并清理。 */
 function onGlobalKeydown(e: KeyboardEvent) {
+  if (handlePosShortcut(e)) return
   if (e.key !== 'Escape') return
   if (lockSetupOpen.value) { cancelLockSetup(); return }
   if (memberDialogOpen.value) { memberDialogOpen.value = false; return }
@@ -2126,7 +2250,7 @@ async function doLogout() {
             <span v-if="searchBusy" class="scan-spinner" aria-label="搜索中"></span>
             <span v-else-if="products.length" class="scan-hint">{{ products.length }} 个候选 · 回车收第一条</span>
           </div>
-          <div class="product-list">
+          <div v-if="keyword.trim()" class="product-list">
             <div v-for="p in products" :key="p.sku_id" class="product-item" @click="addToCart(p)">
               <img v-if="productImageSrc(p)" :src="productImageSrc(p)!" class="product-thumb" alt="" />
               <span v-else class="product-thumb product-thumb-empty"></span>
@@ -2140,13 +2264,48 @@ async function doLogout() {
               </div>
             </div>
             <div v-if="!products.length" class="empty">
-              {{ keyword.trim() ? '没有匹配的商品' : '输入条码或商品名即自动联想，扫码枪扫码直接入购物车' }}
+              {{ searchBusy ? '正在查询…' : '没有匹配的商品' }}
+            </div>
+          </div>
+          <!-- 能扫能点：分类页签 + 商品卡片，触摸屏不用键盘也能点单 -->
+          <div v-else class="pos-catalog">
+            <div v-if="posRootCategories.length" class="pos-cat-row">
+              <button
+                v-for="c in posRootCategories"
+                :key="c.category_id"
+                :class="['pos-cat', { active: posCategoryId === c.category_id }]"
+                @click="selectPosCategory(c.category_id)"
+              >{{ c.name }}</button>
+            </div>
+            <div class="pos-grid">
+              <button
+                v-for="p in posProducts"
+                :key="p.sku_id"
+                class="pos-card"
+                :class="{ weighed: p.is_weighed }"
+                @click="addFromCatalog(p)"
+              >
+                <img v-if="productImageSrc(p)" :src="productImageSrc(p)!" class="pos-card-img" alt="" />
+                <span v-else class="pos-card-img pos-card-empty"><Icon name="package" :size="ICON_SIZE.md" /></span>
+                <span class="pos-card-name">{{ p.spu_name }}</span>
+                <span class="pos-card-meta">{{ p.category_name }}<template v-if="p.is_weighed"> · 称重</template></span>
+                <strong class="price">¥{{ formatMoney(p.price_cents) }}<span class="muted small">/{{ p.unit }}</span></strong>
+              </button>
+              <div v-if="!posProducts.length" class="empty pos-empty">
+                {{ posCatalogBusy ? '正在装载商品…' : '该分类暂无在售商品，可切分类或直接扫码' }}
+              </div>
+            </div>
+            <div class="pos-shortcuts">
+              <span>F2 扫码</span><span>F3 会员</span><span>Ctrl+G 挂单</span><span>Ctrl+Q 取单</span><span>Ctrl+Z 清空</span>
             </div>
           </div>
         </section>
 
         <section class="panel cart-panel">
-          <h3>购物车 <span class="badge">{{ cart.length }}</span></h3>
+          <h3>
+            购物车 <span class="badge">{{ cart.length }}</span>
+            <button v-if="cart.length" class="btn ghost btn-sm cart-clear" @click="clearCart">清空</button>
+          </h3>
           <div class="cart-list">
             <div v-for="(l, i) in cart" :key="`${l.sku_id}-${i}`" class="cart-line">
               <img v-if="productImageSrc(l)" :src="productImageSrc(l)!" class="cart-thumb" alt="" />
@@ -2156,9 +2315,16 @@ async function doLogout() {
                 <span v-if="l.member_price_cents" class="tag">会员价</span>
               </div>
               <div class="qty-ctrl">
-                <button @click="changeQty(i, -1)"><Icon name="minus" :size="ICON_SIZE.sm" /></button>
-                <span>{{ l.qty }}</span>
-                <button @click="changeQty(i, 1)"><Icon name="plus" :size="ICON_SIZE.sm" /></button>
+                <button @click="changeQty(i, -1)" aria-label="减少数量"><Icon name="minus" :size="ICON_SIZE.sm" /></button>
+                <input
+                  class="qty-input"
+                  type="number"
+                  min="1"
+                  :value="l.qty"
+                  aria-label="商品数量"
+                  @change="setLineQty(i, ($event.target as HTMLInputElement).value)"
+                />
+                <button @click="changeQty(i, 1)" aria-label="增加数量"><Icon name="plus" :size="ICON_SIZE.sm" /></button>
               </div>
               <span class="price">¥{{ formatMoney(l.qty * effectivePrice(l)) }}</span>
             </div>

@@ -211,6 +211,37 @@ h2 { font-size: var(--font-lg); }
   background: var(--panel);
 }
 .product-item:hover { border-color: var(--brand); background: var(--brand-subtle); }
+/* 收银点选区：分类页签常驻上方，商品卡片网格占据剩余高度 */
+.pos-catalog { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: var(--space-3); }
+.pos-cat-row { display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: var(--space-2); flex: none; }
+.pos-cat {
+  border: var(--border-width) solid var(--border); background: var(--panel); color: var(--text);
+  border-radius: var(--radius-pill); padding: var(--space-2) var(--space-3);
+  white-space: nowrap; cursor: pointer; font-size: var(--font-sm);
+}
+.pos-cat.active { background: var(--brand); border-color: var(--brand); color: var(--text-on-brand); }
+.pos-grid {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: var(--space-3); align-content: start;
+}
+.pos-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1);
+  padding: var(--space-3); text-align: left; cursor: pointer;
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-md);
+  background: var(--panel); color: var(--text);
+}
+.pos-card:hover { border-color: var(--brand); background: var(--brand-subtle); }
+.pos-card.weighed { border-style: dashed; }
+.pos-card-img {
+  width: 100%; height: 82px; object-fit: cover; border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.pos-card-empty { display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.pos-card-name { font-weight: 600; line-height: 1.25; }
+.pos-card-meta { color: var(--muted); font-size: var(--font-xs); }
+.pos-empty { grid-column: 1 / -1; }
+.pos-shortcuts { display: flex; gap: var(--space-3); flex-wrap: wrap; color: var(--muted); font-size: var(--font-xs); padding-top: var(--space-2); flex: none; }
 .product-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-0_5); }
 .price-stack { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-0_5); }
 .price { color: var(--brand); font-weight: 600; white-space: nowrap; }
@@ -225,6 +256,14 @@ h2 { font-size: var(--font-lg); }
 .empty { color: var(--muted); text-align: center; padding: var(--space-10) var(--space-0); }
 
 .cart-panel h3 { display: flex; align-items: center; gap: var(--space-2); }
+.cart-clear { margin-left: auto; }
+.qty-input {
+  width: 46px; height: var(--control-qty-size);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-xs);
+  background: var(--panel); color: var(--text); text-align: center;
+  font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+}
+.qty-input::-webkit-outer-spin-button, .qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .badge {
   background: var(--brand); color: var(--text-on-brand);
   border-radius: var(--radius-pill);

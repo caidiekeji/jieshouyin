@@ -351,6 +351,10 @@ export const api = {
       limit: limit ?? null,
       categoryGroup: categoryGroup ?? null,
     }),
+  /** 收银点选区：一级分类与在售商品（不依赖报表授权） */
+  posCategories: () => invoke<Category[]>('list_pos_categories'),
+  posProducts: (categoryId?: number | null) =>
+    invoke<ProductHit[]>('list_pos_products', { categoryId: categoryId ?? null }),
   /** 批量取 SKU 会员价（识别会员后刷新购物车行） */
   memberPrices: (skuIds: number[]) =>
     invoke<{ sku_id: number; member_price_cents: number | null }[]>('member_prices', { skuIds }),

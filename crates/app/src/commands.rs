@@ -410,22 +410,15 @@ pub struct ProductHit {
     pub image_url: Option<String>,
 }
 
-/// 商品识别（F-01）：条码精确匹配，模糊搜索兜底。停用商品不参与识别。
-/// limit 供行业场景面板一次装载常用商品；仍限制在上限内，避免界面拖库。
-#[tauri::command]
-pub fn lookup_product(
-    keyword: String,
-    limit: Option<i64>,
-    category_group: Option<String>,
-    state: State<'_, AppState>,
+/// 商品查询共用实现：扫码搜索、场景面板、收银点选共用同一口径。
+fn query_products(
+    conn: &rusqlite::Connection,
+    data_dir: &std::path::Path,
+    keyword: &str,
+    limit: i64,
+    category_group: &str,
+    category_id: Option<i64>,
 ) -> Result<Vec<ProductHit>> {
-    let limit = limit.unwrap_or(20).clamp(1, 200);
-    let group = category_group.unwrap_or_default();
-    let group = group.trim().to_string();
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(
         "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed,
@@ -438,26 +431,30 @@ pub fn lookup_product(
          WHERE p.status=1
            AND (s.barcode LIKE ?1 OR s.instore_code LIKE ?1 OR p.spu_name LIKE ?1)
            AND (?4 = '' OR COALESCE(pc.name, c.name, '') = ?4)
+           AND (?5 IS NULL OR p.category_id=?5 OR c.parent_id=?5 OR pc.parent_id=?5)
          ORDER BY (s.barcode = ?2) DESC LIMIT ?3",
     )?;
     use rusqlite::params;
-    let rows = stmt.query_map(params![pattern, keyword, limit, group], |r| {
-        Ok(ProductHit {
-            sku_id: r.get(0)?,
-            spu_name: r.get(1)?,
-            barcode: r.get(2)?,
-            price_cents: r.get(3)?,
-            is_weighed: r.get::<_, i64>(4)? != 0,
-            member_price_cents: r.get(5)?,
-            category_name: r.get(8)?,
-            category_group: r.get(10)?,
-            unit: r.get(9)?,
-            image_path: r.get(6)?,
-            image_url: r.get(7)?,
-        })
-    })?;
+    let rows = stmt.query_map(
+        params![pattern, keyword, limit, category_group, category_id],
+        |r| {
+            Ok(ProductHit {
+                sku_id: r.get(0)?,
+                spu_name: r.get(1)?,
+                barcode: r.get(2)?,
+                price_cents: r.get(3)?,
+                is_weighed: r.get::<_, i64>(4)? != 0,
+                member_price_cents: r.get(5)?,
+                category_name: r.get(8)?,
+                category_group: r.get(10)?,
+                unit: r.get(9)?,
+                image_path: r.get(6)?,
+                image_url: r.get(7)?,
+            })
+        },
+    )?;
     // 本地图片库内可能存文件名，统一解析为绝对路径供前端 convertFileSrc 展示。
-    let img_dir = state.data_dir.join("images");
+    let img_dir = data_dir.join("images");
     let mut out = Vec::new();
     for row in rows {
         let mut hit = row?;
@@ -468,6 +465,50 @@ pub fn lookup_product(
         out.push(hit);
     }
     Ok(out)
+}
+
+/// 商品识别（F-01）：条码精确匹配，模糊搜索兜底。停用商品不参与识别。
+/// limit 供行业场景面板一次装载常用商品；仍限制在上限内，避免界面拖库。
+#[tauri::command]
+pub fn lookup_product(
+    keyword: String,
+    limit: Option<i64>,
+    category_group: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ProductHit>> {
+    let limit = limit.unwrap_or(20).clamp(1, 500);
+    let group = category_group.unwrap_or_default();
+    let group = group.trim().to_string();
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    query_products(&conn, &state.data_dir, &keyword, limit, &group, None)
+}
+
+/// 收银点选区：按一级分类装载在售商品，店员无需输入关键字即可点选。
+#[tauri::command]
+pub fn list_pos_products(
+    category_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ProductHit>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    query_products(&conn, &state.data_dir, "", 500, "", category_id)
+}
+
+/// 收银分类页签：只返回启用分类，排除行业切换后停用的旧分类树。
+#[tauri::command]
+pub fn list_pos_categories(
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::product::Category>> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    checkout_core::product::list_categories(&conn)
 }
 
 /// 批量取 SKU 会员价：识别会员后刷新购物车行的会员价（前台按会员价展示）。
@@ -4766,6 +4807,8 @@ pub fn run() {
             logout,
             current_session,
             lookup_product,
+            list_pos_products,
+            list_pos_categories,
             list_service_tables,
             create_service_table,
             delete_service_table,
