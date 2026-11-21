@@ -58,11 +58,8 @@ onMounted(reload)
 </script>
 
 <template>
-  <main class="main-simple">
-    <div class="page-head">
-      <h2>商品分类</h2>
-      <p class="muted small">按行业预置的分类模板在此维护；新增分类不影响已有商品。</p>
-    </div>
+  <div class="page-body">
+    <p class="muted small">按行业预置的分类模板在此维护；新增分类不影响已有商品。</p>
 
     <div class="card wide">
       <h3>分类结构</h3>
@@ -99,7 +96,7 @@ onMounted(reload)
         <button class="btn primary" @click="add"><Icon name="plus" :size="ICON_SIZE.md" />添加分类</button>
       </div>
     </div>
-  </main>
+  </div>
 </template>
 
 <style scoped>

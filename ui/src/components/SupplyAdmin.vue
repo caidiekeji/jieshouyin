@@ -271,9 +271,9 @@ onMounted(() => {
   <main class="main-simple">
     <div class="page-head">
       <h2>采购与盘点</h2>
-      <div class="tab-row">
-        <button :class="['btn', { primary: tab === 'purchase' }]" @click="tab = 'purchase'">采购入库</button>
-        <button :class="['btn', { primary: tab === 'stocktake' }]" @click="tab = 'stocktake'">库存盘点</button>
+      <div class="seg" role="tablist">
+        <button :class="['seg-btn', { active: tab === 'purchase' }]" role="tab" :aria-selected="tab === 'purchase'" @click="tab = 'purchase'">采购入库</button>
+        <button :class="['seg-btn', { active: tab === 'stocktake' }]" role="tab" :aria-selected="tab === 'stocktake'" @click="tab = 'stocktake'">库存盘点</button>
       </div>
     </div>
 

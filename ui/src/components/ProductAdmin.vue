@@ -231,13 +231,10 @@ onMounted(reload)
 </script>
 
 <template>
-  <main class="main-simple">
-    <div class="page-head">
-      <h2>商品管理</h2>
-      <p v-if="lowStockCount > 0" class="muted small warning-text">
-        <Icon name="alert" :size="ICON_SIZE.sm" /> {{ lowStockCount }} 个商品库存低于预警值
-      </p>
-    </div>
+  <div class="page-body">
+    <p v-if="lowStockCount > 0" class="muted small warning-text">
+      <Icon name="alert" :size="ICON_SIZE.sm" /> {{ lowStockCount }} 个商品库存低于预警值
+    </p>
 
     <div class="toolbar">
       <input v-model="keyword" class="input" placeholder="搜索商品名 / 条码" @keyup.enter="reload" />
@@ -352,7 +349,7 @@ onMounted(reload)
         <button class="btn ghost" @click="adjustSku = null">取消</button>
       </div>
     </div>
-  </main>
+  </div>
 </template>
 
 <style scoped>

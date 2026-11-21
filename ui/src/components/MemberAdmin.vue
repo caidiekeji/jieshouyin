@@ -150,9 +150,9 @@ onMounted(() => {
   <main class="main-simple">
     <div class="page-head">
       <h2>会员营销</h2>
-      <div class="tab-row">
-        <button :class="['btn', { primary: tab === 'member' }]" @click="tab = 'member'">会员管理</button>
-        <button :class="['btn', { primary: tab === 'promo' }]" @click="tab = 'promo'">促销规则</button>
+      <div class="seg" role="tablist">
+        <button :class="['seg-btn', { active: tab === 'member' }]" role="tab" :aria-selected="tab === 'member'" @click="tab = 'member'">会员管理</button>
+        <button :class="['seg-btn', { active: tab === 'promo' }]" role="tab" :aria-selected="tab === 'promo'" @click="tab = 'promo'">促销规则</button>
       </div>
     </div>
 

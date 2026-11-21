@@ -1354,10 +1354,41 @@ const pointsConfigs = computed(() =>
     (c): c is ConfigRow => !!c
   )
 )
-/** 系统配置页排除积分项（积分配置有独立入口） */
-const nonPointsConfigs = computed(() =>
-  configs.value.filter((c) => c.editable && !POINTS_CONFIG_KEYS.includes(c.config_key))
-)
+/** 支付渠道开关由 payment 页专属管理，系统配置页不重复展示 */
+const PAY_CHANNEL_CONFIG_KEYS = ['pay_channel_cash_enabled', 'pay_channel_wechat_enabled', 'pay_channel_alipay_enabled', 'pay_channel_sv_enabled']
+/** 系统配置按功能分区：同类的键归一组，避免一屏大杂烩。键顺序即展示顺序。 */
+const SYSTEM_CONFIG_GROUPS: Array<{ title: string; hint: string; keys: string[] }> = [
+  { title: '营业规则', hint: '影响营业日切与收银基础规则', keys: ['store_timezone', 'business_day_cutoff', 'max_discount_ratio', 'allow_negative_stock_default'] },
+  { title: '支付时序', hint: '付款码 / 主扫的轮询与超时参数', keys: ['micropay_poll_ms', 'micropay_timeout_s', 'native_poll_ms', 'native_timeout_s'] },
+  { title: '收银设备', hint: '扫码枪等外设参数', keys: ['scan_gap_ms'] },
+  { title: '经营费用', hint: '利润报表按天均摊的月度固定费用', keys: ['expense_rent_yuan', 'expense_utility_yuan', 'expense_labor_yuan'] },
+  { title: '打印设置', hint: '网络打印机地址与结算自动打印', keys: ['print_host', 'print_port', 'print_auto'] },
+  { title: '激活服务', hint: '在线激活服务地址，留空使用内置服务', keys: ['activation_endpoint'] },
+]
+const systemConfigGroups = computed(() => {
+  const grouped = SYSTEM_CONFIG_GROUPS.map((g) => ({
+    title: g.title,
+    hint: g.hint,
+    items: g.keys
+      .map((k) => configs.value.find((c) => c.config_key === k))
+      .filter((c): c is ConfigRow => !!c && c.editable),
+  })).filter((g) => g.items.length)
+  // 兜底：新增但未归组的配置项仍可见，避免遗漏；积分与支付渠道有专属页面，排除
+  const assigned = SYSTEM_CONFIG_GROUPS.flatMap((g) => g.keys)
+  const orphans = configs.value.filter(
+    (c) =>
+      c.editable &&
+      !assigned.includes(c.config_key) &&
+      !POINTS_CONFIG_KEYS.includes(c.config_key) &&
+      !PAY_CHANNEL_CONFIG_KEYS.includes(c.config_key)
+  )
+  if (orphans.length) grouped.push({ title: '其他', hint: '尚未归类的配置项', items: orphans })
+  return grouped
+})
+/** 配置键 → 中文名（复用后端元数据，UI 不硬编码英文键） */
+function configLabel(key: string): string {
+  return configs.value.find((c) => c.config_key === key)?.label ?? key
+}
 async function loadConfigs() {
   try {
     configs.value = await api.getConfigs()
@@ -1978,19 +2009,22 @@ function doLogout() {
         </section>
       </main>
 
-      <!-- 商品与分类：合并为「商品」一个菜单，页内子标签切换 -->
-      <template v-else-if="view === 'products' || view === 'categories'">
-        <div class="goods-tabs">
-          <button :class="['goods-tab', { active: goodsTab === 'list' }]" @click="goodsTab = 'list'; view = 'products'">
-            <Icon name="package" :size="ICON_SIZE.md" />商品列表
-          </button>
-          <button :class="['goods-tab', { active: goodsTab === 'category' }]" @click="goodsTab = 'category'; view = 'categories'">
-            <Icon name="box" :size="ICON_SIZE.md" />分类管理
-          </button>
+      <!-- 商品与分类：页签与内容同处统一管理骨架，左对齐 -->
+      <main v-else-if="view === 'products' || view === 'categories'" class="main-simple">
+        <div class="page-head">
+          <h2>商品管理</h2>
+          <div class="seg" role="tablist">
+            <button :class="['seg-btn', { active: goodsTab === 'list' }]" role="tab" :aria-selected="goodsTab === 'list'" @click="goodsTab = 'list'; view = 'products'">
+              <Icon name="package" :size="ICON_SIZE.md" />商品列表
+            </button>
+            <button :class="['seg-btn', { active: goodsTab === 'category' }]" role="tab" :aria-selected="goodsTab === 'category'" @click="goodsTab = 'category'; view = 'categories'">
+              <Icon name="box" :size="ICON_SIZE.md" />分类管理
+            </button>
+          </div>
         </div>
         <ProductAdmin v-if="goodsTab === 'list'" />
         <CategoryAdmin v-else />
-      </template>
+      </main>
 
       <!-- 采购与盘点 -->
       <SupplyAdmin v-else-if="view === 'supply'" />
@@ -2219,49 +2253,55 @@ function doLogout() {
             </div>
           </div>
 
-          <!-- 系统配置 -->
-          <div v-else-if="settingsTab === 'system'" class="card wide">
-            <h3>系统配置</h3>
-            <div v-for="c in nonPointsConfigs" :key="c.config_key" class="config-row config-row-stacked">
-              <div class="config-label">
-                <strong>{{ c.label }}</strong>
-                <span class="muted small">{{ c.description }}</span>
-              </div>
-              <div class="config-control">
-                <Switch
-                  v-if="c.kind === 'switch'"
-                  :model-value="configDraft[c.config_key] === '1'"
-                  :label="c.label"
-                  @update:model-value="toggleConfigSwitch(c.config_key)"
-                />
-                <input
-                  v-else
-                  v-model="configDraft[c.config_key]"
-                  class="input"
-                  :type="c.kind === 'text' ? 'text' : 'number'"
-                  :step="c.kind === 'decimal' ? '0.01' : '1'"
-                />
-                <button class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
-              </div>
-            </div>
-            <div class="config-row config-row-stacked">
-              <div class="config-label">
-                <strong>锁机码</strong>
-                <span class="muted small">离岗锁屏、关闭窗口隐藏到托盘后，输入此码解锁（仅存本机）</span>
-              </div>
-              <div class="config-control">
-                <input
-                  v-model="lockCodeDraft"
-                  class="input"
-                  type="password"
-                  :placeholder="lockCode ? '已设置，输入新值覆盖' : '输入锁机码'"
-                />
-                <button class="btn btn-sm primary" @click="saveLockCode">保存</button>
-                <button v-if="lockCode" class="btn btn-sm ghost" @click="clearLockCode">清除</button>
+          <!-- 系统配置：按功能分区，同组同卡片；支付渠道归 payment 页、积分归 points 页，不重复 -->
+          <template v-else-if="settingsTab === 'system'">
+            <div v-for="g in systemConfigGroups" :key="g.title" class="card wide">
+              <h3>{{ g.title }}</h3>
+              <p class="muted small">{{ g.hint }}</p>
+              <div v-for="c in g.items" :key="c.config_key" class="config-row config-row-stacked">
+                <div class="config-label">
+                  <strong>{{ c.label }}</strong>
+                  <span class="muted small">{{ c.description }}</span>
+                </div>
+                <div class="config-control">
+                  <Switch
+                    v-if="c.kind === 'switch'"
+                    :model-value="configDraft[c.config_key] === '1'"
+                    :label="c.label"
+                    @update:model-value="toggleConfigSwitch(c.config_key)"
+                  />
+                  <input
+                    v-else
+                    v-model="configDraft[c.config_key]"
+                    class="input"
+                    :type="c.kind === 'text' ? 'text' : 'number'"
+                    :step="c.kind === 'decimal' ? '0.01' : '1'"
+                  />
+                  <button v-if="c.kind !== 'switch'" class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
+                </div>
               </div>
             </div>
-            <p class="muted small">扫码判定间隔 20–200 毫秒；业务日切点格式 HH:MM；最大折扣率 0–1。</p>
-          </div>
+            <div class="card wide">
+              <h3>安全</h3>
+              <p class="muted small">离岗锁屏、关闭窗口隐藏到托盘后需输入此码解锁（仅存本机）。</p>
+              <div class="config-row config-row-stacked">
+                <div class="config-label">
+                  <strong>锁机码</strong>
+                  <span class="muted small">设置后本机生效，不上传服务器</span>
+                </div>
+                <div class="config-control">
+                  <input
+                    v-model="lockCodeDraft"
+                    class="input"
+                    type="password"
+                    :placeholder="lockCode ? '已设置，输入新值覆盖' : '输入锁机码'"
+                  />
+                  <button class="btn btn-sm primary" @click="saveLockCode">保存</button>
+                  <button v-if="lockCode" class="btn btn-sm ghost" @click="clearLockCode">清除</button>
+                </div>
+              </div>
+            </div>
+          </template>
 
           <!-- 支付设置 -->
           <div v-else-if="settingsTab === 'payment'" class="card wide">
@@ -2271,9 +2311,10 @@ function doLogout() {
               <span class="muted small">微信：{{ gatewayModes.wechat === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}；支付宝：{{ gatewayModes.alipay === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}。保存凭据后需重启应用生效。</span>
             </div>
             <h4>支付渠道开关</h4>
+            <p class="muted small">收银台可用的支付方式；关闭后该渠道在收款区隐藏。</p>
             <div class="config-row" v-for="(v, k) in channelDraft" :key="k">
-              <span class="config-key">{{ k }}</span>
-              <Switch :model-value="v === '1'" :label="k" @update:model-value="toggleChannel(k, v)" />
+              <span class="config-key">{{ configLabel(k) }}</span>
+              <Switch :model-value="v === '1'" :label="configLabel(k)" @update:model-value="toggleChannel(k, v)" />
             </div>
             <h4>商户凭据（存 Windows 凭据库，不落库不回显）</h4>
             <div class="search-row">

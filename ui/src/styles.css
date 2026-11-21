@@ -54,9 +54,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 .auth-brand .brand-mark { width: var(--control-brandmark-lg-size); height: var(--control-brandmark-lg-size); }
 .auth-brand h1 { font-size: var(--font-xl); }
-/* 表单字段：标签 + 控件成组，组内紧、组间松 */
+/* 表单字段：标签 + 控件成组，组内紧、组间松（.field-label 定义在通用区） */
 .field { display: flex; flex-direction: column; gap: var(--space-1); }
-.field-label { font-size: var(--font-sm); color: var(--text-muted); }
 .input-lg { padding: var(--space-3) var(--space-4); font-size: var(--font-md); }
 .btn-lg { padding: var(--space-3) var(--space-6); font-size: var(--font-md); }
 /* 表单错误：淡底 + 图标 + 文案，说清哪错了 */
@@ -366,6 +365,23 @@ h2 { font-size: var(--font-lg); }
 .report-table-wrap .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
 .page-head { display: flex; align-items: center; gap: var(--space-4); }
 .tab-row { display: flex; gap: var(--space-2); }
+/* 子页面内容流：父级 main-simple 提供骨架，此层只做纵向分组 */
+.page-body { display: flex; flex-direction: column; gap: var(--space-4); }
+/* 统一分段页签：三页共用，选中态取主体墨绿（与左栏导航同语义），不使用金额撞色 */
+.seg {
+  display: inline-flex; gap: var(--space-1); padding: var(--space-1);
+  background: var(--surface-subtle); border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+.seg-btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted);
+  cursor: pointer; font-size: var(--font-sm);
+}
+.seg-btn:hover { color: var(--text); background: var(--panel); }
+.seg-btn.active { background: var(--chrome); color: var(--on-chrome); font-weight: 600; }
 .toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .toolbar .input { flex: 1; min-width: var(--control-search-min-width); }
 .search-row .input { flex: 1; min-width: 0; }
@@ -441,16 +457,6 @@ h2 { font-size: var(--font-lg); }
   border-radius: var(--radius-sm); font-size: var(--font-sm);
 }
 .points-summary strong { font-weight: 700; }
-/* 商品/分类合并页的子标签 */
-.goods-tabs { display: flex; gap: var(--space-2); flex: 0 0 auto; }
-.goods-tab {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md); background: var(--panel);
-  color: var(--muted); cursor: pointer; font-size: var(--font-sm);
-}
-.goods-tab.active { background: var(--brand); color: var(--text-on-brand); border-color: var(--brand); }
 /* 挂单弹窗列表 */
 .park-dialog-list { display: flex; flex-direction: column; gap: var(--space-2); max-height: 50vh; overflow-y: auto; }
 /* 收银台（主流式交互）：会员/券图标按钮 → 支付方式大按钮 → 渠道面板 */
@@ -514,8 +520,7 @@ h2 { font-size: var(--font-lg); }
   border-color: var(--brand); background: var(--brand-subtle);
 }
 .industry-item strong { font-size: var(--font-md); }
-/* 价格竖排：原价与会员价上下对照 */
-.price-stack { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-0_5); }
+/* 价格竖排：原价与会员价上下对照（.price-stack 定义在收银商品区） */
 .price.member { color: var(--success-text); font-size: var(--font-sm); font-weight: 500; }
 /* 标签：分类与属性，可关闭可筛选的语义用淡底深字 */
 .tag {
