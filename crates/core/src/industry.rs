@@ -177,8 +177,9 @@ pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
     Ok(inserted)
 }
 
-/// 停用不属于当前模板、且整棵子树都没有在售商品/子分类的一级分类。
-/// 有占用的旧分类保持原状，交给用户在分类管理里显式处理。
+/// 停用不属于当前模板、且整棵子树都没有在售商品的一级分类。
+/// 有商品占用的旧分类保持原状，交给用户在分类管理里显式处理；
+/// 空子树整棵停用（只改 status，不删数据），切回旧行业时会重新启用。
 fn hide_stale_roots(conn: &Connection, roots: &[String]) -> Result<()> {
     let mut stmt = conn
         .prepare("SELECT category_id, name FROM category WHERE parent_id IS NULL AND status=1")?;
@@ -196,13 +197,20 @@ fn hide_stale_roots(conn: &Connection, roots: &[String]) -> Result<()> {
                  UNION ALL
                  SELECT c.category_id FROM category c JOIN sub ON c.parent_id=sub.id
              )
-             SELECT (SELECT COUNT(*) FROM spu WHERE status=1 AND category_id IN (SELECT id FROM sub))
-                  + (SELECT COUNT(*) FROM category WHERE status=1 AND parent_id IN (SELECT id FROM sub))",
+             SELECT COUNT(*) FROM spu WHERE status=1 AND category_id IN (SELECT id FROM sub)",
             [id],
             |r| r.get(0),
         )?;
         if occupied == 0 {
-            conn.execute("UPDATE category SET status=0 WHERE category_id=?1", [id])?;
+            conn.execute(
+                "WITH RECURSIVE sub(id) AS (
+                     SELECT ?1
+                     UNION ALL
+                     SELECT c.category_id FROM category c JOIN sub ON c.parent_id=sub.id
+                 )
+                 UPDATE category SET status=0 WHERE category_id IN (SELECT id FROM sub)",
+                [id],
+            )?;
         }
     }
     Ok(())
