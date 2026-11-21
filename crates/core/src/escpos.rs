@@ -262,10 +262,6 @@ fn char_width(c: char) -> usize {
     }
 }
 
-fn display_width(s: &str) -> usize {
-    s.chars().map(char_width).sum()
-}
-
 /// 按显示列宽折行，并按对齐方式补前导空格（左对齐不补）。
 fn wrap_and_align(text: &str, cols: usize, align: Option<&str>) -> String {
     let mut out = String::new();
