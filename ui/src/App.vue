@@ -180,6 +180,8 @@ const paySplits = ref<PaySplit[]>([{ channel: 'CASH', amountYuan: '', authCode: 
 type PayChannel = 'CASH' | 'STORED_VALUE' | 'WECHAT' | 'ALIPAY'
 const payChannel = ref<PayChannel>('CASH')
 const payMode = ref<'simple' | 'mixed'>('simple')
+/** 现金收银弹窗：点「现金」即弹出，弹窗内完成实收 / 找零 / 确认收款（对齐主流 POS tender 弹窗） */
+const cashDialogOpen = ref(false)
 const payAuthCode = ref('') // 微信/支付宝 B 扫 C：顾客付款码（扫码枪扫入或手输）
 // Native 支付（§6.3）：顾客扫屏幕码；弹窗 + 轮询 + 本地确认兜底
 const nativeDialog = ref<{ orderNo: string; codeUrl: string; qrSvg: string } | null>(null)
@@ -968,7 +970,9 @@ async function submitCheckout() {
       return
     }
     clearMember()
+    cart.value = []
     resetPayState()
+    cashDialogOpen.value = false
     showToast(pointsToast(`收银成功：${r.order_no}`, r.points_earned))
   } catch (e) {
     showToast(String(e), true)
@@ -1100,6 +1104,11 @@ const payMethods = computed(() =>
 function selectPayChannel(id: PayChannel) {
   payMode.value = 'simple'
   payChannel.value = id
+  // 现金收银进入弹窗流程：展示应收、快捷面额、实收与找零
+  if (id === 'CASH' && cart.value.length) {
+    cashTendered.value = ''
+    cashDialogOpen.value = true
+  }
 }
 
 /** 微信/支付宝面板出现时自动聚焦付款码输入，扫码枪无需点选即可扫入 */
@@ -1116,6 +1125,12 @@ watch(
     }
   }
 )
+
+/** 现金弹窗打开时自动聚焦实收输入，扫码/手输无需点选 */
+const cashDialogInput = ref<HTMLInputElement | null>(null)
+watch(cashDialogOpen, (open) => {
+  if (open) void nextTick(() => cashDialogInput.value?.focus())
+})
 
 /** 现金找零：实收 − 应收；不足时显示待收差额 */
 const cashTenderedCents = computed(() =>
@@ -1860,15 +1875,17 @@ function doLogout() {
               <span v-if="(quote?.points_earned ?? 0) > 0">本单预计累计 <strong>+{{ quote?.points_earned }}</strong> 积分</span>
               <span v-else>本单无积分累计（未达整元或积分功能已关闭）</span>
             </div>
-            <div class="total">
-              <span>应收</span>
-              <strong>¥{{ formatMoney(payableAmount) }}</strong>
-            </div>
-            <div v-if="quote && quote.discount_cents > 0" class="muted small">
-              原价 ¥{{ formatMoney(quote.total_cents) }} · 优惠 ¥{{ formatMoney(quote.discount_cents) }}
-            </div>
-            <!-- 支付方式大按钮：金额自动=应收，选择后只补渠道必需信息 -->
-            <div class="pay-methods">
+            <!-- 空车 = 空闲态：不显示任何金额与支付方式（对齐 Square / Shopify POS 空闲屏模式） -->
+            <template v-if="cart.length">
+              <div class="total">
+                <span>应收</span>
+                <strong>¥{{ formatMoney(payableAmount) }}</strong>
+              </div>
+              <div v-if="quote && quote.discount_cents > 0" class="muted small">
+                原价 ¥{{ formatMoney(quote.total_cents) }} · 优惠 ¥{{ formatMoney(quote.discount_cents) }}
+              </div>
+              <!-- 支付方式大按钮：金额自动=应收，选择后只补渠道必需信息 -->
+              <div class="pay-methods">
               <button
                 v-for="m in payMethods"
                 :key="m.id"
@@ -1891,7 +1908,7 @@ function doLogout() {
                   placeholder="扫描顾客付款码，回车即收款"
                   @keyup.enter="submitCheckout"
                 />
-                <p class="muted small">收款金额已按应收 ¥{{ formatMoney(payableAmount) }} 自动带出，扫码枪扫顾客付款码即完成收款。</p>
+                <p class="muted small">扫码枪扫顾客付款码即完成收款，金额已按应收自动带出。</p>
                 <button class="btn ghost" @click="nativeMode = true"><Icon name="qr" :size="ICON_SIZE.sm" />改为顾客扫屏幕二维码</button>
               </template>
               <template v-else>
@@ -1902,27 +1919,7 @@ function doLogout() {
                 <button class="btn ghost" @click="nativeMode = false"><Icon name="undo" :size="ICON_SIZE.sm" />改回扫描顾客付款码</button>
               </template>
             </div>
-            <!-- 现金：实收金额 + 找零 -->
-            <div v-else-if="payMode === 'simple' && payChannel === 'CASH'" class="pay-panel">
-              <input
-                v-model="cashTendered"
-                class="input input-lg"
-                type="number"
-                step="0.01"
-                placeholder="实收现金（元），留空视为刚好付清"
-                @keyup.enter="submitCheckout"
-              />
-              <div class="quick-cash">
-                <button v-for="v in QUICK_CASH_YUAN" :key="v" class="btn ghost" :disabled="v * CENTS_PER_YUAN < payableAmount" @click="cashTendered = String(v)">¥{{ v }}</button>
-                <button class="btn ghost" @click="exactCash">刚好</button>
-              </div>
-              <div v-if="cashOverpaid" class="change-due">
-                <span>找零</span><strong>¥{{ formatMoney(changeDue) }}</strong>
-              </div>
-              <div v-else class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
-                待收 ¥{{ formatMoney(cashShort > 0 ? cashShort : 0) }}
-              </div>
-            </div>
+            <!-- 现金：点击「现金」按钮弹出收银弹窗（实收 / 找零在弹窗内完成） -->
             <!-- 储值：需先识别会员，金额自动带出 -->
             <div v-else-if="payMode === 'simple' && payChannel === 'STORED_VALUE'" class="pay-panel">
               <p v-if="memberId == null" class="pay-hint warn"><Icon name="alert" :size="ICON_SIZE.md" />储值支付需先点击「会员」识别会员。</p>
@@ -1969,6 +1966,12 @@ function doLogout() {
                 <span v-if="paying" class="btn-spinner" aria-label="处理中"></span>
                 <Icon v-else name="check" :size="ICON_SIZE.md" />{{ paying ? '处理中…' : '收款' }}
               </button>
+            </div>
+            </template>
+            <!-- 空车引导：金额与支付选择只在有商品后出现 -->
+            <div v-else class="cart-idle">
+              <Icon name="scan" :size="ICON_SIZE.lg" />
+              <span>扫码或选择商品后开始收款</span>
             </div>
             <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
           </div>
@@ -2040,7 +2043,7 @@ function doLogout() {
               <div class="report-table-wrap">
                 <table v-if="activeReport.rows.length" class="tbl">
                   <thead>
-                    <tr><th v-for="(c, i) in activeReport.columns" :key="i">{{ c.label }}</th></tr>
+                    <tr><th v-for="(c, i) in activeReport.columns" :key="i" :class="{ 'num-cell': c.kind === 'money' || c.kind === 'qty' || c.kind === 'percent' }">{{ c.label }}</th></tr>
                   </thead>
                   <tbody>
                     <tr v-for="(row, ri) in activeReport.rows" :key="ri">
@@ -2456,6 +2459,43 @@ function doLogout() {
             <button class="btn" @click="couponDialogOpen = false">取消</button>
             <button v-if="couponCode" class="btn" @click="clearCoupon(); couponDialogOpen = false">清除已用券</button>
             <button class="btn primary" @click="applyCouponDialog">应用</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 现金收银弹窗：应收 / 快捷面额 / 实收 / 找零，确认后完成收款 -->
+      <div v-if="cashDialogOpen" class="modal-mask" @click.self="cashDialogOpen = false">
+        <div class="modal cash-modal">
+          <h3>现金收款</h3>
+          <div class="total">
+            <span>应收</span>
+            <strong>¥{{ formatMoney(payableAmount) }}</strong>
+          </div>
+          <input
+            ref="cashDialogInput"
+            v-model="cashTendered"
+            class="input input-lg"
+            type="number"
+            step="0.01"
+            placeholder="实收现金（元），留空视为刚好付清"
+            @keyup.enter="submitCheckout"
+          />
+          <div class="quick-cash">
+            <button v-for="v in QUICK_CASH_YUAN" :key="v" class="btn ghost" :disabled="v * CENTS_PER_YUAN < payableAmount" @click="cashTendered = String(v)">¥{{ v }}</button>
+            <button class="btn ghost" @click="exactCash">刚好</button>
+          </div>
+          <div v-if="cashOverpaid" class="change-due">
+            <span>找零</span><strong>¥{{ formatMoney(changeDue) }}</strong>
+          </div>
+          <div v-else class="pay-shortfall" :class="{ ok: cashShort <= 0 }">
+            待收 ¥{{ formatMoney(cashShort > 0 ? cashShort : 0) }}
+          </div>
+          <div class="actions">
+            <button class="btn" @click="cashDialogOpen = false">取消</button>
+            <button class="btn primary" :disabled="paying" @click="submitCheckout">
+              <span v-if="paying" class="btn-spinner" aria-label="处理中"></span>
+              <Icon v-else name="check" :size="ICON_SIZE.md" />{{ paying ? '处理中…' : '确认收款' }}
+            </button>
           </div>
         </div>
       </div>

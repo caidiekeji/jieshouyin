@@ -539,6 +539,15 @@ h2 { font-size: var(--font-lg); }
   display: flex; flex-direction: column; gap: var(--space-3);
 }
 .modal h3 { margin: 0; }
+/* 现金收银弹窗：横向加宽，容纳快捷面额一行铺开 */
+.cash-modal { width: var(--layout-auth-width); }
+/* 购物车空闲态：空车时只留引导语，不显示任何金额与支付方式 */
+.cart-idle {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  padding: var(--space-5) 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
 /* 锁机码锁屏：覆盖全屏（含顶栏与弹窗），输码后才能回到收银界面 */
 .lock-overlay {
   position: fixed; inset: 0; z-index: calc(var(--z-overlay) + 10);
