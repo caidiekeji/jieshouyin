@@ -14,7 +14,7 @@ use checkout_core::constants::{
     DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD,
     LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE,
     PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_MEMBER_MANAGE, PERM_MEMBER_RECHARGE,
-    PERM_POS_CHECKOUT, PERM_POS_REFUND, PERM_POS_VOID, PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT,
+    PERM_POS_CHECKOUT, PERM_POS_REFUND, PERM_POS_SHIFT_CLOSE, PERM_POS_VOID, PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT,
     PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE, PERM_SYSTEM_CONFIG, PERM_USER_MANAGE, ROLE_ADMIN,
     ROLE_CASHIER, ROLE_MANAGER,
 };
@@ -1881,11 +1881,7 @@ pub fn create_member(
             return Err(CoreError::Validation("手机号不能为空".into()));
         }
     }
-    let code = format!(
-        "M{}{:04}",
-        chrono::Utc::now().timestamp_millis(),
-        rand::random::<u16>() % 10000
-    );
+    let code = format!("M{}", new_nonce().replace('-', ""));
     conn.execute(
         "INSERT INTO member(phone,member_code,name) VALUES (?1,?2,?3)",
         rusqlite::params![phone, code, name],
