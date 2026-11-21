@@ -348,6 +348,17 @@ mod tests {
         );
         assert!(line_commission(&c, Some(999), 1, 1, 10000, 10000, 9000).is_err());
         // 分类覆盖为每份固定 5 元，2 份 → 10 元，不受折扣影响。
+        // 规则按 SKU 所属分类匹配，先补一条分类 1 的商品用于关联。
+        c.execute(
+            "INSERT INTO spu(category_id,spu_name,spu_code,status) VALUES (1,'按摩','T-2',1)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO sku(spu_id,barcode,sale_price_cents) VALUES (1,'2001',10000)",
+            [],
+        )
+        .unwrap();
         set_rule(&c, id, 1, "FIXED", 0, 500).unwrap();
         assert_eq!(
             line_commission(&c, Some(id), 1, 2, 10000, 10000, 9000).unwrap(),

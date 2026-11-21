@@ -996,7 +996,8 @@ mod tests {
         assert_eq!(fee.elapsed_minutes, 0);
         assert_eq!(fee.billable_minutes, 60);
         assert_eq!(fee.fee_cents, 60 * 150);
-        let opened = format_utc(&(Utc::now() - chrono::Duration::minutes(89)));
+        // 89 分 30 秒：超过最低 60 分钟后按实际分钟向上取整，应收 90 分钟。
+        let opened = format_utc(&(Utc::now() - chrono::Duration::seconds(5370)));
         c.execute(
             "UPDATE table_session SET opened_at=?1 WHERE table_id=?2 AND status='OPEN'",
             params![opened, id],
