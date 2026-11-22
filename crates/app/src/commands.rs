@@ -49,7 +49,8 @@ fn new_nonce() -> String {
 }
 
 /// 优惠券查询行：(优惠额, 门槛, 会员ID, 状态, 生效起, 生效止)。
-type CouponRow = (
+/// 与下方对外展示用的 CouponRow 结构体区分，仅内部查询使用。
+type CouponQueryRow = (
     i64,
     i64,
     Option<i64>,
@@ -1258,7 +1259,7 @@ fn plan_amounts(
     let mut coupon_reason: Option<&'static str> = None;
     let mut coupon_shortfall_cents: Option<i64> = None;
     if let Some(code) = coupon_code.map(str::trim).filter(|c| !c.is_empty()) {
-        let coupon: Option<CouponRow> = conn
+        let coupon: Option<CouponQueryRow> = conn
             .query_row(
                 "SELECT discount_cents,min_order_cents,member_id,status,valid_from,valid_until
                  FROM coupon WHERE coupon_code=?1",
