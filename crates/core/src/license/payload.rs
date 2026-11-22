@@ -233,12 +233,23 @@ mod tests {
 
         let mut p1 = sample();
         p1.key_id = 1;
-        let p2 = LicensePayload { key_id: 2, ..sample() };
-        let t1 = encode_license(&p1, &sk1.sign(&serde_json::to_vec(&p1).unwrap()).to_bytes()).unwrap();
-        let t2 = encode_license(&p2, &sk2.sign(&serde_json::to_vec(&p2).unwrap()).to_bytes()).unwrap();
+        let p2 = LicensePayload {
+            key_id: 2,
+            ..sample()
+        };
+        let t1 =
+            encode_license(&p1, &sk1.sign(&serde_json::to_vec(&p1).unwrap()).to_bytes()).unwrap();
+        let t2 =
+            encode_license(&p2, &sk2.sign(&serde_json::to_vec(&p2).unwrap()).to_bytes()).unwrap();
 
-        assert_eq!(parse_and_verify_with_keys(&t1, &ring).unwrap().0.key_id, 1u32);
-        assert_eq!(parse_and_verify_with_keys(&t2, &ring).unwrap().0.key_id, 2u32);
+        assert_eq!(
+            parse_and_verify_with_keys(&t1, &ring).unwrap().0.key_id,
+            1u32
+        );
+        assert_eq!(
+            parse_and_verify_with_keys(&t2, &ring).unwrap().0.key_id,
+            2u32
+        );
         // 用错钥匙验签必须失败
         assert!(parse_and_verify_with_keys(&t2, &ring[..1]).is_err());
     }
@@ -247,8 +258,12 @@ mod tests {
     #[test]
     fn unknown_key_id_rejected() {
         let sk = test_key();
-        let p = LicensePayload { key_id: 99, ..sample() };
-        let token = encode_license(&p, &sk.sign(&serde_json::to_vec(&p).unwrap()).to_bytes()).unwrap();
+        let p = LicensePayload {
+            key_id: 99,
+            ..sample()
+        };
+        let token =
+            encode_license(&p, &sk.sign(&serde_json::to_vec(&p).unwrap()).to_bytes()).unwrap();
         let ring = [(1u32, *sk.verifying_key().as_bytes())];
         let err = parse_and_verify_with_keys(&token, &ring).unwrap_err();
         assert!(matches!(

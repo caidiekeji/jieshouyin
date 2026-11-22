@@ -25,14 +25,22 @@ fn main() {
     let is_release = env::var("PROFILE").map(|p| p == "release").unwrap_or(false);
 
     /// 解析一把公钥为 32 字节；release 下校验非空、非 DEV、指纹匹配。
-    fn decode_key(raw: Option<String>, label: &str, fingerprint_var: &str, is_release: bool) -> [u8; 32] {
+    fn decode_key(
+        raw: Option<String>,
+        label: &str,
+        fingerprint_var: &str,
+        is_release: bool,
+    ) -> [u8; 32] {
         let key = raw.unwrap_or_default();
         let key = key.trim().to_string();
         if key.is_empty() {
             assert!(!is_release, "release 构建必须注入 {label}");
             return hex::decode(DEV_KEY).unwrap().try_into().unwrap();
         }
-        assert!(!(is_release && key.eq_ignore_ascii_case(DEV_KEY)), "{label} 仍是开发占位公钥，禁止用于 release 构建");
+        assert!(
+            !(is_release && key.eq_ignore_ascii_case(DEV_KEY)),
+            "{label} 仍是开发占位公钥，禁止用于 release 构建"
+        );
         let arr: [u8; 32] = hex::decode(&key)
             .unwrap_or_else(|_| panic!("{label} 必须是 64 位 hex"))
             .try_into()
@@ -67,12 +75,7 @@ fn main() {
         if raw.is_none() {
             break; // 编号连续，不跳号
         }
-        let key = decode_key(
-            raw,
-            &var,
-            &format!("{var}_FINGERPRINT"),
-            is_release,
-        );
+        let key = decode_key(raw, &var, &format!("{var}_FINGERPRINT"), is_release);
         keys.push((id, key));
     }
 

@@ -772,7 +772,10 @@ mod tests {
         let (eff, jump) = LicenseService::trial_effective_now(far_future, start, Some(wm));
         assert!(jump, "应检测到前向跳变");
         assert_eq!(eff, wm, "误设未来应回落到历史水位，不得污染水位");
-        assert!(eff < start + chrono::Duration::days(TRIAL_DAYS), "不得据此判试用过期");
+        assert!(
+            eff < start + chrono::Duration::days(TRIAL_DAYS),
+            "不得据此判试用过期"
+        );
     }
 
     #[test]

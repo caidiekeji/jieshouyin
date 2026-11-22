@@ -1783,7 +1783,10 @@ pub async fn checkout(
                     // 复用 core 的同名函数，使这一不变式可被回归测试直接覆盖。
                     let tx = conn.unchecked_transaction()?;
                     checkout_core::order::confirm_cash_payment(
-                        &tx, &order_no, &out_trade_no, &now,
+                        &tx,
+                        &order_no,
+                        &out_trade_no,
+                        &now,
                     )?;
                     tx.commit()?;
                 }

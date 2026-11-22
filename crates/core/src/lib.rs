@@ -38,8 +38,8 @@ pub mod embedded_key {
     include!(concat!(env!("OUT_DIR"), "/public_key.rs"));
 }
 pub use embedded_key::EMBEDDED_ACTIVATION_ENDPOINT;
-pub use embedded_key::EMBEDDED_KEY_IS_DEV;
 pub use embedded_key::EMBEDDED_KEYS;
+pub use embedded_key::EMBEDDED_KEY_IS_DEV;
 pub use embedded_key::EMBEDDED_PUBLIC_KEY;
 
 /// 内置的在线激活服务地址（构建时注入）。为空表示未随包分发地址，
