@@ -540,7 +540,7 @@ fn print_kitchen_items(
             Vec<&checkout_core::service::KitchenItem>,
         ),
     > = std::collections::BTreeMap::new();
-    for item in &items {
+    for item in items {
         let (label, host, port) = route_of(item.category_id);
         groups
             .entry(format!("{label}|{host}|{port}"))
@@ -586,7 +586,7 @@ fn print_kitchen_items(
         };
         let mut vars = std::collections::HashMap::new();
         vars.insert("station".into(), label.clone());
-        vars.insert("table_code".into(), code.clone());
+        vars.insert("table_code".into(), code.to_string());
         vars.insert("created_at".into(), now_str());
         vars.insert("items".into(), item_text);
         vars.insert("total_qty".into(), total_qty.to_string());
