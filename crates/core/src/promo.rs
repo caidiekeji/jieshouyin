@@ -534,13 +534,15 @@ mod tests {
     #[test]
     fn better_single_promo_replaces_member_price() {
         // 原价 100 元、会员价 80 元、单品五折：取更优的 50 元优惠，应付 50 元。
+        // 折扣底线设为 0.5：允许优惠到原价 50%（5000 分），否则会被上限削减到 2000 分，
+        // 测不出"促销替换会员价"的意图（叠加上限是另一条独立规则）。
         let mut lines = vec![CartLine::new(1, 1, 10000).unwrap()];
         lines[0].member_price_cents = Some(8000);
         let r = calc_promotions(
             &mut lines,
             Some(1),
             &[rate_promo(1, Scope::SINGLE_ITEM, 0.5)],
-            0.8,
+            0.5,
         )
         .unwrap();
         assert_eq!(r.total_discount_cents, 5000, "促销应替换会员价，而不是叠加");

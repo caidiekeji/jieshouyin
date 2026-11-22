@@ -179,7 +179,15 @@ mod tests {
         let token = encode_license(&payload, &sig.to_bytes()).unwrap();
         let mut parts: Vec<&str> = token.split('.').collect();
         let mut decoded = URL_SAFE_NO_PAD.decode(parts[0]).unwrap();
-        decoded[10] ^= 0xFF;
+        // 篡改 license_id 的 ASCII 值（避开开头的 key_id 字段，否则会先被 key_id 解析
+        // 拦下返回 serde 错误；也避开末尾中文的 UTF-8 字节，避免非法 UTF-8）。
+        // 签名覆盖整个载荷，改值必然验签失败。
+        let pos = decoded
+            .windows(4)
+            .position(|w| w == b"lic_")
+            .expect("sample 载荷应含 lic_")
+            + 4;
+        decoded[pos] = if decoded[pos] == b'X' { b'Y' } else { b'X' };
         parts[0] = Box::leak(URL_SAFE_NO_PAD.encode(decoded).into_boxed_str());
         let bad = parts.join(".");
         let err = parse_and_verify(&bad, sk.verifying_key().as_bytes()).unwrap_err();
