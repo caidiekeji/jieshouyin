@@ -142,7 +142,7 @@ pub fn bootstrap(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
     // - 网络不可达或服务端故障 → 保留本地缓存，前台收银照常（架构硬约束：不得因授权阻断前台）。
     if local.status != LicenseStatus::UNACTIVATED {
         if let Ok(endpoint) = resolve_activation_endpoint(&conn) {
-            let store_name = cfg_get(conn, CFG_STORE_NAME)
+            let store_name = cfg_get(&conn, CFG_STORE_NAME)
                 .ok()
                 .flatten()
                 .unwrap_or_default();
@@ -628,7 +628,7 @@ fn print_kitchen_items(
 #[tauri::command]
 pub fn get_kitchen_routes(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
-    let raw = cfg_get(conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?.unwrap_or_default();
+    let raw = cfg_get(&conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?.unwrap_or_default();
     Ok(serde_json::from_str(&raw).unwrap_or_default())
 }
 
@@ -1483,7 +1483,7 @@ pub async fn checkout(
             PAY_ALIPAY => CFG_PAY_CHANNEL_ALIPAY,
             other => return Err(CoreError::Validation(format!("未知支付渠道: {other}"))),
         };
-        if cfg_get(conn, key)?.map(|v| v == "0").unwrap_or(false) {
+        if cfg_get(&conn, key)?.map(|v| v == "0").unwrap_or(false) {
             return Err(CoreError::Validation(format!(
                 "支付渠道 {} 已在设置中停用",
                 p.channel
@@ -4756,7 +4756,7 @@ pub fn get_pay_channels(state: State<'_, AppState>) -> Result<PayChannels> {
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let on =
-        |key: &str| -> Result<bool> { Ok(cfg_get(conn, key)?.map(|v| v != "0").unwrap_or(true)) };
+        |key: &str| -> Result<bool> { Ok(cfg_get(&conn, key)?.map(|v| v != "0").unwrap_or(true)) };
     Ok(PayChannels {
         cash: on(CFG_PAY_CHANNEL_CASH)?,
         wechat: on(CFG_PAY_CHANNEL_WECHAT)?,
@@ -5289,7 +5289,7 @@ pub fn activate_online(
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let endpoint = resolve_activation_endpoint(&conn)?;
-    let store_name = cfg_get(conn, CFG_STORE_NAME)
+    let store_name = cfg_get(&conn, CFG_STORE_NAME)
         .ok()
         .flatten()
         .unwrap_or_default();
@@ -5330,7 +5330,7 @@ pub fn refresh_license_online(state: State<'_, AppState>) -> Result<LicenseSnaps
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let endpoint = resolve_activation_endpoint(&conn)?;
-    let store_name = cfg_get(conn, CFG_STORE_NAME)
+    let store_name = cfg_get(&conn, CFG_STORE_NAME)
         .ok()
         .flatten()
         .unwrap_or_default();
@@ -5456,7 +5456,7 @@ pub fn run() {
             // 即使发行环境配置文件被写入 pay.allow_local_simulation=1，也不能重开
             // "任意付款码即记 SUCCESS"的后门——真实营业缺凭据时应直接拒绝扫码收款。
             // release 下该配置仅用于可观测性告警，不再改变网关行为。
-            let requested_local_sim = cfg_get(conn, CFG_ALLOW_LOCAL_SIMULATION)
+            let requested_local_sim = cfg_get(&conn, CFG_ALLOW_LOCAL_SIMULATION)
                 .ok()
                 .flatten()
                 .as_deref()
