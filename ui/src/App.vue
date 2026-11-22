@@ -2600,24 +2600,31 @@ async function doLogout() {
             </div>
             <!-- 空车 = 空闲态：不显示任何金额与支付方式（对齐 Square / Shopify POS 空闲屏模式） -->
             <template v-if="cart.length">
-              <div class="total">
-                <span>应收</span>
+              <div class="cart-total">
+                <div class="cart-total-copy">
+                  <span>应收</span>
+                  <span v-if="quote && quote.discount_cents > 0" class="cart-total-meta">
+                    原价 ¥{{ formatMoney(quote.total_cents) }} · 优惠 ¥{{ formatMoney(quote.discount_cents) }}
+                  </span>
+                </div>
                 <strong>¥{{ formatMoney(payableAmount) }}</strong>
               </div>
-              <div v-if="quote && quote.discount_cents > 0" class="muted small">
-                原价 ¥{{ formatMoney(quote.total_cents) }} · 优惠 ¥{{ formatMoney(quote.discount_cents) }}
-              </div>
-              <!-- 支付方式大按钮：金额自动=应收，选择后只补渠道必需信息 -->
+              <!-- 支付方式紧凑单行：金额自动=应收，选中后只补渠道必需信息 -->
               <div class="pay-methods">
               <button
                 v-for="m in payMethods"
                 :key="m.id"
                 :class="['pay-method-btn', { active: payMode === 'simple' && payChannel === m.id }]"
+                :aria-pressed="payMode === 'simple' && payChannel === m.id"
                 @click="selectPayChannel(m.id)"
               >
                 <Icon :name="m.icon" :size="ICON_SIZE.md" />{{ m.label }}
               </button>
-              <button :class="['pay-method-btn', { active: payMode === 'mixed' }]" @click="enterMixedMode">
+              <button
+                :class="['pay-method-btn', { active: payMode === 'mixed' }]"
+                :aria-pressed="payMode === 'mixed'"
+                @click="enterMixedMode"
+              >
                 <Icon name="plus" :size="ICON_SIZE.md" />组合
               </button>
             </div>
@@ -2648,40 +2655,58 @@ async function doLogout() {
               <p v-if="memberId == null" class="pay-hint warn"><Icon name="alert" :size="ICON_SIZE.md" />储值支付需先点击「会员」识别会员。</p>
               <p v-else class="pay-hint ok"><Icon name="wallet" :size="ICON_SIZE.md" />将从会员储值余额扣除 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}。</p>
             </div>
-            <!-- 组合支付：多渠道拆分行 -->
+            <!-- 组合支付：渠道与金额同排，付款码/实收等补充项按需展开 -->
             <div v-else class="pay-splits">
               <div v-for="(s, i) in paySplits" :key="i" class="pay-split">
-                <select v-model="s.channel" class="input">
+                <select v-model="s.channel" class="input split-channel" aria-label="支付渠道">
                   <option v-if="channelEnabled.CASH !== false" value="CASH">现金</option>
                   <option v-if="channelEnabled.STORED_VALUE !== false" value="STORED_VALUE">储值</option>
                   <option v-if="channelEnabled.WECHAT !== false" value="WECHAT">微信</option>
                   <option v-if="channelEnabled.ALIPAY !== false" value="ALIPAY">支付宝</option>
                 </select>
-                <input v-model="s.amountYuan" class="input" placeholder="金额(元)" type="number" step="0.01" />
+                <input
+                  v-model="s.amountYuan"
+                  class="input split-amount"
+                  placeholder="金额(元)"
+                  aria-label="该支付方式金额"
+                  type="number"
+                  step="0.01"
+                />
+                <button
+                  v-if="paySplits.length > 1"
+                  class="btn ghost split-remove"
+                  aria-label="移除该支付方式"
+                  @click="removePaySplit(i)"
+                ><Icon name="close" :size="ICON_SIZE.sm" /></button>
                 <input
                   v-if="(s.channel === 'WECHAT' || s.channel === 'ALIPAY') && !nativeMode"
                   v-model="s.authCode"
-                  class="input"
-                  placeholder="顾客付款码"
+                  class="input split-auth"
+                  aria-label="顾客付款码"
+                  placeholder="扫描或输入顾客付款码"
                 />
-                <button v-if="paySplits.length > 1" class="btn ghost" @click="removePaySplit(i)">移除</button>
               </div>
-              <label class="checkbox-label">
-                <input v-model="nativeMode" type="checkbox" />
-                顾客扫屏幕二维码支付（微信/支付宝）
-              </label>
-              <button class="btn ghost" @click="addPaySplit">+ 添加支付方式</button>
+              <div class="pay-split-tools">
+                <button class="link add-split" @click="addPaySplit">+ 添加支付方式</button>
+                <label class="checkbox-label">
+                  <input v-model="nativeMode" type="checkbox" />
+                  顾客扫屏幕二维码支付
+                </label>
+              </div>
               <input
                 v-if="paySplits.some((s) => s.channel === 'CASH')"
                 v-model="cashTendered"
                 class="input"
                 placeholder="现金实收(元)"
+                aria-label="现金实收"
                 type="number"
               />
-              <div class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
-                待收 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}
+              <div class="pay-mixed-status">
+                <span class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
+                  待收 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}
+                </span>
+                <button class="link" @click="selectPayChannel('CASH')"><Icon name="undo" :size="ICON_SIZE.sm" />返回单笔支付</button>
               </div>
-              <button class="btn ghost" @click="selectPayChannel('CASH')"><Icon name="undo" :size="ICON_SIZE.sm" />返回单笔支付</button>
             </div>
             <div class="actions checkout-actions">
               <button class="btn" @click="openParkDialog"><Icon name="pause" :size="ICON_SIZE.md" />挂单</button>

@@ -277,7 +277,11 @@ h2 { font-size: var(--font-lg); }
 }
 .badge-ok { background: var(--success-subtle); color: var(--success-text); }
 .badge-off { background: var(--surface-subtle); color: var(--text-muted); }
-.cart-list { flex: 1; overflow-y: auto; margin: var(--space-2) var(--space-0); }
+.cart-list {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  margin: var(--space-1) var(--space-0);
+}
 .cart-line {
   display: grid; grid-template-columns: auto 1fr auto auto;
   gap: var(--space-2); align-items: center;
@@ -292,15 +296,32 @@ h2 { font-size: var(--font-lg); }
   border-radius: var(--radius-xs); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
+/* 结算区压成「工具行 / 应收 / 支付方式 / 主行动」四层，把高度还给商品列表 */
 .cart-foot {
   border-top: var(--border-width) solid var(--border);
   padding-top: var(--space-2);
-  display: flex; flex-direction: column; gap: var(--space-2);
+  display: flex; flex-direction: column; gap: var(--space-1);
+}
+.cart-total {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3); padding-top: var(--space-0_5);
+}
+.cart-total-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cart-total-copy > span:first-child { color: var(--text-muted); font-size: var(--font-sm); }
+.cart-total-meta {
+  color: var(--text-muted); font-size: var(--font-xs);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cart-total strong {
+  color: var(--brand); font-size: var(--font-xl); line-height: 1.1;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .total { display: flex; justify-content: space-between; align-items: center; font-size: var(--font-md); }
 .total strong { color: var(--brand); font-size: var(--font-2xl); }
 .actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
 /* 收银动作区：收款是唯一主行动，占满剩余宽度；挂单保持内容宽 */
+.checkout-actions { gap: var(--space-1); padding-top: var(--space-0_5); }
+.checkout-actions .btn { min-height: 38px; padding-top: var(--space-1); padding-bottom: var(--space-1); }
 .checkout-actions .btn.primary { flex: 1; }
 
 /* 后台管理骨架：左栏贴左全高（报表中心 / 设置中心共用），右侧内容独立滚动 */
@@ -533,13 +554,12 @@ h2 { font-size: var(--font-lg); }
   color: var(--success-text); background: var(--success-subtle);
   padding: var(--space-2); border-radius: var(--radius-sm);
 }
-/* 付款区会员余额摘要（图标按钮行下方） */
-.member-balance-inline { font-size: var(--font-sm); color: var(--success-text); }
+/* 付款区会员余额摘要（工具行下方，压成一行辅助信息） */
+.member-balance-inline { font-size: var(--font-xs); color: var(--success-text); }
 /* 付款区积分累计提示（识别会员后显示） */
 .points-earn-inline {
-  display: flex; align-items: center; gap: var(--space-2);
-  font-size: var(--font-sm); color: var(--success-text);
-  margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-1);
+  font-size: var(--font-xs); color: var(--success-text);
 }
 .points-earn-inline strong { font-weight: 700; }
 /* 积分配置页规则摘要 */
@@ -552,23 +572,30 @@ h2 { font-size: var(--font-lg); }
 .points-summary strong { font-weight: 700; }
 /* 挂单弹窗列表 */
 .park-dialog-list { display: flex; flex-direction: column; gap: var(--space-2); max-height: 50vh; overflow-y: auto; }
-/* 收银台（主流式交互）：会员/券图标按钮 → 支付方式大按钮 → 渠道面板 */
-.pay-quick-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+/* 收银台（主流式交互）：会员/券工具行 → 应收 → 支付方式单行 → 渠道面板 */
+.pay-quick-row { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+.pay-quick {
+  min-height: 28px; padding: var(--space-0_5) var(--space-2);
+  border-radius: var(--radius-pill); font-size: var(--font-xs);
+}
 .pay-quick.active { border-color: var(--brand); background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
 /* 券已录入但未达门槛：区别于「已应用」的品牌色，用警示色提示需凑单 */
 .pay-quick.pending { border-color: var(--warning-border); background: var(--warning-subtle); color: var(--warning-text); font-weight: 600; }
-.pay-methods { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); margin-top: var(--space-3); }
+/* 支付方式压成一行等宽芯片：五种方式同屏，不再用两列大按钮吃掉列表高度 */
+.pay-methods { display: flex; gap: var(--space-1); margin-top: var(--space-0_5); }
 .pay-method-btn {
-  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
-  padding: var(--space-3);
+  flex: 1 1 0; min-width: 0; height: 34px;
+  display: flex; align-items: center; justify-content: center; gap: var(--space-1);
+  padding: 0 var(--space-1);
   border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--panel); color: var(--text);
+  font-size: var(--font-xs); white-space: nowrap;
   cursor: pointer;
 }
 .pay-method-btn:hover { border-color: var(--brand); }
 .pay-method-btn.active { border-color: var(--brand); background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
-.pay-panel { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+.pay-panel { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-1); }
 .quick-cash { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .change-due {
   display: flex; justify-content: space-between; align-items: center;
@@ -580,9 +607,25 @@ h2 { font-size: var(--font-lg); }
 .pay-hint { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--font-sm); }
 .pay-hint.warn { color: var(--danger); }
 .pay-hint.ok { color: var(--success-text); }
-.pay-splits { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0; }
-.pay-split { display: flex; gap: var(--space-2); align-items: center; }
-.pay-split .input { min-width: 0; flex: 1 1 0; }
+.pay-splits { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-1) 0; }
+.pay-split {
+  display: grid; grid-template-columns: 88px minmax(0, 1fr) auto;
+  gap: var(--space-1); align-items: center;
+}
+.pay-split .input { min-width: 0; width: 100%; }
+.split-remove { width: 28px; min-width: 28px; height: 28px; padding: 0; }
+.split-auth { grid-column: 1 / -1; }
+.pay-split-tools {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-2); flex-wrap: wrap;
+}
+.pay-split-tools .checkbox-label { font-size: var(--font-xs); }
+.add-split { font-size: var(--font-xs); padding: 0; white-space: nowrap; }
+.pay-mixed-status {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-2);
+}
+.pay-mixed-status .link { font-size: var(--font-xs); display: inline-flex; align-items: center; gap: var(--space-1); }
 .pay-shortfall { font-size: var(--font-sm); color: var(--danger); }
 .pay-shortfall.ok { color: var(--success-text); }
 .print-queue { display: flex; flex-direction: column; gap: var(--space-2); }
