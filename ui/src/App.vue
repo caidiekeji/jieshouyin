@@ -1261,7 +1261,8 @@ async function submitCheckout() {
     if (payMode.value === 'simple') {
       // 主流式单笔支付：金额自动=应收，只按渠道补必要信息
       const ch = payChannel.value
-      const amount = payShortfall.value
+      // 单笔支付金额只认应收，不读组合拆分残留，避免把 3 元单算成 0 元流水
+      const amount = payableAmount.value
       if (amount < 0) {
         showToast('支付金额异常（负数），请刷新报价', true)
         return
@@ -1287,6 +1288,11 @@ async function submitCheckout() {
       } else if (ch === 'CASH') {
         // 现金实收由弹窗收集；找零 = 实收 − 应收，不得为负
         const t = Math.round(Number(cashTendered.value || '0') * CENTS_PER_YUAN)
+        // 现金单必须先录入实收，0 元实收不能当成「刚好付清」提交
+        if (amount > 0 && t <= 0) {
+          showToast('请输入实收现金金额', true)
+          return
+        }
         if (t > 0 && t < amount) {
           showToast('实收现金不足应收金额', true)
           return
@@ -1583,6 +1589,43 @@ const cashOverpaid = computed(() => cashTenderedCents.value > 0 && cashTenderedC
 const QUICK_CASH_YUAN = [10, 20, 50, 100]
 function exactCash() {
   cashTendered.value = (payableAmount.value / CENTS_PER_YUAN).toFixed(2)
+}
+
+/** 现金键盘：3 列数字 + 小数点 + 退格，贴合收银员盲打顺序 */
+const CASH_KEYPAD = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '退格'] as const
+
+/** 实收输入只保留两位小数，避免 0.999 这类金额被静默四舍五入。 */
+function sanitizeCashInput(raw: string): string {
+  let s = raw.replace(/[^\d.]/g, '')
+  const dot = s.indexOf('.')
+  if (dot >= 0) {
+    s = `${s.slice(0, dot)}.${s.slice(dot + 1).replace(/\./g, '').slice(0, 2)}`
+  }
+  s = s.replace(/^0+(?=\d)/, '')
+  return s.slice(0, 9)
+}
+
+function onCashInput(e: Event) {
+  const el = e.target as HTMLInputElement
+  const s = sanitizeCashInput(el.value)
+  cashTendered.value = s
+  if (el.value !== s) el.value = s
+}
+
+/** 小键盘录入：小数点只允许一个，整数首位不保留多余 0。 */
+function pressCashKey(key: string) {
+  if (key === '退格') {
+    cashTendered.value = cashTendered.value.slice(0, -1)
+    return
+  }
+  if (key === '.') {
+    if (!cashTendered.value) cashTendered.value = '0.'
+    else if (!cashTendered.value.includes('.')) cashTendered.value += '.'
+    return
+  }
+  const cur = cashTendered.value
+  if (cur.includes('.') && (cur.split('.')[1]?.length ?? 0) >= 2) return
+  cashTendered.value = sanitizeCashInput(cur === '0' ? key : cur + key)
 }
 
 function openCouponDialog() {
@@ -2656,7 +2699,7 @@ async function doLogout() {
               <p v-else class="pay-hint ok"><Icon name="wallet" :size="ICON_SIZE.md" />将从会员储值余额扣除 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}。</p>
             </div>
             <!-- 组合支付：渠道与金额同排，付款码/实收等补充项按需展开 -->
-            <div v-else class="pay-splits">
+            <div v-else-if="payMode === 'mixed'" class="pay-splits">
               <div v-for="(s, i) in paySplits" :key="i" class="pay-split">
                 <select v-model="s.channel" class="input split-channel" aria-label="支付渠道">
                   <option v-if="channelEnabled.CASH !== false" value="CASH">现金</option>
@@ -3211,43 +3254,60 @@ async function doLogout() {
         </div>
       </div>
 
-      <!-- 现金收银弹窗：应收 / 快捷面额 / 实收 / 找零，确认后完成收款 -->
+      <!-- 现金收银弹窗：应收 / 实收 / 找零 三栏 + 快捷面额 + 数字小键盘 -->
       <div v-if="cashDialogOpen" class="modal-mask" @click.self="cashDialogOpen = false">
         <div class="modal cash-modal" role="dialog" aria-modal="true" aria-label="现金收款">
           <h3>现金收款</h3>
-          <div class="total">
-            <span>应收</span>
-            <strong>¥{{ formatMoney(payableAmount) }}</strong>
+          <div class="cash-summary">
+            <div class="cash-cell">
+              <span>应收</span>
+              <strong>¥{{ formatMoney(payableAmount) }}</strong>
+            </div>
+            <div class="cash-cell tendered">
+              <span>实收</span>
+              <div class="cash-amount">
+                <span>¥</span>
+                <input
+                  ref="cashDialogInput"
+                  :value="cashTendered"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  aria-label="实收现金"
+                  placeholder="0.00"
+                  @input="onCashInput"
+                  @keyup.enter="submitCheckout"
+                />
+              </div>
+            </div>
+            <div class="cash-cell change" :class="{ ok: cashOverpaid, short: cashShort > 0 }" aria-live="polite">
+              <span>找零</span>
+              <strong>¥{{ formatMoney(changeDue) }}</strong>
+              <small v-if="cashShort > 0" class="cash-short">还差 ¥{{ formatMoney(cashShort) }}</small>
+            </div>
           </div>
-          <input
-            ref="cashDialogInput"
-            v-model="cashTendered"
-            class="input input-lg"
-            type="number"
-            step="0.01"
-            placeholder="实收现金（元），可直接点「刚好」按应收收款"
-            @keyup.enter="submitCheckout"
-          />
           <div class="quick-cash">
             <button
               v-for="v in QUICK_CASH_YUAN"
               :key="v"
-              class="btn ghost"
+              class="btn ghost quick-cash-btn"
               :disabled="v * CENTS_PER_YUAN < payableAmount"
               :title="v * CENTS_PER_YUAN < payableAmount ? `小于应收 ¥${formatMoney(payableAmount)}` : `实收 ¥${v}`"
               @click="cashTendered = String(v)"
             >¥{{ v }}</button>
-            <button class="btn ghost" @click="exactCash">刚好</button>
+            <button class="btn ghost quick-cash-btn exact" @click="exactCash">刚好</button>
           </div>
-          <div v-if="cashOverpaid" class="change-due">
-            <span>找零</span><strong>¥{{ formatMoney(changeDue) }}</strong>
-          </div>
-          <div v-else class="pay-shortfall" :class="{ ok: cashShort <= 0 }">
-            待收 ¥{{ formatMoney(cashShort > 0 ? cashShort : 0) }}
+          <div class="cash-keypad" role="group" aria-label="现金数字键盘">
+            <button
+              v-for="k in CASH_KEYPAD"
+              :key="k"
+              class="cash-key"
+              :class="{ muted: k === '退格' }"
+              @click="pressCashKey(k)"
+            >{{ k }}</button>
           </div>
           <div class="actions">
             <button class="btn" @click="cashDialogOpen = false">取消</button>
-            <button class="btn primary" :disabled="paying" @click="submitCheckout">
+            <button class="btn primary" :disabled="paying || cashShort > 0" @click="submitCheckout">
               <span v-if="paying" class="btn-spinner" aria-label="处理中"></span>
               <Icon v-else name="check" :size="ICON_SIZE.md" />{{ paying ? '处理中…' : '确认收款' }}
             </button>
