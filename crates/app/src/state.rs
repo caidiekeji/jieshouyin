@@ -5,7 +5,7 @@ use checkout_core::license::{LicenseService, LicenseSnapshot};
 use checkout_core::payment::RoutingGateway;
 use checkout_core::rbac::{SensitiveAuth, Session};
 use rusqlite::Connection;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// 一次性二次授权凭据：批准人校验通过后暂存，敏感操作消费即失效。
@@ -18,7 +18,6 @@ pub struct AppState {
     pub conn: Mutex<Connection>,
     pub license: Mutex<LicenseSnapshot>,
     pub session: Mutex<Option<Session>>,
-    pub public_key: [u8; 32],
     pub license_path: PathBuf,
     /// 应用数据目录（图片等用户数据落此处）。
     pub data_dir: PathBuf,
@@ -57,7 +56,7 @@ pub fn build_license_service(state: &AppState) -> LicenseService {
 }
 
 /// 初始化数据库（启动顺序：先连接 + 迁移，再许可证验证）。
-pub fn init_db(path: &PathBuf) -> checkout_core::Result<Connection> {
+pub fn init_db(path: &Path) -> checkout_core::Result<Connection> {
     let mut conn = open_connection(path)?;
     run_migrations(&mut conn)?;
     Ok(conn)

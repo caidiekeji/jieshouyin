@@ -48,6 +48,11 @@ fn new_nonce() -> String {
     format!("{}-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0), seq)
 }
 
+/// 优惠券查询行：(优惠额, 门槛, 会员ID, 状态, 生效起, 生效止)。
+type CouponRow = (i64, i64, Option<i64>, String, Option<String>, Option<String>);
+/// 支付流水查询行：(渠道, 单号, 金额分, 储值赠送分, 储值本金分)。
+type PaymentRow = (String, Option<String>, i64, Option<i64>, Option<i64>);
+
 /// 读取 system_config 字符串值，缺失返回 None。
 fn cfg_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     let v: Option<String> = conn
@@ -129,7 +134,7 @@ pub fn bootstrap(state: State<'_, AppState>) -> Result<LicenseSnapshot> {
     // - 网络不可达或服务端故障 → 保留本地缓存，前台收银照常（架构硬约束：不得因授权阻断前台）。
     if local.status != LicenseStatus::UNACTIVATED {
         if let Ok(endpoint) = resolve_activation_endpoint(&conn) {
-            let store_name = cfg_get(&conn, CFG_STORE_NAME)
+            let store_name = cfg_get(conn, CFG_STORE_NAME)
                 .ok()
                 .flatten()
                 .unwrap_or_default();
@@ -235,7 +240,7 @@ fn admin_guard<'a>(
         )?;
         s.user_id
     };
-    drop(session);
+    let _ = session;
     drop(license);
     Ok((operator_id, conn))
 }
@@ -497,12 +502,12 @@ fn print_kitchen_items(
     use checkout_core::escpos::{render_receipt, Template};
     use serde_json::json;
     let main_host = cfg_get(conn, CFG_PRINT_HOST)?.unwrap_or_default();
-    let main_port = cfg_get(&conn, CFG_PRINT_PORT)?
+    let main_port = cfg_get(conn, CFG_PRINT_PORT)?
         .and_then(|s| s.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PRINT_PORT);
     // 档口路由：分类 → 独立打印机；未配置或未命中分类时回退主打印机。
     let routes: Vec<serde_json::Value> =
-        cfg_get(&conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?
+        cfg_get(conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
     let route_of = |category_id: i64| -> (String, String, u16) {
@@ -615,7 +620,7 @@ fn print_kitchen_items(
 #[tauri::command]
 pub fn get_kitchen_routes(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
-    let raw = cfg_get(&conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?.unwrap_or_default();
+    let raw = cfg_get(conn, checkout_core::constants::CFG_KITCHEN_ROUTES)?.unwrap_or_default();
     Ok(serde_json::from_str(&raw).unwrap_or_default())
 }
 
@@ -1246,14 +1251,7 @@ fn plan_amounts(
     let mut coupon_reason: Option<&'static str> = None;
     let mut coupon_shortfall_cents: Option<i64> = None;
     if let Some(code) = coupon_code.map(str::trim).filter(|c| !c.is_empty()) {
-        let coupon: Option<(
-            i64,
-            i64,
-            Option<i64>,
-            String,
-            Option<String>,
-            Option<String>,
-        )> = conn
+        let coupon: Option<CouponRow> = conn
             .query_row(
                 "SELECT discount_cents,min_order_cents,member_id,status,valid_from,valid_until
                  FROM coupon WHERE coupon_code=?1",
@@ -1375,7 +1373,7 @@ pub fn quote_order(
             limit_key: None,
         },
     )?;
-    drop(session);
+    let _ = session;
     drop(license);
     let plan = plan_amounts(
         &conn,
@@ -1461,7 +1459,7 @@ pub async fn checkout(
         },
     )?;
     let cashier_id = session.user_id;
-    drop(session);
+    let _ = session;
     drop(license);
 
     if lines.is_empty() {
@@ -1477,7 +1475,7 @@ pub async fn checkout(
             PAY_ALIPAY => CFG_PAY_CHANNEL_ALIPAY,
             other => return Err(CoreError::Validation(format!("未知支付渠道: {other}"))),
         };
-        if cfg_get(&conn, key)?.map(|v| v == "0").unwrap_or(false) {
+        if cfg_get(conn, key)?.map(|v| v == "0").unwrap_or(false) {
             return Err(CoreError::Validation(format!(
                 "支付渠道 {} 已在设置中停用",
                 p.channel
@@ -1826,6 +1824,7 @@ pub async fn checkout(
 /// - 储值：按原扣减构成原路补回，流水置 CLOSED；
 /// - 渠道：按真实金额发起原路退款，只有渠道确认 SUCCESS 才置 CLOSED；
 /// - 现金：钱已在钱箱，流水置 CLOSED 并明确要求退还顾客。
+///
 /// 全部渠道都已关闭且不需要人工处理时，订单转 CANCELED 并释放券；
 /// 否则保留 PENDING_PAYMENT 与成功流水，交给对账/人工继续处理。
 fn rollback_partial_payments(
@@ -1836,7 +1835,7 @@ fn rollback_partial_payments(
     use checkout_core::money::cents_to_yuan;
     use checkout_core::payment::Channel;
 
-    let rows: Vec<(String, Option<String>, i64, Option<i64>, Option<i64>)> = {
+    let rows: Vec<PaymentRow> = {
         let mut stmt = conn.prepare(
             "SELECT pay_channel, out_trade_no, amount_cents, sv_bonus_cents, sv_principal_cents
              FROM payment_record WHERE order_no=?1 AND status='SUCCESS' ORDER BY pay_id",
@@ -2976,7 +2975,7 @@ pub fn list_promotions(state: State<'_, AppState>) -> Result<Vec<PromotionRow>> 
                 NULL, NULL, condition_json, action_json, valid_from, valid_until, status
          FROM promotion ORDER BY priority, promotion_id",
     )?;
-    let rows = stmt.query_map([], |r| row_to_promotion_row(r))?;
+    let rows = stmt.query_map([], row_to_promotion_row)?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
@@ -3153,7 +3152,7 @@ pub fn preview_refund(
             limit_key: None,
         },
     )?;
-    drop(session);
+    let _ = session;
     drop(license);
     if items.is_empty() {
         return Err(CoreError::Validation("请先选择退货明细".into()));
@@ -3210,7 +3209,7 @@ pub fn void_order_cmd(
     )?;
     let operator_id = session.user_id;
     let approver_id = auth.approver_id;
-    drop(session);
+    let _ = session;
     drop(license);
     {
         let tx = conn.unchecked_transaction()?;
@@ -3334,7 +3333,7 @@ pub fn refund_order(
     )?;
     let operator_id = session.user_id;
     let approver_id = auth.approver_id;
-    drop(session);
+    let _ = session;
     drop(license);
 
     let member_id: Option<i64> = conn
@@ -3965,7 +3964,7 @@ pub fn open_shift(opening_float_cents: i64, state: State<'_, AppState>) -> Resul
         .as_ref()
         .map(|s| s.user_id)
         .ok_or(CoreError::NotAuthenticated)?;
-    drop(session);
+    let _ = session;
     let conn = state
         .conn
         .lock()
@@ -4078,7 +4077,7 @@ pub fn close_shift(
     let operator_id = session.user_id;
     let role_name = session.role_name.clone();
     let approver_id = auth.approver_id;
-    drop(session);
+    let _ = session;
     drop(license);
     let (opening, status, cashiers_json, opened_at): (i64, String, String, String) = conn
         .query_row(
@@ -4182,7 +4181,7 @@ pub fn close_shift(
     Ok(ShiftCloseResult {
         shift_id,
         expected_cash_cents: expected_cash,
-        actual_cash_cents: actual_cash_cents,
+        actual_cash_cents,
         difference_cents: diff,
     })
 }
@@ -4598,7 +4597,7 @@ pub fn confirm_native_pay(order_no: String, state: State<'_, AppState>) -> Resul
         },
     )?;
     let operator_id = session.user_id;
-    drop(session);
+    let _ = session;
     drop(license);
     // 人工确认只服务于 LOCAL 网关（未配置真实渠道）。一旦接入微信/支付宝，
     // 到账必须由渠道查单确认，人工按钮不能绕过渠道终态，否则可凭空把订单置为已付。
@@ -4749,7 +4748,7 @@ pub fn get_pay_channels(state: State<'_, AppState>) -> Result<PayChannels> {
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let on =
-        |key: &str| -> Result<bool> { Ok(cfg_get(&conn, key)?.map(|v| v != "0").unwrap_or(true)) };
+        |key: &str| -> Result<bool> { Ok(cfg_get(conn, key)?.map(|v| v != "0").unwrap_or(true)) };
     Ok(PayChannels {
         cash: on(CFG_PAY_CHANNEL_CASH)?,
         wechat: on(CFG_PAY_CHANNEL_WECHAT)?,
@@ -5206,7 +5205,7 @@ pub fn list_orders(
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    drop(session);
+    let _ = session;
     let conn = state
         .conn
         .lock()
@@ -5223,7 +5222,7 @@ pub fn get_order_detail(order_no: String, state: State<'_, AppState>) -> Result<
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    drop(session);
+    let _ = session;
     let conn = state
         .conn
         .lock()
@@ -5282,7 +5281,7 @@ pub fn activate_online(
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let endpoint = resolve_activation_endpoint(&conn)?;
-    let store_name = cfg_get(&conn, CFG_STORE_NAME)
+    let store_name = cfg_get(conn, CFG_STORE_NAME)
         .ok()
         .flatten()
         .unwrap_or_default();
@@ -5323,7 +5322,7 @@ pub fn refresh_license_online(state: State<'_, AppState>) -> Result<LicenseSnaps
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let endpoint = resolve_activation_endpoint(&conn)?;
-    let store_name = cfg_get(&conn, CFG_STORE_NAME)
+    let store_name = cfg_get(conn, CFG_STORE_NAME)
         .ok()
         .flatten()
         .unwrap_or_default();
@@ -5355,7 +5354,7 @@ pub fn probe_activation_service(state: State<'_, AppState>) -> Result<bool> {
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     let endpoint = resolve_activation_endpoint(&conn)?;
-    Ok(checkout_core::license::online::probe_service(&endpoint)?)
+    checkout_core::license::online::probe_service(&endpoint)
 }
 
 /// 获取激活码：用系统默认浏览器打开官网（与激活服务同源）。
@@ -5449,7 +5448,7 @@ pub fn run() {
             // 即使发行环境配置文件被写入 pay.allow_local_simulation=1，也不能重开
             // "任意付款码即记 SUCCESS"的后门——真实营业缺凭据时应直接拒绝扫码收款。
             // release 下该配置仅用于可观测性告警，不再改变网关行为。
-            let requested_local_sim = cfg_get(&conn, CFG_ALLOW_LOCAL_SIMULATION)
+            let requested_local_sim = cfg_get(conn, CFG_ALLOW_LOCAL_SIMULATION)
                 .ok()
                 .flatten()
                 .as_deref()
@@ -5479,7 +5478,6 @@ pub fn run() {
                 conn: std::sync::Mutex::new(conn),
                 license: std::sync::Mutex::new(LicenseSnapshot::unactivated()),
                 session: std::sync::Mutex::new(None::<Session>),
-                public_key: checkout_core::EMBEDDED_PUBLIC_KEY,
                 license_path: data_dir.join("license.enc"),
                 data_dir: data_dir.clone(),
                 gateway,
