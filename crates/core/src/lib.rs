@@ -31,8 +31,9 @@ pub mod time;
 
 pub use error::{CoreError, Result};
 
-/// 内嵌验证公钥。正式构建由 build.rs 从 CHECKOUT_PUBLIC_KEY 环境变量注入；
-/// 未提供时使用 RFC 8032 测试向量公钥（仅开发/CI 编译用），私钥绝不进入客户端。
+/// 内嵌验证公钥。build.rs 已把正式公钥固化为源码常量，构建零外部配置即可通过；
+/// 仅密钥轮换时可用 CHECKOUT_PUBLIC_KEY 环境变量覆盖（release 强制校验指纹）。
+/// 任何构建都拒绝 RFC 8032 测试向量公钥，私钥绝不进入客户端。
 /// EMBEDDED_KEYS 是按 key_id 编号的公钥环，轮换期同时含新旧公钥。
 pub mod embedded_key {
     include!(concat!(env!("OUT_DIR"), "/public_key.rs"));

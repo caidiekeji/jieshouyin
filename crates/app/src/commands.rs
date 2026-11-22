@@ -5259,13 +5259,12 @@ fn resolve_activation_endpoint(conn: &Connection) -> Result<String> {
     checkout_core::license::online::normalize_endpoint(&endpoint)
 }
 
-/// 开发/CI 构建未注入正式公钥时，禁止激活：测试向量公钥是公开的，
-/// 用它签发的许可证任何人都能伪造。发布流水线必须注入 CHECKOUT_PUBLIC_KEY。
+/// 防线：任何构建都不得用公开的测试向量公钥激活（用它签发的许可任何人都能伪造）。
+/// 正式公钥由 build.rs 固化内嵌，轮换时可用 CHECKOUT_PUBLIC_KEY 覆盖并强制校验指纹。
 fn ensure_production_key() -> Result<()> {
     if checkout_core::EMBEDDED_KEY_IS_DEV {
         return Err(CoreError::Validation(
-            "此安装包未内嵌正式授权公钥，不能激活；请使用正式发布版本或注入 CHECKOUT_PUBLIC_KEY 后重新构建"
-                .into(),
+            "此安装包未内嵌正式授权公钥，不能激活；请使用正式发布版本重新构建".into(),
         ));
     }
     Ok(())

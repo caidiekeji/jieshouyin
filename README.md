@@ -32,7 +32,7 @@ crates/
     src/escpos.rs    ESC/POS 渲染 + GB18030/位图回退 + 重打队列
     src/report.rs    日结/渠道分布/销售报表/差异 CSV
     src/scanner.rs   扫码楔入判定 + 称重店内码（EAN-13 MOD10）
-    build.rs         内嵌公钥注入（CHECKOUT_PUBLIC_KEY）
+    build.rs         正式公钥固化内嵌（轮换时可用 CHECKOUT_PUBLIC_KEY 覆盖）
   license-issuance/  独立签发 crate + CLI（私钥不进客户端）
   app/               Tauri 2 应用：命令层、严格 CSP、最小 capabilities
 ui/                  Vue 3 + TypeScript + Vite + Pinia 前端
@@ -99,7 +99,7 @@ CHECKOUT_PRIVATE_KEY=<hex> cargo run -p license-issuance -- issue \
   --type ANNUAL --store-id STORE_001 --valid-until 2027-11-17 --grace-days 7 --out license.key
 ```
 
-客户端构建注入公钥：设置环境变量 `CHECKOUT_PUBLIC_KEY=<64位hex>`。未提供时使用 RFC 8032 测试向量公钥（仅开发/编译用途，不可用于生产）。
+客户端验签公钥已作为正式常量固化在 `crates/core/build.rs`（与激活服务的签发私钥配对），构建无需任何环境变量。仅在密钥轮换时可设置 `CHECKOUT_PUBLIC_KEY=<64位hex>` 覆盖，且 release 构建强制校验指纹一致；任何构建都拒绝 RFC 8032 测试向量公钥。
 
 ## 安全基线
 

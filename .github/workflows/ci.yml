@@ -48,8 +48,9 @@ jobs:
         env:
           # 内置官网/激活服务地址，发行包开箱即用；仓库变量可覆盖
           ACTIVATION_ENDPOINT: ${{ vars.ACTIVATION_ENDPOINT || 'https://www.lequ.pw' }}
-          # 公钥与指纹是公开值（公钥会打进每个安装包），放 Variables 便于核对与审计；
-          # 私钥只在 jihuo Worker Secret，从不进入本仓库。release 缺失或指纹不符会直接构建失败。
+          # 正式公钥与指纹已作为源码常量内嵌（crates/core/build.rs），构建不依赖任何变量。
+          # 以下变量仅用于密钥轮换时临时覆盖：留空即用内嵌正式公钥；
+          # 一旦提供公钥，release 仍强制校验指纹一致，防止误配。私钥只在激活 Worker Secret。
           CHECKOUT_PUBLIC_KEY: ${{ vars.CHECKOUT_PUBLIC_KEY }}
           CHECKOUT_PUBLIC_KEY_FINGERPRINT: ${{ vars.CHECKOUT_PUBLIC_KEY_FINGERPRINT }}
           # 轮换期旧公钥：保留上一把公钥，让新旧 key_id 的激活码都能验签。
