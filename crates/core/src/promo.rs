@@ -344,10 +344,10 @@ pub fn calc_promotions(
         line.discount_cents = discount;
         line.applied_promos.clear();
         for a in &applied {
-            if a.allocations.iter().any(|(idx, _)| *idx == i) {
-                if !line.applied_promos.contains(&a.promotion_id) {
-                    line.applied_promos.push(a.promotion_id);
-                }
+            if a.allocations.iter().any(|(idx, _)| *idx == i)
+                && !line.applied_promos.contains(&a.promotion_id)
+            {
+                line.applied_promos.push(a.promotion_id);
             }
         }
     }
