@@ -34,6 +34,7 @@ import MemberAdmin from './components/MemberAdmin.vue'
 import OrderDetailPanel from './components/OrderDetailPanel.vue'
 import RefundPanel from './components/RefundPanel.vue'
 import Switch from './components/Switch.vue'
+import SetupSteps from './components/SetupSteps.vue'
 import {
   ICON_SIZE,
   MS_PER_DAY,
@@ -69,6 +70,40 @@ const goodsTab = ref<'list' | 'category'>('list')
 const bootError = ref('')
 const license = ref<LicenseSnapshot | null>(null)
 const needAdmin = ref(false)
+/** 首次初始化流程：设管理员 → 登录 → 选行业 → 激活 */
+const onboarding = ref(false)
+/** 激活待办标记：建管理员后落盘，完成激活或选择试用后清除 */
+const activationPending = ref(false)
+const ACTIVATION_PENDING_KEY = 'checkoutr.activation_pending'
+function readActivationPending(): boolean {
+  try {
+    return localStorage.getItem(ACTIVATION_PENDING_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+function setActivationPending(pending: boolean) {
+  activationPending.value = pending
+  try {
+    if (pending) localStorage.setItem(ACTIVATION_PENDING_KEY, '1')
+    else localStorage.removeItem(ACTIVATION_PENDING_KEY)
+  } catch {
+    // 本地存储不可用时只影响跨重启提示，不阻断当前流程
+  }
+}
+/** 当前是否还需要走激活：未激活，或首启激活待办尚未完成 */
+const needsActivation = computed(() => {
+  const status = license.value?.status
+  if (!status || status === 'ACTIVE') return false
+  return status === 'UNACTIVATED' || activationPending.value
+})
+/** 初始化步骤号：登录页在设置账号时为 1、正式登录为 2 */
+const authStep = computed(() => {
+  if (view.value === 'login') return needAdmin.value ? 1 : 2
+  if (view.value === 'industry') return 3
+  if (view.value === 'activate') return 4
+  return 0
+})
 const adminUser = ref('admin')
 const adminPass = ref('')
 const loginUser = ref('')
@@ -619,21 +654,16 @@ onMounted(async () => {
   try {
     license.value = await api.bootstrap()
     await loadStoreProfile()
-    // 行业列表供「设置 → 门店概览」使用，不参与首启流程
     await loadIndustries()
-    // 首启流程固定为：登录（首次即设置账号和密码）→ 激活 → 收银。
-    // 行业与店名设置已归入「设置 → 门店概览」，不再作为首启拦截。
+    // 首启固定四步：设置管理员 → 登录 → 选择行业 → 激活。
+    // 激活页只在登录后出现，行业选择需要管理员会话才能落库。
     needAdmin.value = !(await api.hasUsers())
-    if (needAdmin.value) {
-      view.value = 'login'
-    } else if (license.value.status === 'UNACTIVATED') {
-      view.value = 'activate'
-      // 进入激活页即探测服务可达性，让用户第一时间知道能不能联网激活
-      void probeActivationService()
-    } else {
-      await applyCurrentSession()
-      view.value = 'login'
-    }
+    activationPending.value = readActivationPending()
+    onboarding.value =
+      needAdmin.value ||
+      !(storeProfile.value?.configured ?? false) ||
+      activationPending.value
+    view.value = 'login'
   } catch (e) {
     bootError.value = String(e)
   }
@@ -653,7 +683,6 @@ async function loadStoreProfile() {
 async function loadIndustries() {
   try {
     industries.value = await api.listIndustries()
-    pendingIndustry.value = pendingIndustry.value || industries.value[0]?.id || ''
   } catch (e) {
     showToast(String(e), true)
   }
@@ -685,6 +714,10 @@ async function saveStoreName() {
 
 /** 首次启动完成（行业 + 店名）后进入下一步 */
 async function finishIndustrySetup() {
+  if (!pendingIndustry.value) {
+    showToast('请选择经营行业', true)
+    return
+  }
   if (!storeNameDraft.value.trim()) {
     showToast('请填写店名', true)
     return
@@ -696,17 +729,14 @@ async function finishIndustrySetup() {
     }
     storeProfile.value = await api.setStoreName(storeNameDraft.value)
     await loadStoreProfile()
-    if (storeProfile.value?.configured) {
-      // 与启动流程一致：先确保有管理员账号，再判断激活状态
-      needAdmin.value = !(await api.hasUsers())
-      if (needAdmin.value) {
-        view.value = 'login'
-      } else if (license.value?.status === 'UNACTIVATED') {
-        view.value = 'activate'
-        void probeActivationService()
-      } else {
-        view.value = 'login'
-      }
+    if (needsActivation.value) {
+      view.value = 'activate'
+      void probeActivationService()
+      showToast('行业已保存，下一步激活设备')
+    } else {
+      onboarding.value = false
+      view.value = 'pos'
+      showToast('初始化完成，可以开始收银')
     }
   } catch (e) {
     showToast(String(e), true)
@@ -846,6 +876,8 @@ function enterTrial() {
     showToast('试用期不可用，请使用激活码激活', true)
     return
   }
+  setActivationPending(false)
+  onboarding.value = false
   view.value = 'pos'
   showToast(`已进入试用，剩余 ${trialDaysLeft.value} 天`)
 }
@@ -886,12 +918,12 @@ async function submitActivateOnline() {
       activateCustomer.value.trim() || null
     )
     if (license.value.status !== 'UNACTIVATED') {
-      // 账号在激活前已创建：有有效会话则直接进收银，否则回登录页重新识别角色
+      setActivationPending(false)
       needAdmin.value = !(await api.hasUsers())
       if (needAdmin.value || !(await applyCurrentSession())) {
         view.value = 'login'
       } else {
-        view.value = 'pos'
+        await routeAfterLogin()
       }
       showToast('激活成功')
     }
@@ -919,12 +951,12 @@ async function submitActivate() {
       ? await api.renew(activateToken.value)
       : await api.activate(activateToken.value)
     if (license.value.status !== 'UNACTIVATED') {
-      // 账号在激活前已创建：有有效会话则直接进收银，否则回登录页重新识别角色
+      setActivationPending(false)
       needAdmin.value = !(await api.hasUsers())
       if (needAdmin.value || !(await applyCurrentSession())) {
         view.value = 'login'
       } else {
-        view.value = 'pos'
+        await routeAfterLogin()
       }
       showToast('激活成功')
     }
@@ -947,19 +979,38 @@ async function applyCurrentSession(): Promise<boolean> {
   return false
 }
 
+/** 登录成功后的唯一分流：未配置行业 → 选行业；待激活 → 激活；否则进收银。 */
+async function routeAfterLogin() {
+  await loadStoreProfile()
+  if (!(storeProfile.value?.configured ?? false)) {
+    pendingIndustry.value =
+      storeProfile.value?.industry || pendingIndustry.value || ''
+    storeNameDraft.value = storeProfile.value?.store_name || storeNameDraft.value
+    view.value = 'industry'
+    return
+  }
+  if (needsActivation.value) {
+    view.value = 'activate'
+    void probeActivationService()
+    return
+  }
+  onboarding.value = false
+  view.value = 'pos'
+}
+
 async function submitAdmin() {
   loginError.value = ''
   try {
     await api.initAdmin(adminUser.value, adminPass.value)
-    const session = await api.login(adminUser.value, adminPass.value)
-    currentRole.value = normalizeRole(session.role_name)
-    currentUser.value = adminUser.value
     needAdmin.value = false
-    // 首启固定三步：登录（建号）→ 激活 → 收银。
-    // 不按授权状态跳过：首次启动处于 TRIAL_ACTIVE 试用态，若据此判断会漏掉激活页。
-    view.value = 'activate'
-    void probeActivationService()
-    showToast('管理员已创建，请先激活设备')
+    setActivationPending(true)
+    onboarding.value = true
+    // 建号后退出建号态，回到登录页，让管理员用刚设置的账号登录
+    loginUser.value = adminUser.value
+    loginPass.value = ''
+    adminPass.value = ''
+    view.value = 'login'
+    showToast('管理员已创建，请使用该账号登录')
   } catch (e) {
     loginError.value = String(e)
   }
@@ -971,7 +1022,7 @@ async function submitLogin() {
     const session = await api.login(loginUser.value, loginPass.value)
     currentRole.value = normalizeRole(session.role_name)
     currentUser.value = loginUser.value
-    view.value = 'pos'
+    await routeAfterLogin()
   } catch (e) {
     loginError.value = String(e)
   }
@@ -2316,22 +2367,24 @@ async function doLogout() {
       <p>正在初始化系统…</p>
     </div>
 
-    <!-- 行业选择与门店设置（首次启动） -->
+    <!-- 行业选择与门店设置（首次启动第 3 步） -->
     <div v-else-if="view === 'industry'" class="center-screen">
       <div class="card auth-card industry-card">
+        <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="brand">
           <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
           <div>
             <h1>Checkout-R</h1>
-            <p class="muted">选择经营行业，系统据此预置商品分类</p>
+            <p class="muted">选择经营行业，收银台和商品分类会按行业切换</p>
           </div>
         </div>
-        <h2>选择行业</h2>
+        <h2>选择经营行业</h2>
         <div class="industry-list">
           <button
             v-for="ind in industries"
             :key="ind.id"
             :class="['industry-item', { active: pendingIndustry === ind.id }]"
+            :aria-pressed="pendingIndustry === ind.id"
             @click="pendingIndustry = ind.id"
           >
             <strong>{{ ind.name }}</strong>
@@ -2343,18 +2396,17 @@ async function doLogout() {
           店名
           <input v-model="storeNameDraft" class="input" placeholder="如 城南生活超市" maxlength="30" />
         </label>
-        <div class="toolbar">
-          <button class="btn" @click="loadIndustries">刷新行业列表</button>
-          <button class="btn" @click="confirmIndustry">仅应用行业分类</button>
-          <button class="btn primary" style="margin-left: auto" @click="finishIndustrySetup">完成设置并开始使用</button>
-        </div>
+        <button class="btn primary btn-lg" @click="finishIndustrySetup">
+          {{ needsActivation ? '下一步：激活设备' : '进入收银' }}
+        </button>
         <p class="muted small">行业分类可在设置页随时调整，切换只新增分类不删除已有商品。</p>
       </div>
     </div>
 
-    <!-- 激活：极简——一个激活码输入框 + 两个按钮（试用 / 免费获取） -->
+    <!-- 激活（首次启动第 4 步）：一个激活码输入框 + 试用入口 -->
     <div v-else-if="view === 'activate'" class="center-screen">
       <div class="card auth-card">
+        <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="brand">
           <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
           <div>
@@ -2362,7 +2414,10 @@ async function doLogout() {
             <p class="muted">收银系统授权</p>
           </div>
         </div>
-        <h2>设备激活</h2>
+        <h2>激活设备</h2>
+        <p v-if="storeProfile?.industry_name" class="activate-context">
+          当前行业：<strong>{{ storeProfile.industry_name }}</strong>
+        </p>
         <label class="field-label">
           激活码
           <div class="activate-code-row">
@@ -2381,16 +2436,20 @@ async function doLogout() {
           <button class="btn" @click="enterTrial">试用15天</button>
           <button class="btn" @click="openOfficialSite">免费获取激活码</button>
         </div>
+        <button class="link setup-back" @click="view = 'industry'">返回上一步，重新选择行业</button>
       </div>
     </div>
 
-    <!-- 登录：首次仅显示「设置账号和密码」，之后仅显示登录表单 -->
+    <!-- 登录：首次显示「设置管理员账号」，建号后回到登录页 -->
     <div v-else-if="view === 'login'" class="center-screen">
       <div class="card auth-card">
+        <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="auth-brand">
           <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
-          <h1>{{ needAdmin ? '设置账号和密码' : '欢迎回来' }}</h1>
-          <p class="muted">{{ needAdmin ? '首次使用，请设置管理员账号和密码' : '输入账号密码开始收银' }}</p>
+          <h1>{{ needAdmin ? '设置管理员账号' : onboarding ? '登录' : '欢迎回来' }}</h1>
+          <p class="muted">
+            {{ needAdmin ? '首次使用，先创建管理员账号，再登录完成初始化' : onboarding ? '使用刚创建的管理员账号登录，继续选择行业' : '输入账号密码开始收银' }}
+          </p>
         </div>
         <template v-if="needAdmin">
           <label class="field">
@@ -2402,7 +2461,7 @@ async function doLogout() {
             <input v-model="adminPass" type="password" class="input input-lg" placeholder="至少 8 位，含字母和数字" @keyup.enter="submitAdmin" />
           </label>
           <p v-if="loginError" class="form-error"><Icon name="alert" :size="ICON_SIZE.sm" />{{ loginError }}</p>
-          <button class="btn primary btn-lg" @click="submitAdmin">创建管理员并继续</button>
+          <button class="btn primary btn-lg" @click="submitAdmin">创建管理员账号</button>
         </template>
         <template v-else>
           <label class="field">
