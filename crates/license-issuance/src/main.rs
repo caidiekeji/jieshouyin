@@ -21,6 +21,9 @@ struct Cli {
     /// 签发私钥 hex（32 字节）。优先于环境变量。
     #[arg(long, global = true)]
     key: Option<String>,
+    /// 签发密钥编号，对应客户端公钥环里的 key_id（默认 1）。
+    #[arg(long, global = true, default_value_t = checkout_core::license::payload::DEFAULT_KEY_ID)]
+    key_id: u32,
     #[command(subcommand)]
     command: Command,
 }
@@ -106,6 +109,7 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let key = cli.key.clone();
+    let key_id = cli.key_id;
     match cli.command {
         Command::Init { product, out_dir } => {
             let (sk, pk) = generate_keypair();
@@ -135,6 +139,7 @@ fn run() -> Result<()> {
             let sk = signing_key_from_hex(&get_key(&key)?)?;
             let now = chrono::Utc::now().to_rfc3339();
             let payload = LicensePayload {
+                key_id,
                 license_id: format!("lic_{}", uuid_like()),
                 product: EXPECTED_PRODUCT.into(),
                 license_type: license_type.clone(),

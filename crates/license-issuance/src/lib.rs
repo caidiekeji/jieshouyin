@@ -59,6 +59,7 @@ mod tests {
 
     fn sample() -> LicensePayload {
         LicensePayload {
+            key_id: 1,
             license_id: "lic_01JTEST".into(),
             product: "checkout-r".into(),
             license_type: "ANNUAL".into(),

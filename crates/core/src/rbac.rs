@@ -334,6 +334,7 @@ mod tests {
         LicenseSnapshot {
             status: LicenseStatus::ACTIVE,
             payload: Some(LicensePayload {
+                key_id: 1,
                 license_id: "l".into(),
                 product: "checkout-r".into(),
                 license_type: "PERPETUAL".into(),

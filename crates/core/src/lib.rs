@@ -33,11 +33,13 @@ pub use error::{CoreError, Result};
 
 /// 内嵌验证公钥。正式构建由 build.rs 从 CHECKOUT_PUBLIC_KEY 环境变量注入；
 /// 未提供时使用 RFC 8032 测试向量公钥（仅开发/CI 编译用），私钥绝不进入客户端。
+/// EMBEDDED_KEYS 是按 key_id 编号的公钥环，轮换期同时含新旧公钥。
 pub mod embedded_key {
     include!(concat!(env!("OUT_DIR"), "/public_key.rs"));
 }
 pub use embedded_key::EMBEDDED_ACTIVATION_ENDPOINT;
 pub use embedded_key::EMBEDDED_KEY_IS_DEV;
+pub use embedded_key::EMBEDDED_KEYS;
 pub use embedded_key::EMBEDDED_PUBLIC_KEY;
 
 /// 内置的在线激活服务地址（构建时注入）。为空表示未随包分发地址，

@@ -84,6 +84,7 @@ mod tests {
 
     fn annual(grace: u32) -> LicensePayload {
         LicensePayload {
+            key_id: 1,
             license_id: "lic_t".into(),
             product: "checkout-r".into(),
             license_type: "ANNUAL".into(),

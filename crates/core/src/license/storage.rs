@@ -225,6 +225,7 @@ mod tests {
             revoked: false,
             token: "a.b".into(),
             payload: LicensePayload {
+                key_id: 1,
                 license_id: "lic_x".into(),
                 product: "checkout-r".into(),
                 license_type: "PERPETUAL".into(),

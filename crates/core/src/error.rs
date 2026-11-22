@@ -93,6 +93,8 @@ pub enum LicenseError {
     Unactivated,
     #[error("签名密钥错误")]
     SigningKey,
+    #[error("未知的签名密钥编号: {0}")]
+    UnknownKeyId(u32),
     /// 激活服务明确拒绝（授权已撤销/过期/设备超限）。
     /// 与「网络不可达」区分：前者以服务端为准、必须降级本地状态，后者应保留本地缓存继续工作。
     #[error("激活服务拒绝: {0}")]

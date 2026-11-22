@@ -47,7 +47,13 @@ pub fn build_license_service(state: &AppState) -> LicenseService {
     // 回拨检测基线不能是 1970：那等于永远检测不到系统时间回拨。
     // 以进程启动时刻为基线，之后由授权服务持久化最新的可信时间。
     let last_known = chrono::Utc::now();
-    LicenseService::new(store, state.public_key, Box::new(SystemClock), last_known)
+    // 用公钥环验签：release 构建含新旧公钥时，按载荷 key_id 自动选钥匙。
+    LicenseService::with_keys(
+        store,
+        checkout_core::EMBEDDED_KEYS.to_vec(),
+        Box::new(SystemClock),
+        last_known,
+    )
 }
 
 /// 初始化数据库（启动顺序：先连接 + 迁移，再许可证验证）。

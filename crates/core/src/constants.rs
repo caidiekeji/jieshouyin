@@ -88,6 +88,9 @@ pub const TRIAL_DAYS: i64 = 15;
 pub const TRIAL_ENTITLEMENTS: [&str; 3] = [ENT_POS_CORE, ENT_REPORT_STANDARD, ENT_MEMBER_BASIC];
 /// 单调水位容差：系统时钟回拨超过 24 小时才判定为异常，容忍 NTP 微调。
 pub const CLOCK_SKEW_TOLERANCE_HOURS: i64 = 24;
+/// 试用时钟前向跳变上限：系统时间超前历史水位超过该值视为误设未来，
+/// 不推进水位、不据此判过期，避免误设远期时间后永久锁死试用。
+pub const TRIAL_CLOCK_FORWARD_LIMIT_DAYS: i64 = 30;
 /// 未分类类目 ID：M0007 种子行，所有新建商品默认归入此类。
 pub const DEFAULT_CATEGORY_ID: i64 = 1;
 /// 人民币最小单位换算：所有金额字段以分为单位。

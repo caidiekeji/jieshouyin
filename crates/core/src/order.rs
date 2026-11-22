@@ -124,6 +124,26 @@ pub fn begin_order(
     Ok(())
 }
 
+/// 现金支付确认：现金已在收银台实际收取，把本笔 PENDING 流水置为 SUCCESS 并写 paid_at。
+/// 必须限定 status='PENDING' 且命中 1 行，重复确认或状态异常直接报错。
+/// 抽到 core 是为了让"现金单能完成"这一不变式可被回归测试直接覆盖。
+pub fn confirm_cash_payment(
+    conn: &Connection,
+    order_no: &str,
+    out_trade_no: &str,
+    paid_at: &str,
+) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE payment_record SET status='SUCCESS', paid_at=?1
+         WHERE order_no=?2 AND out_trade_no=?3 AND status='PENDING'",
+        params![paid_at, order_no, out_trade_no],
+    )?;
+    if n != 1 {
+        return Err(CoreError::Other("现金支付流水状态异常".into()));
+    }
+    Ok(())
+}
+
 /// tx B：所有渠道 SUCCESS 后提交。订单 → COMPLETED + 库存 SALE + sync_queue。
 pub fn commit_order(tx: &Connection, order_no: &str, cashier_id: i64) -> Result<()> {
     let (status, pay_cents): (String, i64) = tx.query_row(
@@ -543,6 +563,127 @@ mod tests {
             )
             .unwrap();
         assert_eq!(s, "COMPLETED");
+    }
+
+    /// P0-01 回归：在订单下插入一笔 PENDING 流水，返回 out_trade_no。
+    fn add_pending_payment(c: &Connection, no: &str, channel: &str, amount: i64) -> String {
+        let out = format!("{no}P1-{channel}");
+        c.execute(
+            "INSERT INTO payment_record(order_no,pay_channel,pay_mode,attempt_no,amount_cents,out_trade_no,status,created_at)
+             VALUES (?1,?2,'',1,?3,?4,'PENDING',?5)",
+            params![no, channel, amount, out, "2026-11-17T00:00:00Z"],
+        )
+        .unwrap();
+        out
+    }
+
+    #[test]
+    fn cash_payment_confirmed_then_order_completes() {
+        // 纯现金：PENDING 流水经确认后应为 SUCCESS，订单可收口为 COMPLETED。
+        let c = setup();
+        start_unpaid(&c, "CASH1");
+        let out = add_pending_payment(&c, "CASH1", "CASH", 2000);
+        let tx = c.unchecked_transaction().unwrap();
+        confirm_cash_payment(&tx, "CASH1", &out, "2026-11-17T00:01:00Z").unwrap();
+        tx.commit().unwrap();
+        let (st, paid_at): (String, Option<String>) = c
+            .query_row(
+                "SELECT status,paid_at FROM payment_record WHERE out_trade_no=?1",
+                [&out],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(st, "SUCCESS");
+        assert!(paid_at.is_some());
+        let tx = c.unchecked_transaction().unwrap();
+        commit_order(&tx, "CASH1", 1).unwrap();
+        tx.commit().unwrap();
+        let status: String = c
+            .query_row(
+                "SELECT status FROM sales_order WHERE order_no='CASH1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "COMPLETED");
+    }
+
+    #[test]
+    fn unconfirmed_cash_cannot_complete_order() {
+        // 现金未确认（仍 PENDING）时不应计入已收，订单不得完成——这正是 P0-01 的原症状。
+        let c = setup();
+        start_unpaid(&c, "CASH2");
+        add_pending_payment(&c, "CASH2", "CASH", 2000);
+        let tx = c.unchecked_transaction().unwrap();
+        let err = commit_order(&tx, "CASH2", 1).unwrap_err();
+        assert!(err.to_string().contains("不足应付"), "{err}");
+    }
+
+    #[test]
+    fn cash_plus_other_channel_both_counted() {
+        // 组合支付：现金确认 + 另一渠道 SUCCESS，两笔都计入已收，订单可完成。
+        let c = setup();
+        start_unpaid(&c, "CASH3");
+        let cash_out = add_pending_payment(&c, "CASH3", "CASH", 800);
+        add_pending_payment(&c, "CASH3", "STORED_VALUE", 1200);
+        let tx = c.unchecked_transaction().unwrap();
+        confirm_cash_payment(&tx, "CASH3", &cash_out, "2026-11-17T00:01:00Z").unwrap();
+        tx.execute(
+            "UPDATE payment_record SET status='SUCCESS' WHERE out_trade_no='CASH3P1-STORED_VALUE'",
+            [],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        let paid: i64 = c
+            .query_row(
+                "SELECT COALESCE(SUM(amount_cents),0) FROM payment_record
+                 WHERE order_no='CASH3' AND status='SUCCESS'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(paid, 2000, "现金与储值应合并计入已收");
+        let tx = c.unchecked_transaction().unwrap();
+        commit_order(&tx, "CASH3", 1).unwrap();
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn cash_partial_then_failure_rolls_back() {
+        // 现金+扫码：扫码失败走收口——现金流水置 CLOSED、不再计入已收，
+        // 订单保持 PENDING_PAYMENT 且库存不动，避免"钱已收却报失败"的半状态。
+        let c = setup();
+        start_unpaid(&c, "CASH4");
+        let cash_out = add_pending_payment(&c, "CASH4", "CASH", 800);
+        add_pending_payment(&c, "CASH4", "WECHAT", 1200);
+        {
+            let tx = c.unchecked_transaction().unwrap();
+            confirm_cash_payment(&tx, "CASH4", &cash_out, "2026-11-17T00:01:00Z").unwrap();
+            tx.commit().unwrap();
+        }
+        // 模拟 rollback_partial_payments 对现金的处理：置 CLOSED 并要求退款
+        c.execute(
+            "UPDATE payment_record SET status='CLOSED' WHERE out_trade_no=?1",
+            [&cash_out],
+        )
+        .unwrap();
+        {
+            let tx = c.unchecked_transaction().unwrap();
+            let err = commit_order(&tx, "CASH4", 1).unwrap_err();
+            assert!(err.to_string().contains("不足应付"), "{err}");
+        }
+        let status: String = c
+            .query_row(
+                "SELECT status FROM sales_order WHERE order_no='CASH4'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "PENDING_PAYMENT", "失败收口后订单不应被完成");
+        let q: i64 = c
+            .query_row("SELECT qty FROM inv_stock WHERE sku_id=1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(q, 0, "失败收口后不得扣库存");
     }
 
     #[test]

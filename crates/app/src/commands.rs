@@ -1778,17 +1778,13 @@ pub async fn checkout(
                     }
                 }
                 PayChannel::CASH => {
-                    // 现金在收银台已实际收取：订单流水必须同步置成功，
-                    // 否则 commit_order 只统计 SUCCESS 流水，现金单永远无法完成。
+                    // 现金在收银台已实际收取：必须把本笔 PENDING 流水收敛为 SUCCESS，
+                    // 否则 commit_order 只统计 SUCCESS，现金单永远无法完成。
+                    // 复用 core 的同名函数，使这一不变式可被回归测试直接覆盖。
                     let tx = conn.unchecked_transaction()?;
-                    let n = tx.execute(
-                        "UPDATE payment_record SET status='SUCCESS', paid_at=?1
-                         WHERE order_no=?2 AND out_trade_no=?3 AND status='PENDING'",
-                        rusqlite::params![now, order_no, out_trade_no],
+                    checkout_core::order::confirm_cash_payment(
+                        &tx, &order_no, &out_trade_no, &now,
                     )?;
-                    if n != 1 {
-                        return Err(CoreError::Other("现金支付流水状态异常".into()));
-                    }
                     tx.commit()?;
                 }
             }
@@ -5446,17 +5442,21 @@ pub fn run() {
                     });
                 (w, a)
             };
-            // 本地模拟网关仅在显式开关或 debug 构建下启用；release 构建默认拒绝扫码收款，
-            // 避免"没配商户号也能收款成功"的静默兜底。
-            let allow_local_simulation = cfg!(debug_assertions)
-                || cfg_get(&conn, CFG_ALLOW_LOCAL_SIMULATION)
-                    .ok()
-                    .flatten()
-                    .as_deref()
-                    == Some("1");
+            // 本地模拟收款仅限 debug 联调构建；release 无条件禁用。
+            // 即使发行环境配置文件被写入 pay.allow_local_simulation=1，也不能重开
+            // "任意付款码即记 SUCCESS"的后门——真实营业缺凭据时应直接拒绝扫码收款。
+            // release 下该配置仅用于可观测性告警，不再改变网关行为。
+            let requested_local_sim = cfg_get(&conn, CFG_ALLOW_LOCAL_SIMULATION)
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some("1");
+            let allow_local_simulation = cfg!(debug_assertions);
             if allow_local_simulation {
+                tracing::warn!("本地模拟支付网关已启用（仅 debug 联调构建允许）");
+            } else if requested_local_sim {
                 tracing::warn!(
-                    "本地模拟支付网关已启用（{CFG_ALLOW_LOCAL_SIMULATION}=1 或 debug 构建）"
+                    "检测到 {CFG_ALLOW_LOCAL_SIMULATION}=1，但 release 构建禁止本地模拟收款，已忽略"
                 );
             }
             let gateway = checkout_core::payment::RoutingGateway::new(

@@ -11,9 +11,18 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_LICENSE_LEN: usize = 4096;
 pub const EXPECTED_PRODUCT: &str = "checkout-r";
+/// 默认密钥编号：存量激活码没有 key_id 字段，按 1 号公钥验签，平滑兼容。
+pub const DEFAULT_KEY_ID: u32 = 1;
+
+fn default_key_id() -> u32 {
+    DEFAULT_KEY_ID
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LicensePayload {
+    /// 签发密钥编号，随载荷一起被签名，验签时据此选择公钥。
+    #[serde(default = "default_key_id")]
+    pub key_id: u32,
     pub license_id: String,
     pub product: String,
     pub license_type: String,
@@ -41,8 +50,18 @@ pub fn encode_license(payload: &LicensePayload, signature: &[u8; 64]) -> Result<
     Ok(token)
 }
 
-/// 解析并验证激活码。任何失败映射为明确错误，不 panic。
+/// 解析并验证激活码，用默认 1 号公钥（单钥场景：签发工具、旧调用方）。
 pub fn parse_and_verify(token: &str, public_key: &[u8; 32]) -> Result<(LicensePayload, [u8; 64])> {
+    parse_and_verify_with_keys(token, &[(DEFAULT_KEY_ID, *public_key)])
+}
+
+/// 按载荷内的 key_id 从公钥环中选择验签公钥。
+/// 未知编号直接拒绝（fail closed），这是密钥轮换能平滑进行的前提：
+/// 新公钥先随客户端发布，jihuo 再切换签发编号，旧编号公钥保留一整个重叠窗口。
+pub fn parse_and_verify_with_keys(
+    token: &str,
+    keys: &[(u32, [u8; 32])],
+) -> Result<(LicensePayload, [u8; 64])> {
     if token.len() > MAX_LICENSE_LEN {
         return Err(LicenseError::TooLong.into());
     }
@@ -54,6 +73,20 @@ pub fn parse_and_verify(token: &str, public_key: &[u8; 32]) -> Result<(LicensePa
         .decode(sig_b64)
         .map_err(|_| LicenseError::InvalidBase64)?;
     let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| LicenseError::Malformed)?;
+
+    // key_id 在验签前仅用于选钥匙；载荷完整性仍由随后对原始 json 的验签保证，
+    // 篡改 key_id 只会导致选错钥匙 → 签名无效，不会被信任。
+    #[derive(Deserialize)]
+    struct KeyHint {
+        #[serde(default = "default_key_id")]
+        key_id: u32,
+    }
+    let hint: KeyHint = serde_json::from_slice(&json)?;
+    let public_key = keys
+        .iter()
+        .find(|(id, _)| *id == hint.key_id)
+        .map(|(_, k)| k)
+        .ok_or(LicenseError::UnknownKeyId(hint.key_id))?;
 
     let vk = VerifyingKey::from_bytes(public_key).map_err(|_| LicenseError::SigningKey)?;
     let sig = Signature::from_bytes(&sig_arr);
@@ -110,6 +143,7 @@ mod tests {
 
     fn sample() -> LicensePayload {
         LicensePayload {
+            key_id: 1,
             license_id: "lic_01JTEST".into(),
             product: EXPECTED_PRODUCT.into(),
             license_type: "ANNUAL".into(),
@@ -185,5 +219,65 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0].len(), 64);
         assert_eq!(lines[2].len(), 2);
+    }
+
+    /// 轮换核心：公钥环按 payload.key_id 选钥匙，新旧钥匙共存时各自验签成功。
+    #[test]
+    fn key_ring_selects_by_id() {
+        let sk1 = test_key();
+        let sk2 = test_key();
+        let ring = vec![
+            (1u32, *sk1.verifying_key().as_bytes()),
+            (2u32, *sk2.verifying_key().as_bytes()),
+        ];
+
+        let mut p1 = sample();
+        p1.key_id = 1;
+        let p2 = LicensePayload { key_id: 2, ..sample() };
+        let t1 = encode_license(&p1, &sk1.sign(&serde_json::to_vec(&p1).unwrap()).to_bytes()).unwrap();
+        let t2 = encode_license(&p2, &sk2.sign(&serde_json::to_vec(&p2).unwrap()).to_bytes()).unwrap();
+
+        assert_eq!(parse_and_verify_with_keys(&t1, &ring).unwrap().0.key_id, 1u32);
+        assert_eq!(parse_and_verify_with_keys(&t2, &ring).unwrap().0.key_id, 2u32);
+        // 用错钥匙验签必须失败
+        assert!(parse_and_verify_with_keys(&t2, &ring[..1]).is_err());
+    }
+
+    /// 未知编号 fail closed：不回退到默认公钥，直接拒绝。
+    #[test]
+    fn unknown_key_id_rejected() {
+        let sk = test_key();
+        let p = LicensePayload { key_id: 99, ..sample() };
+        let token = encode_license(&p, &sk.sign(&serde_json::to_vec(&p).unwrap()).to_bytes()).unwrap();
+        let ring = [(1u32, *sk.verifying_key().as_bytes())];
+        let err = parse_and_verify_with_keys(&token, &ring).unwrap_err();
+        assert!(matches!(
+            err,
+            CoreError::License(LicenseError::UnknownKeyId(99))
+        ));
+    }
+
+    /// 存量激活码无 key_id 字段，按默认 1 号公钥验签通过。
+    #[test]
+    fn legacy_token_without_key_id_uses_default() {
+        let sk = test_key();
+        let v = serde_json::to_value(sample()).unwrap();
+        let obj = v.as_object().unwrap();
+        let mut legacy = serde_json::Map::new();
+        for (k, val) in obj {
+            if k != "key_id" {
+                legacy.insert(k.clone(), val.clone());
+            }
+        }
+        let json = serde_json::to_vec(&legacy).unwrap();
+        let token = {
+            let body = URL_SAFE_NO_PAD.encode(&json);
+            let sig = URL_SAFE_NO_PAD.encode(sk.sign(&json).to_bytes());
+            format!("{body}.{sig}")
+        };
+        let ring = [(1u32, *sk.verifying_key().as_bytes())];
+        let parsed = parse_and_verify_with_keys(&token, &ring).unwrap().0;
+        assert_eq!(parsed.key_id, DEFAULT_KEY_ID);
+        assert_eq!(parsed.license_id, "lic_01JTEST");
     }
 }

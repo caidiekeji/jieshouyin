@@ -1857,6 +1857,7 @@ const shiftId = ref(1)
 const shiftRows = ref<ShiftRow[]>([])
 const openingFloat = ref('0')
 const actualCash = ref('0')
+const differenceReason = ref('')
 const currentShiftId = ref(0)
 async function loadShift() {
   try {
@@ -1881,11 +1882,12 @@ async function doCloseShift() {
     const r = await api.closeShift(
       currentShiftId.value,
       Math.round(Number(actualCash.value || '0') * CENTS_PER_YUAN),
-      null,
+      differenceReason.value.trim() || null,
       nonce
     )
     showToast(`已关班，现金差额 ${formatMoney(r.difference_cents)}`)
     currentShiftId.value = 0
+    differenceReason.value = ''
   } catch (e) {
     if (String(e) !== '已取消二次授权') showToast(String(e), true)
   }
@@ -2952,6 +2954,7 @@ async function doLogout() {
             </div>
             <div class="toolbar">
               <input v-model="actualCash" class="input" type="number" placeholder="关班实收现金(元)" />
+              <input v-model="differenceReason" class="input" type="text" placeholder="差异原因(有现金差额时必填)" />
               <button class="btn" @click="doCloseShift">关班（需授权）</button>
             </div>
             <div class="toolbar">

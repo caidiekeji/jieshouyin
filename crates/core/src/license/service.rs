@@ -2,7 +2,7 @@
 
 use crate::constants::{
     CLOCK_SKEW_TOLERANCE_HOURS, LICENSE_NONE, LICENSE_TRIAL, STATE_KEY_TRIAL, STATUS_TRIAL_ACTIVE,
-    STATUS_UNACTIVATED, TRIAL_DAYS, TRIAL_ENTITLEMENTS,
+    STATUS_UNACTIVATED, TRIAL_CLOCK_FORWARD_LIMIT_DAYS, TRIAL_DAYS, TRIAL_ENTITLEMENTS,
 };
 use crate::error::{CoreError, LicenseError, Result};
 use crate::time::{format_utc, parse_rfc3339, Clock, MonotonicClock};
@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use super::audit::{append_audit, token_hash_prefix, AuditEvent};
 use super::fingerprint::{device_fingerprint, fp_digest};
-use super::payload::{parse_and_verify, LicensePayload};
+use super::payload::{parse_and_verify_with_keys, LicensePayload, DEFAULT_KEY_ID};
 use super::state::{decide_status, LicenseStatus};
 use super::storage::{mirror_to_db, LicenseBundle, SecureStore};
 
@@ -68,20 +68,32 @@ impl LicenseSnapshot {
 
 pub struct LicenseService {
     store: Arc<dyn SecureStore>,
-    public_key: [u8; 32],
+    /// 公钥环：按 key_id 验签，轮换期同时持有新旧公钥。
+    keys: Vec<(u32, [u8; 32])>,
     mono: Arc<MonotonicClock<Box<dyn Clock>>>,
 }
 
 impl LicenseService {
+    /// 单公钥构造（签发工具与旧调用方）：等价于只登记 1 号公钥。
     pub fn new(
         store: Arc<dyn SecureStore>,
         public_key: [u8; 32],
         clock: Box<dyn Clock>,
         last_known: DateTime<Utc>,
     ) -> Self {
+        Self::with_keys(store, vec![(DEFAULT_KEY_ID, public_key)], clock, last_known)
+    }
+
+    /// 公钥环构造：轮换期传入多个 (key_id, 公钥)，按载荷编号验签。
+    pub fn with_keys(
+        store: Arc<dyn SecureStore>,
+        keys: Vec<(u32, [u8; 32])>,
+        clock: Box<dyn Clock>,
+        last_known: DateTime<Utc>,
+    ) -> Self {
         Self {
             store,
-            public_key,
+            keys,
             mono: Arc::new(MonotonicClock::new(clock, last_known)),
         }
     }
@@ -101,7 +113,7 @@ impl LicenseService {
         activation_key: Option<&str>,
     ) -> Result<LicenseSnapshot> {
         let now = format_utc(&Utc::now());
-        let (payload, sig) = match parse_and_verify(token, &self.public_key) {
+        let (payload, sig) = match parse_and_verify_with_keys(token, &self.keys) {
             Ok(v) => v,
             Err(e) => {
                 append_audit(
@@ -209,7 +221,7 @@ impl LicenseService {
 
     /// 续期：更新载荷，保留设备绑定。降级态立即恢复 ACTIVE。
     pub fn renew(&self, conn: &Connection, token: &str) -> Result<LicenseSnapshot> {
-        let (payload, sig) = parse_and_verify(token, &self.public_key)?;
+        let (payload, sig) = parse_and_verify_with_keys(token, &self.keys)?;
         let previous = self
             .store
             .load()?
@@ -254,7 +266,7 @@ impl LicenseService {
 
         let now = format_utc(&Utc::now());
         // 用内嵌公钥重新验证签名（签名是终极校验，加密只增加提取成本）
-        let (payload, _) = match parse_and_verify(&bundle.token, &self.public_key) {
+        let (payload, _) = match parse_and_verify_with_keys(&bundle.token, &self.keys) {
             Ok(v) => v,
             Err(e) => {
                 append_audit(
@@ -452,6 +464,26 @@ impl LicenseService {
     }
 
     /// 15 天全功能试用（需求变更，文档 §4.5 补记）：
+    /// 计算试用有效时间（纯函数，便于时钟异常场景回归测试）。
+    /// 规则：取系统时间、开始时间、历史水位三者最大值防回拨；
+    /// 但系统时间超前历史水位超过 TRIAL_CLOCK_FORWARD_LIMIT_DAYS 时视为误设未来，
+    /// 回落到历史水位，既不推进水位也不据此判过期——避免误设远期时间导致试用永久失效。
+    /// 返回 (有效时间, 是否检测到前向跳变)。
+    fn trial_effective_now(
+        system_now: DateTime<Utc>,
+        start: DateTime<Utc>,
+        watermark: Option<DateTime<Utc>>,
+    ) -> (DateTime<Utc>, bool) {
+        let mut effective = system_now.max(start);
+        if let Some(w) = watermark {
+            effective = effective.max(w);
+            if system_now > w + chrono::Duration::days(TRIAL_CLOCK_FORWARD_LIMIT_DAYS) {
+                return (w, true);
+            }
+        }
+        (effective, false)
+    }
+
     /// - 首次启动无许可证 → 记录试用（license_state state_key='trial'），TRIAL_ACTIVE
     /// - 重启 → 试用继续，开始时间不变（单调水位防回拨延长）
     /// - 到期 → UNACTIVATED，激活界面；激活成功 → 删除试用记录，永不复活
@@ -475,25 +507,28 @@ impl LicenseService {
                 // 只看 max(now, start) 不够——回拨到开始日之前时 now 永远小于 start，
                 // 试用期就永久停在第一天；水位必须写盘并在每次启动时推进。
                 let watermark = Self::trial_watermark(conn)?;
-                let mut effective = system_now.max(start);
-                if let Some(w) = watermark {
-                    effective = effective.max(w);
-                }
-                if watermark
+                let (effective, forward_jump) =
+                    Self::trial_effective_now(system_now, start, watermark);
+                let rollback = watermark
                     .map(|w| system_now < w - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS))
                     .unwrap_or(false)
-                    || system_now < start - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS)
-                {
+                    || system_now < start - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS);
+                if rollback || forward_jump {
                     append_audit(
                         conn,
                         AuditEvent::ClockRollbackDetected,
                         None,
                         None,
                         None,
-                        json!({"scope": "trial", "effective_now": format_utc(&effective)}),
+                        json!({
+                            "scope": "trial",
+                            "effective_now": format_utc(&effective),
+                            "forward_jump": forward_jump,
+                        }),
                         &now,
                     )?;
                 }
+                // 前向跳变时 effective 已回落到历史水位，不会 > w，水位不会被误设未来污染。
                 if watermark.map(|w| effective > w).unwrap_or(true) {
                     Self::save_trial_watermark(conn, effective)?;
                 }
@@ -693,6 +728,7 @@ mod tests {
 
         fn token(&self, valid_until: &str, grace: u32, license_type: &str) -> String {
             let p = LicensePayload {
+                key_id: 1,
                 license_id: "lic_test".into(),
                 product: "checkout-r".into(),
                 license_type: license_type.into(),
@@ -714,6 +750,40 @@ mod tests {
             let sig = self.sk.sign(&json);
             crate::license::payload::encode_license(&p, &sig.to_bytes()).unwrap()
         }
+    }
+
+    #[test]
+    fn clock_rollback_keeps_watermark() {
+        // 回拨：系统时间早于历史水位 → 取水位，不延长试用。
+        let start = parse_rfc3339("2026-01-01T00:00:00Z").unwrap();
+        let wm = start + chrono::Duration::days(10);
+        let now = start + chrono::Duration::days(3); // 回拨
+        let (eff, jump) = LicenseService::trial_effective_now(now, start, Some(wm));
+        assert!(!jump);
+        assert_eq!(eff, wm, "回拨时应维持历史水位");
+    }
+
+    #[test]
+    fn clock_future_jump_is_clamped() {
+        // 误设未来：系统时间超前水位超过上限 → 回落到水位，不推进、不判过期。
+        let start = parse_rfc3339("2026-01-01T00:00:00Z").unwrap();
+        let wm = start + chrono::Duration::days(5);
+        let far_future = start + chrono::Duration::days(3650); // 误设到 10 年后
+        let (eff, jump) = LicenseService::trial_effective_now(far_future, start, Some(wm));
+        assert!(jump, "应检测到前向跳变");
+        assert_eq!(eff, wm, "误设未来应回落到历史水位，不得污染水位");
+        assert!(eff < start + chrono::Duration::days(TRIAL_DAYS), "不得据此判试用过期");
+    }
+
+    #[test]
+    fn clock_normal_advance_moves_watermark() {
+        // 正常前进：系统时间小幅超前水位 → 采信并推进。
+        let start = parse_rfc3339("2026-01-01T00:00:00Z").unwrap();
+        let wm = start + chrono::Duration::days(5);
+        let now = start + chrono::Duration::days(7);
+        let (eff, jump) = LicenseService::trial_effective_now(now, start, Some(wm));
+        assert!(!jump);
+        assert_eq!(eff, now, "正常前进应推进有效时间");
     }
 
     #[test]
