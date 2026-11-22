@@ -197,9 +197,9 @@ fn reconcile_timeout<G: PaymentGateway>(
             // 顾客实际钱却留在商户账上。
             let refund_no = format!("{out_trade_no}:AUTO_REFUND");
             match gw.refund(out_trade_no, &refund_no, amount_cents)? {
-                PaymentState::SUCCESS => Ok(PaymentState::FAILED(
-                    "撤销遇已支付，已自动全额退款".into(),
-                )),
+                PaymentState::SUCCESS => {
+                    Ok(PaymentState::FAILED("撤销遇已支付，已自动全额退款".into()))
+                }
                 // 退款处理中/失败：不能宣告已退款，保留待人工确认
                 PaymentState::USERPAYING => Ok(PaymentState::FAILED(
                     "撤销遇已支付，退款处理中，请稍后到渠道核对并在对账中确认".into(),

@@ -22,7 +22,9 @@ pub fn create_purchase_order(
     let mut total: i64 = 0;
     for (sku, qty, cost) in items {
         if *qty <= 0 {
-            return Err(CoreError::Validation(format!("SKU {sku} 订购数量必须大于 0")));
+            return Err(CoreError::Validation(format!(
+                "SKU {sku} 订购数量必须大于 0"
+            )));
         }
         if *cost < 0 {
             return Err(CoreError::Validation(format!("SKU {sku} 采购单价不能为负")));

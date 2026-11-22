@@ -82,8 +82,8 @@ pub fn yuan_str_to_cents(s: &str) -> Result<i64> {
             value /= 10;
         }
     }
-    let value = i64::try_from(value)
-        .map_err(|_| CoreError::Validation(format!("金额超出范围: {t}")))?;
+    let value =
+        i64::try_from(value).map_err(|_| CoreError::Validation(format!("金额超出范围: {t}")))?;
     Ok(if negative { -value } else { value })
 }
 

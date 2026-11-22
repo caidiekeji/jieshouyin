@@ -199,7 +199,10 @@ pub fn calc_promotions(
         if promo.discount_cents.is_some() {
             // 单品满减：只对优惠额最大的一行减一次，避免"买 N 行减 N 次"。
             if let Some((idx, amount)) = candidates.iter().max_by_key(|(_, d)| *d).copied() {
-                applied.push(AppliedPromo::single(promo.promotion_id, vec![(idx, amount)]));
+                applied.push(AppliedPromo::single(
+                    promo.promotion_id,
+                    vec![(idx, amount)],
+                ));
                 single_used[idx] += amount;
                 member_active[idx] = false;
             }
@@ -234,7 +237,16 @@ pub fn calc_promotions(
             .iter()
             .enumerate()
             .filter(|(_, l)| !l.is_gift)
-            .map(|(i, l)| remaining_of(i, &member_active, &member_amounts, &single_used, &order_used, l))
+            .map(|(i, l)| {
+                remaining_of(
+                    i,
+                    &member_active,
+                    &member_amounts,
+                    &single_used,
+                    &order_used,
+                    l,
+                )
+            })
             .map(|d| 0i64.max(d))
             .sum();
         let qty: i64 = lines.iter().filter(|l| !l.is_gift).map(|l| l.qty).sum();
@@ -255,7 +267,14 @@ pub fn calc_promotions(
         let remaining: Vec<i64> = indexes
             .iter()
             .map(|&i| {
-                remaining_of(i, &member_active, &member_amounts, &single_used, &order_used, &lines[i])
+                remaining_of(
+                    i,
+                    &member_active,
+                    &member_amounts,
+                    &single_used,
+                    &order_used,
+                    &lines[i],
+                )
             })
             .collect();
         if remaining.iter().all(|&r| r <= 0) {
@@ -310,7 +329,11 @@ pub fn calc_promotions(
 
     // 落地：行优惠 = 会员价（或单品促销）+ 整单促销，逐行不穿透行金额。
     for (i, line) in lines.iter_mut().enumerate() {
-        let member_part = if member_active[i] { member_amounts[i] } else { 0 };
+        let member_part = if member_active[i] {
+            member_amounts[i]
+        } else {
+            0
+        };
         let discount = member_part + single_used[i] + order_used[i];
         if discount > line.line_total_cents {
             return Err(CoreError::Money(format!(
@@ -333,7 +356,13 @@ pub fn calc_promotions(
     let member_total: i64 = lines
         .iter()
         .enumerate()
-        .map(|(i, _)| if member_active[i] { member_amounts[i] } else { 0 })
+        .map(|(i, _)| {
+            if member_active[i] {
+                member_amounts[i]
+            } else {
+                0
+            }
+        })
         .sum();
     // 最终不变式校验：行优惠 = 会员价优惠 + 促销优惠
     let line_sum: i64 = lines.iter().map(|l| l.discount_cents).sum();
@@ -358,7 +387,11 @@ fn remaining_of(
     order_used: &[i64],
     line: &CartLine,
 ) -> i64 {
-    let member_part = if member_active[i] { member_amounts[i] } else { 0 };
+    let member_part = if member_active[i] {
+        member_amounts[i]
+    } else {
+        0
+    };
     line.line_total_cents - (member_part + single_used[i] + order_used[i])
 }
 

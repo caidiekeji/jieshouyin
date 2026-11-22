@@ -1399,11 +1399,7 @@ pub fn quote_order(
 
 /// 收银结算（F-05/F-06）。现金本地闭环；储值走领域扣款；扫码渠道走网关状态机。
 /// 生成未被占用的订单号：极小概率撞号时重试，避免主键冲突把整单收银打回。
-fn generate_unique_order_no(
-    conn: &Connection,
-    store_no: &str,
-    device_no: &str,
-) -> Result<String> {
+fn generate_unique_order_no(conn: &Connection, store_no: &str, device_no: &str) -> Result<String> {
     for _ in 0..8 {
         let cand = checkout_core::order::generate_order_no(store_no, device_no);
         let used: i64 = conn.query_row(
@@ -1751,8 +1747,8 @@ pub async fn checkout(
                         native_code_url = outcome.code_url;
                         continue;
                     }
-                    let poll =
-                        cfg_i64(&conn, CFG_MICROPAY_POLL_MS, DEFAULT_MICROPAY_POLL_MS as i64) as u64;
+                    let poll = cfg_i64(&conn, CFG_MICROPAY_POLL_MS, DEFAULT_MICROPAY_POLL_MS as i64)
+                        as u64;
                     let timeout = cfg_i64(
                         &conn,
                         CFG_MICROPAY_TIMEOUT_S,
@@ -1875,32 +1871,30 @@ fn rollback_partial_payments(
                     cents_to_yuan(amount)
                 ));
             }
-            PAY_STORED_VALUE => {
-                match member_id {
-                    Some(mid) => {
-                        let tx = conn.unchecked_transaction()?;
-                        checkout_core::member::reverse_sale(
-                            &tx,
-                            mid,
-                            order_no,
-                            checkout_core::member::Deduction {
-                                bonus_cents: sv_bonus.unwrap_or(0),
-                                principal_cents: sv_principal.unwrap_or(0),
-                            },
-                        )?;
-                        tx.execute(
+            PAY_STORED_VALUE => match member_id {
+                Some(mid) => {
+                    let tx = conn.unchecked_transaction()?;
+                    checkout_core::member::reverse_sale(
+                        &tx,
+                        mid,
+                        order_no,
+                        checkout_core::member::Deduction {
+                            bonus_cents: sv_bonus.unwrap_or(0),
+                            principal_cents: sv_principal.unwrap_or(0),
+                        },
+                    )?;
+                    tx.execute(
                             "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
                             rusqlite::params![order_no, out_trade_no],
                         )?;
-                        tx.commit()?;
-                        notes.push(format!("储值 {} 元已退回会员账户", cents_to_yuan(amount)));
-                    }
-                    None => {
-                        all_closed = false;
-                        notes.push("储值支付缺少会员信息，需人工退回".into());
-                    }
+                    tx.commit()?;
+                    notes.push(format!("储值 {} 元已退回会员账户", cents_to_yuan(amount)));
                 }
-            }
+                None => {
+                    all_closed = false;
+                    notes.push("储值支付缺少会员信息，需人工退回".into());
+                }
+            },
             _ => {
                 let ch = if channel == PAY_WECHAT {
                     Channel::WECHAT
@@ -1917,10 +1911,7 @@ fn rollback_partial_payments(
                             "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
                             rusqlite::params![order_no, out_trade_no],
                         )?;
-                        notes.push(format!(
-                            "{channel} {} 元已原路退回",
-                            cents_to_yuan(amount)
-                        ));
+                        notes.push(format!("{channel} {} 元已原路退回", cents_to_yuan(amount)));
                     }
                     Ok(other) => {
                         all_closed = false;
@@ -1943,10 +1934,14 @@ fn rollback_partial_payments(
             "UPDATE sales_order SET status='CANCELED' WHERE order_no=?1 AND status='PENDING_PAYMENT'",
             [order_no],
         )?;
-        let coupon: Option<String> =
-            tx.query_row("SELECT coupon_code FROM sales_order WHERE order_no=?1", [order_no], |r| r.get(0))
-                .optional()?
-                .flatten();
+        let coupon: Option<String> = tx
+            .query_row(
+                "SELECT coupon_code FROM sales_order WHERE order_no=?1",
+                [order_no],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
         if let Some(code) = coupon {
             // 券可能已 LOCKED，取消订单必须释放回 UNUSED
             let _ = checkout_core::member::transition_coupon(&tx, &code, COUPON_UNUSED);
@@ -5460,7 +5455,9 @@ pub fn run() {
                     .as_deref()
                     == Some("1");
             if allow_local_simulation {
-                tracing::warn!("本地模拟支付网关已启用（{CFG_ALLOW_LOCAL_SIMULATION}=1 或 debug 构建）");
+                tracing::warn!(
+                    "本地模拟支付网关已启用（{CFG_ALLOW_LOCAL_SIMULATION}=1 或 debug 构建）"
+                );
             }
             let gateway = checkout_core::payment::RoutingGateway::new(
                 wechat_gw,

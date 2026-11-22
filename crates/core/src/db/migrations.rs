@@ -775,9 +775,9 @@ INSERT OR IGNORE INTO system_config(config_key,config_value,updated_at) VALUES
  ('kitchen_print_routes','[]',datetime('now'));
 "#;
 
-pub /// M0019：充值幂等指纹。仅凭 out_trade_no 是否存在判断幂等，会把
+/// M0019：充值幂等指纹。仅凭 out_trade_no 是否存在判断幂等，会把
 /// 复用同一 request_id 的"另一笔金额"直接当成功返回；落指纹才能识别冲突。
-const M0019: &str = r#"
+pub const M0019: &str = r#"
 ALTER TABLE payment_record ADD COLUMN request_fingerprint TEXT;
 "#;
 

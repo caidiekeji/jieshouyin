@@ -477,7 +477,9 @@ impl LicenseService {
                 if let Some(w) = watermark {
                     effective = effective.max(w);
                 }
-                if watermark.map(|w| system_now < w - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS)).unwrap_or(false)
+                if watermark
+                    .map(|w| system_now < w - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS))
+                    .unwrap_or(false)
                     || system_now < start - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS)
                 {
                     append_audit(
@@ -569,7 +571,8 @@ impl LicenseService {
         Ok(())
     }
 
-    fn trial_snapshot(ends: DateTime<Utc>) -> LicenseSnapshot {        LicenseSnapshot {
+    fn trial_snapshot(ends: DateTime<Utc>) -> LicenseSnapshot {
+        LicenseSnapshot {
             status: LicenseStatus::TRIAL_ACTIVE,
             payload: None,
             entitlements: TRIAL_ENTITLEMENTS.iter().map(|s| s.to_string()).collect(),
