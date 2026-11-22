@@ -226,6 +226,8 @@ impl LicenseService {
             signature: sig.to_vec(),
             last_known_time: format_utc(&effective),
             activation_key: previous.activation_key,
+            // 续期得到的是新的有效授权，撤销标记随之清除。
+            revoked: false,
         };
         self.store.save(&bundle)?;
         mirror_to_db(conn, &bundle)?;

@@ -781,7 +781,7 @@ pub const M0019: &str = r#"
 ALTER TABLE payment_record ADD COLUMN request_fingerprint TEXT;
 "#;
 
-fn all() -> Vec<Migration> {
+pub fn all() -> Vec<Migration> {
     vec![
         Migration {
             version: 1,

@@ -222,6 +222,7 @@ mod tests {
 
     fn bundle() -> LicenseBundle {
         LicenseBundle {
+            revoked: false,
             token: "a.b".into(),
             payload: LicensePayload {
                 license_id: "lic_x".into(),
