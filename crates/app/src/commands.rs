@@ -49,7 +49,14 @@ fn new_nonce() -> String {
 }
 
 /// 优惠券查询行：(优惠额, 门槛, 会员ID, 状态, 生效起, 生效止)。
-type CouponRow = (i64, i64, Option<i64>, String, Option<String>, Option<String>);
+type CouponRow = (
+    i64,
+    i64,
+    Option<i64>,
+    String,
+    Option<String>,
+    Option<String>,
+);
 /// 支付流水查询行：(渠道, 单号, 金额分, 储值赠送分, 储值本金分)。
 type PaymentRow = (String, Option<String>, i64, Option<i64>, Option<i64>);
 
