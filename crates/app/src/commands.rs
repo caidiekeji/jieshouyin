@@ -248,7 +248,7 @@ fn admin_guard<'a>(
         )?;
         s.user_id
     };
-    let _ = session;
+    let _session = session;
     drop(license);
     Ok((operator_id, conn))
 }
@@ -3972,7 +3972,7 @@ pub fn open_shift(opening_float_cents: i64, state: State<'_, AppState>) -> Resul
         .as_ref()
         .map(|s| s.user_id)
         .ok_or(CoreError::NotAuthenticated)?;
-    let _ = session;
+    let _session = session;
     let conn = state
         .conn
         .lock()
@@ -5213,7 +5213,7 @@ pub fn list_orders(
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    let _ = session;
+    let _session = session;
     let conn = state
         .conn
         .lock()
@@ -5230,7 +5230,7 @@ pub fn get_order_detail(order_no: String, state: State<'_, AppState>) -> Result<
         .lock()
         .map_err(|e| CoreError::Other(e.to_string()))?;
     session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    let _ = session;
+    let _session = session;
     let conn = state
         .conn
         .lock()
