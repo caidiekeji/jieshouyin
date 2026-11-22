@@ -139,8 +139,10 @@ pub fn sales_by_product(conn: &Connection, from: &str, to: &str) -> Result<Vec<P
         "SELECT i.sku_id, SUM(i.qty - i.returned_qty),
                 SUM(i.line_total_cents - i.discount_cents -
                     COALESCE((SELECT SUM(ri.refund_cents) FROM sales_return_item ri
-                              JOIN refund_record rr ON rr.return_no=ri.return_no
-                              WHERE ri.order_item_id=i.item_id AND rr.status='COMPLETED'),0)),
+                              WHERE ri.order_item_id=i.item_id
+                                AND EXISTS (SELECT 1 FROM refund_record rr
+                                            WHERE rr.return_no=ri.return_no
+                                              AND rr.status='COMPLETED')),0)),
                 SUM(i.discount_cents)
          FROM sales_order_item i JOIN sales_order o ON o.order_no=i.order_no
          WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2

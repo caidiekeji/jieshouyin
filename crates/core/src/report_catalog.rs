@@ -161,17 +161,20 @@ pub fn run_report(conn: &Connection, id: &str, from: &str, to: &str) -> Result<R
 // ==================== 销售域（8 张）====================
 
 fn sales_daily(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
-    // 唯一口径：销售额 = 实收 − 已发生退款（PROCESSING/COMPLETED），
-    // 退款额直接取退款流水，不再只看 status='REFUNDED' 的整单。
+    // 口径统一（与 daily_summary 一致）：销售额 = 实收 − 已完成退款（仅 COMPLETED）。
+    // 处理中退款单独作为指标展示，不得混入销售额，否则"已退/待退"两套数会打架。
     let mut stmt = conn.prepare(
         "SELECT business_date, COUNT(DISTINCT order_no),
                 COALESCE(SUM(pay_cents - refunded),0), COALESCE(SUM(discount_cents),0),
-                COALESCE(SUM(refunded),0)
+                COALESCE(SUM(refunded),0), COALESCE(SUM(refunding),0)
          FROM (
              SELECT o.order_no, o.business_date, o.pay_cents, o.discount_cents,
                     COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
                               WHERE r.order_no=o.order_no
-                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+                                AND r.status='COMPLETED'),0) AS refunded,
+                    COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
+                              WHERE r.order_no=o.order_no
+                                AND r.status='PROCESSING'),0) AS refunding
              FROM sales_order o
              WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND o.business_date BETWEEN ?1 AND ?2
@@ -186,24 +189,27 @@ fn sales_daily(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> 
                 r.get::<_, i64>(2)?,
                 r.get::<_, i64>(3)?,
                 r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let (mut orders, mut sales, mut disc, mut refund) = (0i64, 0i64, 0i64, 0i64);
+    let (mut orders, mut sales, mut disc, mut refund, mut refunding) =
+        (0i64, 0i64, 0i64, 0i64, 0i64);
     let rows = raw
         .iter()
-        .map(|(d, o, s, dc, rf)| {
+        .map(|(d, o, s, dc, rf, rfg)| {
             orders += o;
             sales += s;
             disc += dc;
             refund += rf;
+            refunding += rfg;
             vec![d.clone(), n(*o), money(*s), money(*dc), money(*rf)]
         })
         .collect();
     Ok(ReportResult {
         id: "sales_daily".into(),
         title: "销售日报".into(),
-        description: "按营业日汇总订单、销售、优惠与退款，日切点以后端配置为准。".into(),
+        description: "按营业日汇总订单、销售、优惠与已完成退款，日切点以后端配置为准。".into(),
         columns: cols(&[
             ("date", "营业日期", "date"),
             ("orders", "订单数", "qty"),
@@ -216,7 +222,8 @@ fn sales_daily(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> 
             m("销售额合计", money(sales)),
             m("订单数", n(orders)),
             m("优惠合计", money(disc)),
-            m("退款合计", money(refund)),
+            m("已完成退款", money(refund)),
+            m("处理中退款", money(refunding)),
         ],
     })
 }
@@ -229,7 +236,7 @@ fn sales_trend(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> 
              SELECT o.order_no, o.business_date, o.pay_cents, o.total_cents,
                     COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
                               WHERE r.order_no=o.order_no
-                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+                                AND r.status='COMPLETED'),0) AS refunded
              FROM sales_order o
              WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND o.business_date BETWEEN ?1 AND ?2
@@ -286,7 +293,7 @@ fn sales_hourly(conn: &Connection, from: &str, to: &str) -> Result<ReportResult>
              SELECT o.order_no, o.created_at, o.pay_cents,
                     COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
                               WHERE r.order_no=o.order_no
-                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+                                AND r.status='COMPLETED'),0) AS refunded
              FROM sales_order o
              WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND o.business_date BETWEEN ?1 AND ?2
@@ -347,12 +354,16 @@ fn order_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let (mut orders, mut sales) = (0i64, 0i64);
+    let (mut orders, mut sales, mut effective) = (0i64, 0i64, 0i64);
     let rows = raw
         .iter()
         .map(|(no, t, c, g, d, p, s)| {
             orders += 1;
-            sales += p;
+            // 实收只能统计真正成交的订单：待支付/已取消/已作废的 pay_cents 不是钱。
+            if matches!(s.as_str(), "COMPLETED" | "PARTIAL_REFUND" | "REFUNDED") {
+                sales += p;
+                effective += 1;
+            }
             vec![
                 no.clone(),
                 t.clone(),
@@ -378,7 +389,11 @@ fn order_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
             ("status", "状态", "text"),
         ]),
         rows,
-        metrics: vec![m("流水笔数", n(orders)), m("实收合计", money(sales))],
+        metrics: vec![
+            m("流水笔数", n(orders)),
+            m("有效订单数", n(effective)),
+            m("实收合计", money(sales)),
+        ],
     })
 }
 
@@ -519,11 +534,20 @@ fn refund_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let mut total = 0i64;
+    let mut completed = 0i64;
+    let mut processing = 0i64;
+    let mut failed = 0i64;
     let rows = raw
         .iter()
         .map(|(no, o, a, reason, s, t, ch)| {
-            total += a;
+            // 汇总只计已完成的资金退款：处理中/失败的钱还没退给顾客，
+            // 混进"退款合计"会让当天退款额虚高。
+            match s.as_str() {
+                "COMPLETED" => completed += a,
+                "PROCESSING" => processing += a,
+                "FAILED" => failed += a,
+                _ => {}
+            }
             vec![
                 no.clone(),
                 o.clone(),
@@ -538,7 +562,7 @@ fn refund_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
     Ok(ReportResult {
         id: "refund".into(),
         title: "退款报表".into(),
-        description: "资金退款流水（北京时间），含处理中与已完成状态；退款额按原渠道回退。".into(),
+        description: "资金退款流水（北京时间），已完成与处理中/失败分列统计。".into(),
         columns: cols(&[
             ("refund_no", "退款单号", "text"),
             ("order_no", "原订单号", "text"),
@@ -550,7 +574,9 @@ fn refund_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
         ]),
         rows,
         metrics: vec![
-            m("退款合计", money(total)),
+            m("已完成退款", money(completed)),
+            m("处理中退款", money(processing)),
+            m("退款失败", money(failed)),
             m("退款笔数", n(raw.len() as i64)),
         ],
     })
@@ -651,15 +677,23 @@ fn product_ranking(conn: &Connection, from: &str, to: &str) -> Result<ReportResu
 }
 
 fn category_share(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
+    // 描述承诺"一级品类"，就必须沿 parent_id 上溯到根节点再汇总；
+    // 直接按商品挂载的末级类目分组，会把"饮料/零食/日用"拆成几十行。
     let mut stmt = conn.prepare(
-        "SELECT COALESCE(c.name,'未分类'), SUM(i.line_total_cents-i.discount_cents)
+        "WITH RECURSIVE root_of(category_id, root_id) AS (
+             SELECT category_id, category_id FROM category WHERE parent_id IS NULL
+             UNION ALL
+             SELECT c.category_id, r.root_id FROM category c JOIN root_of r ON c.parent_id=r.category_id
+         )
+         SELECT COALESCE(rc.name,'未分类'), SUM(i.line_total_cents-i.discount_cents)
          FROM sales_order_item i
          JOIN sales_order o ON o.order_no=i.order_no
          JOIN sku s ON s.sku_id=i.sku_id
          JOIN spu p ON p.spu_id=s.spu_id
-         LEFT JOIN category c ON c.category_id=p.category_id
+         LEFT JOIN root_of ro ON ro.category_id=p.category_id
+         LEFT JOIN category rc ON rc.category_id=ro.root_id
          WHERE o.status IN ('COMPLETED','PARTIAL_REFUND') AND o.business_date BETWEEN ?1 AND ?2
-         GROUP BY COALESCE(c.name,'未分类') ORDER BY SUM(i.line_total_cents-i.discount_cents) DESC",
+         GROUP BY COALESCE(rc.name,'未分类') ORDER BY SUM(i.line_total_cents-i.discount_cents) DESC",
     )?;
     let raw = stmt
         .query_map(params![from, to], |r| {
@@ -1177,7 +1211,7 @@ fn member_consumption(conn: &Connection, from: &str, to: &str) -> Result<ReportR
              SELECT so.order_no, so.member_id, so.business_date, so.pay_cents,
                     COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
                               WHERE r.order_no=so.order_no
-                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+                                AND r.status='COMPLETED'),0) AS refunded
              FROM sales_order so
              WHERE so.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND so.business_date BETWEEN ?1 AND ?2
@@ -1261,8 +1295,17 @@ fn member_repurchase(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
             if *visits >= 2 {
                 repeat += 1;
             }
-            let gap = if *days > 1 {
-                (*days - 1) / (*visits - 1).max(1)
+            // 平均复购间隔 = (最近消费日 − 首次消费日) / (消费次数 − 1)。
+            // 用"消费天数"当分子会把一天内多单也算成间隔，且 days-1/visits-1 在
+            // 同日多单时直接为 0，口径错误。
+            let gap = if *visits >= 2 {
+                match (
+                    chrono::NaiveDate::parse_from_str(first, "%Y-%m-%d"),
+                    chrono::NaiveDate::parse_from_str(last, "%Y-%m-%d"),
+                ) {
+                    (Ok(f), Ok(l)) => (l - f).num_days() / (*visits - 1),
+                    _ => 0,
+                }
             } else {
                 0
             };
@@ -1393,7 +1436,7 @@ fn stored_value_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
                 l.asset_type, l.change_amount, l.balance_after, l.reason,
                 COALESCE(l.ref_order_no,'')
          FROM member_asset_log l LEFT JOIN member m ON m.member_id=l.member_id
-         WHERE l.asset_type IN ('PRINCIPAL','BONUS') AND substr(l.created_at,1,10) BETWEEN ?1 AND ?2
+         WHERE l.asset_type IN ('PRINCIPAL','BONUS') AND date(l.created_at,'+8 hours') BETWEEN ?1 AND ?2
          ORDER BY l.created_at DESC LIMIT 500",
     )?;
     let raw = stmt
@@ -1409,12 +1452,23 @@ fn stored_value_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let mut recharge = 0i64;
+    let mut principal_recharge = 0i64;
+    let mut bonus_recharge = 0i64;
+    let mut sale = 0i64;
+    let mut refund_back = 0i64;
+    let mut reversal = 0i64;
     let rows = raw
         .iter()
         .map(|(t, name, typ, chg, bal, reason, refno)| {
-            if *chg > 0 {
-                recharge += chg;
+            // 只把真正的充值计入"充值合计"：所有正变动都算会让充值额
+            // 把退款回补、支付失败回滚一起加进去，日结充值对不上账。
+            match reason.as_str() {
+                "RECHARGE" if *chg > 0 => principal_recharge += chg,
+                "RECHARGE_BONUS" if *chg > 0 => bonus_recharge += chg,
+                "SALE" => sale += chg,
+                "REFUND" if *chg > 0 => refund_back += chg,
+                "PAYMENT_REVERSAL" if *chg > 0 => reversal += chg,
+                _ => {}
             }
             vec![
                 t.clone(),
@@ -1442,7 +1496,11 @@ fn stored_value_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportRe
         ]),
         rows,
         metrics: vec![
-            m("充值合计", money(recharge)),
+            m("本金充值", money(principal_recharge)),
+            m("赠送金充值", money(bonus_recharge)),
+            m("消费扣减", money(sale)),
+            m("退款回补", money(refund_back)),
+            m("支付回滚", money(reversal)),
             m("流水笔数", n(raw.len() as i64)),
         ],
     })
@@ -1510,7 +1568,7 @@ fn cashier_performance(conn: &Connection, from: &str, to: &str) -> Result<Report
              SELECT so.order_no, so.cashier_id, so.business_date, so.pay_cents, so.discount_cents,
                     COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
                               WHERE r.order_no=so.order_no
-                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+                                AND r.status='COMPLETED'),0) AS refunded
              FROM sales_order so
              WHERE so.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND so.business_date BETWEEN ?1 AND ?2
@@ -1686,7 +1744,7 @@ fn store_comparison(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
              SELECT o.order_no, o.business_date, o.pay_cents, o.discount_cents,
                     COALESCE((SELECT SUM(r.amount_cents) FROM refund_record r
                               WHERE r.order_no=o.order_no
-                                AND r.status IN ('PROCESSING','COMPLETED')),0) AS refunded
+                                AND r.status='COMPLETED'),0) AS refunded
              FROM sales_order o
              WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND o.business_date BETWEEN ?1 AND ?2
@@ -1774,7 +1832,9 @@ fn daily_settlement(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
                 money(*s),
                 money(*rf),
                 money(*disc),
-                money(s - rf),
+                // daily_summary.total_sales_cents 已经是「实收 − 已完成退款」的净额，
+                // 再减一次退款会让净收入比销售额还低一份退款。
+                money(*s),
                 gen.clone(),
             ]
         })
@@ -1782,11 +1842,11 @@ fn daily_settlement(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
     Ok(ReportResult {
         id: "daily_settlement".into(),
         title: "日结报表".into(),
-        description: "读取日结快照表，幂等不可变；如需刷新先在日结卡重新生成。".into(),
+        description: "读取日结快照表，销售额已扣除已完成退款；净收入与净销售额同口径。".into(),
         columns: cols(&[
             ("date", "营业日期", "date"),
             ("orders", "订单数", "qty"),
-            ("sales", "销售额", "money"),
+            ("sales", "净销售额", "money"),
             ("refund", "退款额", "money"),
             ("discount", "优惠额", "money"),
             ("net", "净收入", "money"),
@@ -1795,7 +1855,7 @@ fn daily_settlement(conn: &Connection, from: &str, to: &str) -> Result<ReportRes
         rows,
         metrics: vec![
             m("结存天数", n(raw.len() as i64)),
-            m("销售额合计", money(sales)),
+            m("净销售额合计", money(sales)),
             m("订单合计", n(orders)),
         ],
     })
@@ -1965,7 +2025,7 @@ fn margin_summary(conn: &Connection, from: &str, to: &str) -> Result<ReportResul
                    -
                    (SELECT COALESCE(SUM(r.amount_cents),0) FROM refund_record r
                      JOIN sales_order ro ON ro.order_no=r.order_no
-                     WHERE r.status IN ('PROCESSING','COMPLETED')
+                     WHERE r.status='COMPLETED'
                        AND ro.business_date BETWEEN ?1 AND ?2)",
         )?;
         stmt.query_row(params![from, to], |r| r.get(0))?
@@ -2051,17 +2111,17 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
     };
     let days = days.max(0);
 
-    // 逐日实收 / 成本 / 退款
+    // 逐日实收 / 成本 / 退款（退款已完成才计入，且归属原营业日）
     let mut stmt = conn.prepare(
-        "SELECT d, COALESCE(SUM(sales),0), COALESCE(SUM(cost),0) FROM (
-             SELECT o.business_date AS d, SUM(o.pay_cents) AS sales, 0 AS cost
+        "SELECT d, COALESCE(SUM(sales),0), COALESCE(SUM(cost),0), COALESCE(SUM(refund),0) FROM (
+             SELECT o.business_date AS d, SUM(o.pay_cents) AS sales, 0 AS cost, 0 AS refund
              FROM sales_order o
              WHERE o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND o.business_date BETWEEN ?1 AND ?2
              GROUP BY o.business_date
              UNION ALL
              SELECT o.business_date AS d, 0 AS sales,
-                    COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0) AS cost
+                    COALESCE(SUM((i.qty-i.returned_qty)*s.cost_price_cents),0) AS cost, 0 AS refund
              FROM sales_order_item i
              JOIN sales_order o ON o.order_no=i.order_no
              JOIN sku s ON s.sku_id=i.sku_id
@@ -2069,10 +2129,11 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
                AND o.business_date BETWEEN ?1 AND ?2
              GROUP BY o.business_date
              UNION ALL
-             SELECT o.business_date AS d, -COALESCE(SUM(r.amount_cents),0) AS sales, 0 AS cost
+             SELECT o.business_date AS d, 0 AS sales, 0 AS cost,
+                    COALESCE(SUM(r.amount_cents),0) AS refund
              FROM refund_record r
              JOIN sales_order o ON o.order_no=r.order_no
-             WHERE r.status IN ('PROCESSING','COMPLETED')
+             WHERE r.status='COMPLETED'
                AND o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
                AND o.business_date BETWEEN ?1 AND ?2
              GROUP BY o.business_date
@@ -2084,42 +2145,57 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
                 r.get::<_, String>(0)?,
                 r.get::<_, i64>(1)?,
                 r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-    // 逐日退款（按北京时间归属），与营业日合并
-    let mut refund_by_day = std::collections::BTreeMap::new();
-    {
-        let mut stmt = conn.prepare(
-            "SELECT date(created_at,'+8 hours') AS d, COALESCE(SUM(amount_cents),0)
-             FROM refund_record
-             WHERE date(created_at,'+8 hours') BETWEEN ?1 AND ?2
-             GROUP BY date(created_at,'+8 hours')",
-        )?;
-        let refunds = stmt
-            .query_map(params![from, to], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        for (d, a) in refunds {
-            *refund_by_day.entry(d).or_insert(0i64) += a;
-        }
+    // 退款已在上一段 SQL 中按原营业日抵扣，这里不能再按退款发生日扣第二次。
+    let mut by_day: std::collections::BTreeMap<String, (i64, i64, i64)> =
+        std::collections::BTreeMap::new();
+    for (d, sales, cost, refund) in raw {
+        by_day.insert(d, (sales, cost, refund));
     }
 
-    let expense_total = if monthly_expense_cents > 0 && days > 0 {
-        monthly_expense_cents * days / 30
-    } else {
-        0
-    };
-    let daily_expense = if days > 0 { expense_total / days } else { 0 };
-    let (mut net_total, mut cost_total, mut refund_total) = (0i64, 0i64, 0i64);
+    // 费用合计与逐日分摊必须闭合：Σ每日费用 == 区间费用合计。
+    // 逐日从累计值做差，避免"月费 100 元 / 30 天 = 3.33 元"截断后合计对不上。
+    let start = chrono::NaiveDate::parse_from_str(from, "%Y-%m-%d")
+        .map_err(|_| CoreError::Validation(format!("非法起始日期: {from}")))?;
+    let end = chrono::NaiveDate::parse_from_str(to, "%Y-%m-%d")
+        .map_err(|_| CoreError::Validation(format!("非法结束日期: {to}")))?;
+    let (mut net_total, mut cost_total, mut refund_total, mut expense_total) =
+        (0i64, 0i64, 0i64, 0i64);
     let mut rows = Vec::new();
-    for (d, sales, cost) in raw {
-        let refund = refund_by_day.remove(&d).unwrap_or(0);
+    let mut idx: i64 = 0;
+    let mut day = start;
+    while day <= end {
+        idx += 1;
+        let key = day.format("%Y-%m-%d").to_string();
+        let (sales, cost, refund) = by_day.remove(&key).unwrap_or((0, 0, 0));
+        let expense = monthly_expense_cents * idx / 30 - monthly_expense_cents * (idx - 1) / 30;
+        expense_total += expense;
         let net = sales - refund;
         let gross = net - cost;
-        let profit = gross - daily_expense;
+        let profit = gross - expense;
+        net_total += net;
+        cost_total += cost;
+        refund_total += refund;
+        rows.push(vec![
+            key,
+            money(sales),
+            money(refund),
+            money(net),
+            money(cost),
+            money(gross),
+            money(expense),
+            money(profit),
+        ]);
+        day += chrono::Duration::days(1);
+    }
+    // 区间外不存在的营业日也补一行（保证"每日期一行"的报表节奏）
+    for (d, (sales, cost, refund)) in by_day {
+        let net = sales - refund;
+        let gross = net - cost;
         net_total += net;
         cost_total += cost;
         refund_total += refund;
@@ -2130,25 +2206,8 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
             money(net),
             money(cost),
             money(gross),
-            money(daily_expense),
-            money(profit),
-        ]);
-    }
-    // 纯退款日（无销售单）也补行，保证费用/退款日不缺行
-    for (d, refund) in refund_by_day {
-        let net = -refund;
-        let profit = net - daily_expense;
-        net_total += net;
-        refund_total += refund;
-        rows.push(vec![
-            d,
             money(0),
-            money(refund),
-            money(net),
-            money(0),
-            money(net),
-            money(daily_expense),
-            money(profit),
+            money(gross),
         ]);
     }
     rows.sort_by(|a, b| a[0].cmp(&b[0]));

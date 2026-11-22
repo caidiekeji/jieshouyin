@@ -294,14 +294,11 @@ onMounted(() => {
         <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
           <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
-          <select v-model="rechargeChannel" class="input">
-            <option value="CASH">现金</option>
-            <option value="WECHAT">微信扫码</option>
-            <option value="ALIPAY">支付宝扫码</option>
-          </select>
+          <span class="input" aria-label="收款方式">收款方式：现金</span>
           <button class="btn primary" @click="submitRecharge">确认充值</button>
           <button class="btn ghost" @click="rechargeMemberId = null">取消</button>
         </div>
+        <p class="muted small">扫码充值需要渠道收款回调确认，当前版本仅支持现金充值（微信/支付宝充值待渠道收款接入后开放）。</p>
       </div>
     </template>
 

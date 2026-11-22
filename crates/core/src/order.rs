@@ -33,12 +33,15 @@ impl OrderStatus {
     }
 }
 
-/// 订单号：门店号 + 终端号 + 毫秒时间戳 + 随机段（客户端生成）。
+/// 订单号：门店号 + 终端号 + 微秒时间戳 + 6 位随机段。
+/// 时间精度到微秒、随机段 6 位，单机连打也不会在毫秒内撞号；
+/// 调用方仍应检查唯一性（多终端/时钟回拨场景），冲突则重生成。
 pub fn generate_order_no(store_id: &str, device_id: &str) -> String {
     use rand::Rng;
-    let millis = Utc::now().timestamp_millis();
-    let rand: u32 = rand::thread_rng().gen_range(0..=9999);
-    format!("{store_id}{device_id}{millis}{rand:04}")
+    let now = Utc::now();
+    let micros = now.timestamp_micros();
+    let rand: u32 = rand::thread_rng().gen_range(0..=999_999);
+    format!("{store_id}{device_id}{micros}{rand:06}")
 }
 
 /// 业务日（§14.0）：门店本地时间减 cutoff。默认 00:00，即本地日期。
@@ -410,8 +413,15 @@ pub struct ShiftSummary {
 
 pub fn shift_summary(conn: &Connection, shift_id: i64) -> Result<Vec<ShiftSummary>> {
     let mut stmt = conn.prepare(
-        "SELECT o.cashier_id, COUNT(DISTINCT o.order_no), COALESCE(SUM(o.total_cents),0), COALESCE(SUM(o.pay_cents),0),
-                COALESCE(SUM(CASE WHEN p.pay_channel='CASH' THEN p.amount_cents ELSE 0 END),0)
+        // 订单与支付是一对多：直接 JOIN 再 SUM(o.total_cents) 会按支付笔数重复计数。
+        // 金额一律用子查询按订单维度聚合，主表只做 COUNT。
+        "SELECT o.cashier_id, COUNT(*), COALESCE(SUM(o.total_cents),0), COALESCE(SUM(o.pay_cents),0),
+                COALESCE((SELECT SUM(p.amount_cents)
+                          FROM payment_record p
+                          JOIN sales_order o3 ON o3.order_no=p.order_no
+                          WHERE o3.shift_id=?1 AND o3.cashier_id=o.cashier_id
+                            AND o3.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
+                            AND p.pay_channel='CASH' AND p.status='SUCCESS'),0)
                 - COALESCE((SELECT SUM(r.amount_cents)
                             FROM refund_record r
                             JOIN payment_record p2 ON p2.pay_id=r.pay_id
@@ -419,7 +429,6 @@ pub fn shift_summary(conn: &Connection, shift_id: i64) -> Result<Vec<ShiftSummar
                             WHERE o2.shift_id=?1 AND o2.cashier_id=o.cashier_id
                               AND p2.pay_channel='CASH' AND r.status='COMPLETED'),0)
          FROM sales_order o
-         LEFT JOIN payment_record p ON p.order_no=o.order_no AND p.status='SUCCESS'
          WHERE o.shift_id=?1 AND o.status IN ('COMPLETED','PARTIAL_REFUND','REFUNDED')
          GROUP BY o.cashier_id ORDER BY o.cashier_id",
     )?;

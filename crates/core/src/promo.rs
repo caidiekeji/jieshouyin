@@ -1,5 +1,8 @@
 //! 促销引擎（§8）。计算顺序：单品级 → 整单级 → 券核销。
 //! 分摊采用剩余应付金额比例 + 最大余数法（§8.4）。
+//! 会员价与单品促销同一行互斥取优：分别按「仅会员价」「仅促销」计算完整行优惠，
+//! 逐行选其一，绝不把促销叠加在已折的会员价上；每笔促销保存逐行分摊明细，
+//! 触发叠加上限时只在原优惠行内缩放。
 
 use crate::error::{CoreError, Result};
 use crate::money::allocate_by_remaining;
@@ -74,6 +77,32 @@ pub struct AppliedPromo {
     pub promotion_id: i64,
     pub discount_cents: i64,
     pub detail: String,
+    /// 逐行分摊明细（行下标, 分摊金额）。促销裁剪只允许在这些原优惠行内按比例缩放，
+    /// 不得重新向全单分摊——否则非活动商品也会被摊到优惠。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allocations: Vec<(usize, i64)>,
+}
+
+impl AppliedPromo {
+    fn single(promotion_id: i64, allocations: Vec<(usize, i64)>) -> Self {
+        let discount_cents = allocations.iter().map(|(_, a)| *a).sum();
+        Self {
+            promotion_id,
+            discount_cents,
+            detail: "SINGLE_ITEM".into(),
+            allocations,
+        }
+    }
+
+    fn order(promotion_id: i64, allocations: Vec<(usize, i64)>) -> Self {
+        let discount_cents = allocations.iter().map(|(_, a)| *a).sum();
+        Self {
+            promotion_id,
+            discount_cents,
+            detail: "ORDER_LEVEL".into(),
+            allocations,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,12 +127,11 @@ pub fn calc_promotions(
         .map(|l| l.line_total_cents)
         .sum();
 
-    // 第 1 层：单品级（会员价先按行取优，促销再与会员价逐行取优）
-    // 会员价不是促销，逐行生效；促销满减（discount_cents）只对一行生效一次，
-    // 折扣率（discount_rate）按行计算。
-    let mut member_discounts: Vec<i64> = vec![0; lines.len()];
+    let n = lines.len();
+    // 会员价优惠按行独立计算（不是促销，不参与「叠加上限」）。
+    let mut member_amounts: Vec<i64> = vec![0; n];
     if member_level.is_some() {
-        for (i, line) in lines.iter_mut().enumerate() {
+        for (i, line) in lines.iter().enumerate() {
             if line.is_gift || line.line_total_cents == 0 {
                 continue;
             }
@@ -111,14 +139,20 @@ pub fn calc_promotions(
                 if mp >= 0 && mp < line.unit_price_cents {
                     let md = ((line.unit_price_cents - mp) * line.qty).min(line.line_total_cents);
                     if md > 0 {
-                        line.discount_cents += md;
-                        member_discounts[i] = md;
+                        member_amounts[i] = md;
                     }
                 }
             }
         }
     }
+    // 逐行状态：会员价是否生效、单品促销已占金额、整单促销已占金额。
+    // 一行要么享受会员价，要么享受单品促销，二者不叠加。
+    let mut member_active: Vec<bool> = member_amounts.iter().map(|&m| m > 0).collect();
+    let mut single_used: Vec<i64> = vec![0; n];
+    let mut order_used: Vec<i64> = vec![0; n];
 
+    // 第 1 层：单品级。促销基数一律取原行金额（会员价生效时用于「取优」比较），
+    // 只有该行已落促销后才按剩余应付继续计算（可叠加促销）。
     let mut singles: Vec<&Promotion> = promos
         .iter()
         .filter(|p| p.scope == Scope::SINGLE_ITEM)
@@ -137,12 +171,20 @@ pub fn calc_promotions(
             if line.qty < promo.min_qty || line.line_total_cents < promo.min_amount_cents {
                 continue;
             }
-            let base = line.payable();
-            let promo_discount = promo_discount_for(base, promo)?;
+            let base = if member_active[i] {
+                line.line_total_cents
+            } else {
+                line.line_total_cents - single_used[i]
+            };
+            if base <= 0 {
+                continue;
+            }
+            let promo_discount = promo_discount_for(base, promo)?.min(base);
             if promo_discount <= 0 {
                 continue;
             }
-            if member_discounts[i] >= promo_discount {
+            // 会员价与单品促销同一行取优：会员优惠更大时不叠加促销。
+            if member_active[i] && member_amounts[i] >= promo_discount {
                 skipped.push(format!(
                     "SKU {} 会员价优于单品促销 {}",
                     line.sku_id, promo.promotion_id
@@ -157,21 +199,19 @@ pub fn calc_promotions(
         if promo.discount_cents.is_some() {
             // 单品满减：只对优惠额最大的一行减一次，避免"买 N 行减 N 次"。
             if let Some((idx, amount)) = candidates.iter().max_by_key(|(_, d)| *d).copied() {
-                applied.push(AppliedPromo {
-                    promotion_id: promo.promotion_id,
-                    discount_cents: amount,
-                    detail: "SINGLE_ITEM".into(),
-                });
-                allocate_to_line(lines, idx, amount, promo.promotion_id)?;
+                applied.push(AppliedPromo::single(promo.promotion_id, vec![(idx, amount)]));
+                single_used[idx] += amount;
+                member_active[idx] = false;
             }
         } else {
-            let amount: i64 = candidates.iter().map(|(_, d)| *d).sum();
-            applied.push(AppliedPromo {
-                promotion_id: promo.promotion_id,
-                discount_cents: amount,
-                detail: "SINGLE_ITEM".into(),
-            });
-            allocate_discounts(lines, amount, promo.promotion_id)?;
+            // 折扣率：逐行计算，且只落目标行。
+            let mut allocations = Vec::with_capacity(candidates.len());
+            for (i, amount) in candidates {
+                single_used[i] += amount;
+                member_active[i] = false;
+                allocations.push((i, amount));
+            }
+            applied.push(AppliedPromo::single(promo.promotion_id, allocations));
         }
         // 互斥/不可叠加：本层此后再无促销生效
         if promo.exclusive || !promo.stackable {
@@ -179,7 +219,7 @@ pub fn calc_promotions(
         }
     }
 
-    // 第 2 层：整单级（门槛 = 单品优惠后累计额）
+    // 第 2 层：整单级（门槛 = 单品优惠后累计额，按剩余应付比例分摊到全部非赠品行）
     let mut orders: Vec<&Promotion> = promos
         .iter()
         .filter(|p| p.scope == Scope::ORDER_LEVEL)
@@ -192,24 +232,44 @@ pub fn calc_promotions(
         }
         let base: i64 = lines
             .iter()
-            .filter(|l| !l.is_gift)
-            .map(|l| l.payable())
+            .enumerate()
+            .filter(|(_, l)| !l.is_gift)
+            .map(|(i, l)| remaining_of(i, &member_active, &member_amounts, &single_used, &order_used, l))
+            .map(|d| 0i64.max(d))
             .sum();
         let qty: i64 = lines.iter().filter(|l| !l.is_gift).map(|l| l.qty).sum();
         if qty < promo.min_qty || base < promo.min_amount_cents {
             skipped.push(format!("整单促销 {} 未达门槛", promo.promotion_id));
             continue;
         }
-        let amount = promo_discount_for(base, promo)?;
+        let amount = promo_discount_for(base, promo)?.min(base);
         if amount <= 0 {
             continue;
         }
-        applied.push(AppliedPromo {
-            promotion_id: promo.promotion_id,
-            discount_cents: amount,
-            detail: "ORDER_LEVEL".into(),
-        });
-        allocate_discounts(lines, amount, promo.promotion_id)?;
+        let indexes: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| !l.is_gift)
+            .map(|(i, _)| i)
+            .collect();
+        let remaining: Vec<i64> = indexes
+            .iter()
+            .map(|&i| {
+                remaining_of(i, &member_active, &member_amounts, &single_used, &order_used, &lines[i])
+            })
+            .collect();
+        if remaining.iter().all(|&r| r <= 0) {
+            continue;
+        }
+        let alloc = allocate_by_remaining(&remaining, amount)?;
+        let mut allocations = Vec::new();
+        for (pos, a) in alloc.into_iter().enumerate() {
+            if a > 0 {
+                order_used[indexes[pos]] += a;
+                allocations.push((indexes[pos], a));
+            }
+        }
+        applied.push(AppliedPromo::order(promo.promotion_id, allocations));
         if promo.exclusive || !promo.stackable {
             layer_locked = true;
         }
@@ -222,41 +282,84 @@ pub fn calc_promotions(
     let keep_bps = ((max_discount_ratio * 10000.0).round() as i64).clamp(0, 10000);
     let max_allowed = original_total * (10000 - keep_bps) / 10000;
     if total_discount > max_allowed {
-        let excess = total_discount - max_allowed;
-        // 逆序削减：后应用的先削
-        let mut remaining_excess = excess;
+        let mut remaining_excess = total_discount - max_allowed;
+        // 逆序削减：后应用的先削；每笔促销只在自己的原优惠行内按比例缩放。
         for a in applied.iter_mut().rev() {
             if remaining_excess <= 0 {
                 break;
             }
             let cut = a.discount_cents.min(remaining_excess);
-            a.discount_cents -= cut;
+            let keep = a.discount_cents - cut;
+            a.allocations = scale_allocations(&a.allocations, keep)?;
+            a.discount_cents = keep;
             remaining_excess -= cut;
             skipped.push(format!("促销 {} 因叠加上限被削减 {cut} 分", a.promotion_id));
         }
-        // 重算行分摊：把满减额置为裁剪后的值重新分摊（会员价优惠先还原）
-        rebuild_allocations(lines, &applied, &member_discounts)?;
+        single_used = vec![0; n];
+        order_used = vec![0; n];
+        for a in &applied {
+            for (idx, amount) in &a.allocations {
+                if a.detail == "ORDER_LEVEL" {
+                    order_used[*idx] += *amount;
+                } else {
+                    single_used[*idx] += *amount;
+                }
+            }
+        }
+    }
+
+    // 落地：行优惠 = 会员价（或单品促销）+ 整单促销，逐行不穿透行金额。
+    for (i, line) in lines.iter_mut().enumerate() {
+        let member_part = if member_active[i] { member_amounts[i] } else { 0 };
+        let discount = member_part + single_used[i] + order_used[i];
+        if discount > line.line_total_cents {
+            return Err(CoreError::Money(format!(
+                "行 {} 优惠 {discount} 穿透行金额 {}",
+                line.sku_id, line.line_total_cents
+            )));
+        }
+        line.discount_cents = discount;
+        line.applied_promos.clear();
+        for a in &applied {
+            if a.allocations.iter().any(|(idx, _)| *idx == i) {
+                if !line.applied_promos.contains(&a.promotion_id) {
+                    line.applied_promos.push(a.promotion_id);
+                }
+            }
+        }
     }
 
     let total_discount_cents: i64 = applied.iter().map(|a| a.discount_cents).sum();
+    let member_total: i64 = lines
+        .iter()
+        .enumerate()
+        .map(|(i, _)| if member_active[i] { member_amounts[i] } else { 0 })
+        .sum();
     // 最终不变式校验：行优惠 = 会员价优惠 + 促销优惠
     let line_sum: i64 = lines.iter().map(|l| l.discount_cents).sum();
-    let member_total: i64 = member_discounts.iter().sum();
     if line_sum != total_discount_cents + member_total {
         return Err(CoreError::Money(format!(
             "行优惠合计 {line_sum} != 会员优惠 {member_total} + 促销合计 {total_discount_cents}"
         )));
-    }
-    for line in lines {
-        if line.discount_cents > line.line_total_cents {
-            return Err(CoreError::Money("行优惠穿透行金额".into()));
-        }
     }
     Ok(PromoResult {
         applied,
         total_discount_cents,
         skipped,
     })
+}
+
+/// 当前行的剩余应付金额（含会员价、单品促销与整单促销占用）。
+fn remaining_of(
+    i: usize,
+    member_active: &[bool],
+    member_amounts: &[i64],
+    single_used: &[i64],
+    order_used: &[i64],
+    line: &CartLine,
+) -> i64 {
+    let member_part = if member_active[i] { member_amounts[i] } else { 0 };
+    line.line_total_cents - (member_part + single_used[i] + order_used[i])
 }
 
 fn promo_discount_for(base: i64, promo: &Promotion) -> Result<i64> {
@@ -272,61 +375,26 @@ fn promo_discount_for(base: i64, promo: &Promotion) -> Result<i64> {
     Ok(0)
 }
 
-/// 分摊：以各行当前剩余应付为基数，金额比例 + 最大余数法。
-fn allocate_discounts(lines: &mut [CartLine], amount: i64, promo_id: i64) -> Result<()> {
-    // 赠品行不参与优惠分摊：赠品本就 0 元，摊上优惠会污染行折扣与退货口径。
-    let indexes: Vec<usize> = lines
+/// 裁剪后重算分摊：只在原优惠行内按原比例缩放，绝不向全单重新分摊。
+fn scale_allocations(allocations: &[(usize, i64)], keep: i64) -> Result<Vec<(usize, i64)>> {
+    if keep <= 0 || allocations.is_empty() {
+        return Ok(vec![]);
+    }
+    let weights: Vec<i64> = allocations.iter().map(|(_, a)| *a).collect();
+    let from: i64 = weights.iter().sum();
+    if from <= 0 {
+        return Ok(vec![]);
+    }
+    if keep >= from {
+        return Ok(allocations.to_vec());
+    }
+    let scaled = allocate_by_remaining(&weights, keep)?;
+    Ok(allocations
         .iter()
-        .enumerate()
-        .filter(|(_, l)| !l.is_gift)
-        .map(|(i, _)| i)
-        .collect();
-    let remaining: Vec<i64> = indexes
-        .iter()
-        .map(|&i| lines[i].line_total_cents - lines[i].discount_cents)
-        .collect();
-    let alloc = allocate_by_remaining(&remaining, amount)?;
-    for (pos, a) in alloc.into_iter().enumerate() {
-        if a > 0 {
-            let line = &mut lines[indexes[pos]];
-            line.discount_cents += a;
-            line.applied_promos.push(promo_id);
-        }
-    }
-    Ok(())
-}
-
-/// 单行分摊：金额只落在一行（单品满减只能用一次）。
-fn allocate_to_line(lines: &mut [CartLine], idx: usize, amount: i64, promo_id: i64) -> Result<()> {
-    let line = lines
-        .get_mut(idx)
-        .ok_or_else(|| CoreError::Money("促销分摊行不存在".into()))?;
-    let cap = line.line_total_cents - line.discount_cents;
-    let applied = amount.min(cap);
-    if applied <= 0 {
-        return Err(CoreError::Money("促销分摊金额为 0".into()));
-    }
-    line.discount_cents += applied;
-    line.applied_promos.push(promo_id);
-    Ok(())
-}
-
-/// 裁剪后重建：清零所有行优惠，按 applied 顺序重新分摊。
-fn rebuild_allocations(
-    lines: &mut [CartLine],
-    applied: &[AppliedPromo],
-    member_discounts: &[i64],
-) -> Result<()> {
-    for (i, line) in lines.iter_mut().enumerate() {
-        line.discount_cents = member_discounts.get(i).copied().unwrap_or(0);
-        line.applied_promos.clear();
-    }
-    for a in applied {
-        if a.discount_cents > 0 {
-            allocate_discounts(lines, a.discount_cents, a.promotion_id)?;
-        }
-    }
-    Ok(())
+        .zip(scaled)
+        .map(|((idx, _), amount)| (*idx, amount))
+        .filter(|(_, amount)| *amount > 0)
+        .collect())
 }
 
 /// 退单还原（§8.6）：按原单行优惠还原，不重查规则。
@@ -360,6 +428,21 @@ mod tests {
             min_amount_cents: 0,
             discount_rate: None,
             discount_cents: Some(amount),
+            target_skus: vec![],
+        }
+    }
+
+    fn rate_promo(id: i64, scope: Scope, rate: f64) -> Promotion {
+        Promotion {
+            promotion_id: id,
+            scope,
+            priority: 100 + id as i32,
+            exclusive: false,
+            stackable: true,
+            min_qty: 0,
+            min_amount_cents: 0,
+            discount_rate: Some(rate),
+            discount_cents: None,
             target_skus: vec![],
         }
     }
@@ -409,9 +492,60 @@ mod tests {
             0.8,
         )
         .unwrap();
-        // 当前实现取两者较大者作为行优惠额
+        // 会员价优惠 2000 > 促销 1000：只保留会员价，不叠加促销
         assert_eq!(lines[0].discount_cents, 2000);
+        assert_eq!(r.total_discount_cents, 0);
         assert!(r.skipped.iter().any(|s| s.contains("单品促销")));
+    }
+
+    #[test]
+    fn better_single_promo_replaces_member_price() {
+        // 原价 100 元、会员价 80 元、单品五折：取更优的 50 元优惠，应付 50 元。
+        let mut lines = vec![CartLine::new(1, 1, 10000).unwrap()];
+        lines[0].member_price_cents = Some(8000);
+        let r = calc_promotions(
+            &mut lines,
+            Some(1),
+            &[rate_promo(1, Scope::SINGLE_ITEM, 0.5)],
+            0.8,
+        )
+        .unwrap();
+        assert_eq!(r.total_discount_cents, 5000, "促销应替换会员价，而不是叠加");
+        assert_eq!(lines[0].discount_cents, 5000);
+        assert_eq!(lines[0].payable(), 5000);
+    }
+
+    #[test]
+    fn single_promo_only_touches_target_line() {
+        // 单品折扣只作用于目标 SKU，非活动商品不得被分摊到优惠。
+        let mut lines = vec![
+            CartLine::new(1, 1, 2000).unwrap(),
+            CartLine::new(2, 1, 8000).unwrap(),
+        ];
+        let mut p = rate_promo(1, Scope::SINGLE_ITEM, 0.5);
+        p.target_skus = vec![1];
+        let r = calc_promotions(&mut lines, None, &[p], 0.8).unwrap();
+        assert_eq!(lines[0].discount_cents, 1000);
+        assert_eq!(lines[1].discount_cents, 0);
+        assert_eq!(r.total_discount_cents, 1000);
+        assert_eq!(r.applied[0].allocations, vec![(0, 1000)]);
+    }
+
+    #[test]
+    fn trim_keeps_original_target_line() {
+        // 触发上限后，裁剪仍在原优惠行内缩放，不向非活动行重新分摊。
+        let mut lines = vec![
+            CartLine::new(1, 1, 2000).unwrap(),
+            CartLine::new(2, 1, 8000).unwrap(),
+        ];
+        let mut p = rate_promo(1, Scope::SINGLE_ITEM, 0.5);
+        p.target_skus = vec![1];
+        // 上限只允许 5%（原价 10000 → 500 分），促销 1000 分必须被削到 500。
+        let r = calc_promotions(&mut lines, None, &[p], 0.95).unwrap();
+        assert_eq!(r.total_discount_cents, 500);
+        assert_eq!(lines[0].discount_cents, 500);
+        assert_eq!(lines[1].discount_cents, 0, "非活动商品不得被摊到优惠");
+        assert!(r.skipped.iter().any(|s| s.contains("叠加上限")));
     }
 
     #[test]
@@ -455,6 +589,7 @@ mod tests {
         .unwrap();
         assert_eq!(r.total_discount_cents, 1000, "单品满减只能减一次");
         assert_eq!(lines.iter().map(|l| l.discount_cents).sum::<i64>(), 1000);
+        assert_eq!(r.applied[0].allocations.len(), 1, "满减只落一行");
     }
 
     #[test]

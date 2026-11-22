@@ -22,6 +22,10 @@ pub struct LicenseBundle {
     /// 离线导入的授权没有激活码，此处为空。
     #[serde(default)]
     pub activation_key: Option<String>,
+    /// 服务端明确撤销/拒绝后的持久标记。载荷签名本身仍然有效，
+    /// 若不落这个标记，下次离线启动会把"已被撤销"的授权显示成已激活。
+    #[serde(default)]
+    pub revoked: bool,
 }
 
 impl LicenseBundle {

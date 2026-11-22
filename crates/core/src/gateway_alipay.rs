@@ -246,15 +246,19 @@ impl PaymentGateway for AlipayGateway {
             "out_request_no": refund_no,
         });
         let resp = self.call("alipay.trade.refund", &biz)?;
-        // fund_change=Y 表示资金发生变动（退款成功）
+        // fund_change=Y 才代表资金真的发生变动（退款成功）。
+        // N/缺失时绝不能借 code=10000 判成功：那是"请求受理"，不是"已退款"，
+        // 否则顾客没收到钱但本地已记退款完成。
         let fund_change = resp
             .get("fund_change")
             .and_then(|f| f.as_str())
             .unwrap_or("N");
-        if fund_change == "Y" {
-            Ok(PaymentState::SUCCESS)
-        } else {
-            Ok(state_of(&resp)?.state)
+        match fund_change {
+            "Y" => Ok(PaymentState::SUCCESS),
+            "N" => Ok(PaymentState::USERPAYING),
+            other => Err(CoreError::Other(format!(
+                "支付宝退款返回未知 fund_change: {other}"
+            ))),
         }
     }
 }

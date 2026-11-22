@@ -130,6 +130,7 @@ pub fn run_micropay<G: PaymentGateway>(
             let state = reconcile_timeout(
                 gw,
                 &req.out_trade_no,
+                req.amount_cents,
                 poll_ms,
                 timeout_s,
                 sleep,
@@ -143,6 +144,7 @@ pub fn run_micropay<G: PaymentGateway>(
             let state = reconcile_timeout(
                 gw,
                 &req.out_trade_no,
+                req.amount_cents,
                 poll_ms,
                 timeout_s,
                 sleep,
@@ -169,6 +171,7 @@ pub fn run_micropay<G: PaymentGateway>(
 fn reconcile_timeout<G: PaymentGateway>(
     gw: &G,
     out_trade_no: &str,
+    amount_cents: i64,
     poll_ms: u64,
     timeout_s: u64,
     sleep: &mut dyn FnMut(u64),
@@ -189,10 +192,25 @@ fn reconcile_timeout<G: PaymentGateway>(
     match gw.cancel(out_trade_no)? {
         CancelResult::Canceled => Ok(PaymentState::CLOSED),
         CancelResult::AlreadyPaid => {
-            // 渠道已扣款 → 自动全额退款（幂等由 refund_no 保证）
+            // 渠道已扣款 → 自动全额退款（幂等由 refund_no 保证）。
+            // 必须按真实金额退款：传 0 会被渠道当作「退 0 元」静默成功，
+            // 顾客实际钱却留在商户账上。
             let refund_no = format!("{out_trade_no}:AUTO_REFUND");
-            gw.refund(out_trade_no, &refund_no, 0)?;
-            Ok(PaymentState::FAILED("撤销遇已支付，已自动全额退款".into()))
+            match gw.refund(out_trade_no, &refund_no, amount_cents)? {
+                PaymentState::SUCCESS => Ok(PaymentState::FAILED(
+                    "撤销遇已支付，已自动全额退款".into(),
+                )),
+                // 退款处理中/失败：不能宣告已退款，保留待人工确认
+                PaymentState::USERPAYING => Ok(PaymentState::FAILED(
+                    "撤销遇已支付，退款处理中，请稍后到渠道核对并在对账中确认".into(),
+                )),
+                PaymentState::FAILED(e) => Ok(PaymentState::FAILED(format!(
+                    "撤销遇已支付，自动退款失败（{e}），请人工在渠道退款"
+                ))),
+                PaymentState::CLOSED => Ok(PaymentState::FAILED(
+                    "撤销遇已支付，渠道已关闭该笔交易，请人工核对退款结果".into(),
+                )),
+            }
         }
     }
 }
@@ -228,11 +246,24 @@ pub fn run_native<G: PaymentGateway>(
         sleep(poll_ms);
         elapsed += poll_ms;
     }
-    // 超时关单；关单失败再查单一次；仍未知 → 告警人工（这里返回 FAILED）
-    let _ = gw.cancel(&req.out_trade_no)?;
+    // 超时关单；关单失败不再假装"已关单"，交人工核对。
+    if gw.cancel(&req.out_trade_no).is_err() {
+        return Ok(PayOutcome {
+            state: PaymentState::FAILED(
+                "Native 支付超时，渠道关单失败，请人工核对是否已扣款".into(),
+            ),
+            trade_no: None,
+            code_url: pre.code_url,
+        });
+    }
     match gw.query(&req.out_trade_no)? {
         PaymentState::SUCCESS => Ok(PayOutcome {
             state: PaymentState::SUCCESS,
+            trade_no: None,
+            code_url: pre.code_url,
+        }),
+        PaymentState::USERPAYING => Ok(PayOutcome {
+            state: PaymentState::FAILED("Native 支付超时，支付结果未知，请人工核对".into()),
             trade_no: None,
             code_url: pre.code_url,
         }),
@@ -286,16 +317,48 @@ pub mod mock;
 #[derive(Clone, Default)]
 pub struct LocalConfirmGateway {
     states: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, PaymentState>>>,
+    /// 是否允许「本地确认」模拟收款。生产环境未配置渠道凭据时必须为 false：
+    /// 否则任何字符串都能被当成付款码记成已收款，属于伪装真实扣款。
+    enabled: bool,
 }
 
 impl LocalConfirmGateway {
+    /// 允许本地确认（联调/无商户号环境显式开启）。
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            states: Default::default(),
+            enabled: true,
+        }
+    }
+
+    /// 禁用本地确认：所有收款动作返回失败，提示未配置渠道。
+    pub fn disabled() -> Self {
+        Self {
+            states: Default::default(),
+            enabled: false,
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn unavailable(&self) -> PayOutcome {
+        PayOutcome {
+            state: PaymentState::FAILED(
+                "未配置微信/支付宝商户凭据，扫码收款已禁用（请先在设置中配置渠道）".into(),
+            ),
+            trade_no: None,
+            code_url: None,
+        }
     }
 }
 
 impl PaymentGateway for LocalConfirmGateway {
     fn micropay(&self, req: &PayRequest) -> Result<PayOutcome> {
+        if !self.enabled {
+            return Ok(self.unavailable());
+        }
         // 无付款码不构成一次真实扣款：直接失败，杜绝“没扫到码也记成功”。
         if req
             .auth_code
@@ -324,6 +387,11 @@ impl PaymentGateway for LocalConfirmGateway {
     }
 
     fn native_precreate(&self, req: &PayRequest) -> Result<PayOutcome> {
+        if !self.enabled {
+            return Err(crate::error::CoreError::Validation(
+                "未配置微信/支付宝商户凭据，无法发起 Native 支付".into(),
+            ));
+        }
         let mut m = self
             .states
             .lock()
@@ -338,6 +406,12 @@ impl PaymentGateway for LocalConfirmGateway {
     }
 
     fn query(&self, out_trade_no: &str) -> Result<PaymentState> {
+        // 禁用本地确认时不能把"未知"报成 CLOSED：那会让崩溃恢复把待支付订单误判为已关单。
+        if !self.enabled {
+            return Err(crate::error::CoreError::Validation(
+                "未配置渠道凭据，无法查询渠道订单状态".into(),
+            ));
+        }
         let m = self
             .states
             .lock()
@@ -346,6 +420,11 @@ impl PaymentGateway for LocalConfirmGateway {
     }
 
     fn cancel(&self, out_trade_no: &str) -> Result<CancelResult> {
+        if !self.enabled {
+            return Err(crate::error::CoreError::Validation(
+                "未配置渠道凭据，无法撤销渠道订单".into(),
+            ));
+        }
         let mut m = self
             .states
             .lock()
@@ -360,6 +439,11 @@ impl PaymentGateway for LocalConfirmGateway {
         _refund_no: &str,
         _amount_cents: i64,
     ) -> Result<PaymentState> {
+        if !self.enabled {
+            return Err(crate::error::CoreError::Validation(
+                "未配置渠道凭据，无法原路退款".into(),
+            ));
+        }
         let mut m = self
             .states
             .lock()
@@ -371,6 +455,11 @@ impl PaymentGateway for LocalConfirmGateway {
 
 /// v1 本地确认一笔 Native 支付（操作员确认顾客已扫码后调用）。
 pub fn confirm_native(gw: &LocalConfirmGateway, out_trade_no: &str) -> Result<()> {
+    if !gw.is_enabled() {
+        return Err(crate::error::CoreError::Validation(
+            "未配置渠道凭据，不存在可确认的本地扫码支付".into(),
+        ));
+    }
     let mut m = gw
         .states
         .lock()
@@ -390,16 +479,27 @@ pub struct RoutingGateway {
 }
 
 impl RoutingGateway {
+    /// `local_simulation` 为 true 才允许未配置凭据时回落本地确认网关（联调/开发）；
+    /// 生产构建必须传 false，避免把任意付款码记成已收款。
     pub fn new(
         wechat: Option<crate::gateway_wechat::WechatGateway>,
         alipay: Option<crate::gateway_alipay::AlipayGateway>,
+        local_simulation: bool,
     ) -> Self {
         Self {
             wechat,
             alipay,
-            local: LocalConfirmGateway::new(),
+            local: if local_simulation {
+                LocalConfirmGateway::new()
+            } else {
+                LocalConfirmGateway::disabled()
+            },
             routes: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    pub fn local(&self) -> &LocalConfirmGateway {
+        &self.local
     }
 
     fn remember(&self, out_trade_no: &str, channel: Channel) {

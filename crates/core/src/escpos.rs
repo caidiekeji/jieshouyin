@@ -187,7 +187,11 @@ pub fn render_receipt(
                     )));
                 }
                 let bars = render_code128(&content)?;
-                buf.extend_from_slice(&[0x1D, 0x68, height.max(24)]); // GS h
+                // GS k 73 的长度字节只有一个：超过 255 字节会被截断成垃圾条码。
+                if bars.len() > 255 {
+                    return Err(CoreError::Print("条码内容过长（上限 60 字符）".into()));
+                }
+                buf.extend_from_slice(&[0x1D, 0x68, height.clamp(24, 255)]); // GS h
                 buf.extend_from_slice(&[0x1D, 0x77, 0x02]); // GS w 2
                 buf.extend_from_slice(&[0x1D, 0x48, 0x02]); // GS H 2 (下方文字)
                 buf.extend_from_slice(&[0x1D, 0x6B, 0x49]); // GS k 73 CODE128
@@ -200,20 +204,32 @@ pub fn render_receipt(
                 let modules = qr.width();
                 let colors = qr.to_colors();
                 let dark = qrcode::types::Color::Dark;
-                let scale = size.max(1) as usize;
-                let dots = modules * scale;
-                let x = (dots / 8) as u8;
-                let y = (dots / 8 + usize::from(!dots.is_multiple_of(8))) as u8;
+                // 58mm 打印头约 384 点、80mm 约 576 点：先按纸宽收敛倍率，
+                // 避免大尺寸二维码横向溢出被打印机裁掉。
+                let max_scale = (576 / modules).max(1);
+                let scale = (size.max(1) as usize).clamp(1, max_scale.min(8));
+                let dots_x = modules * scale;
+                let row_bytes = dots_x.div_ceil(8);
+                let dots_y = modules * scale;
+                if row_bytes > 0xFFFF || dots_y > 0xFFFF {
+                    return Err(CoreError::Print("二维码尺寸超出打印机上限".into()));
+                }
                 buf.extend_from_slice(GS_V0);
-                buf.extend_from_slice(&[0x00, x, 0x00, y]);
-                let row_bytes = dots.div_ceil(8);
+                // GS v 0 的 x/y 都是 16 位小端（x = 每行字节数，y = 点行数）。
+                // 原实现只写低字节且把 y 当成"宽度/8"，会把二维码压成一条窄带。
+                buf.extend_from_slice(&[
+                    row_bytes as u8,
+                    (row_bytes >> 8) as u8,
+                    dots_y as u8,
+                    (dots_y >> 8) as u8,
+                ]);
                 for src_row in 0..modules {
                     for _ in 0..scale {
                         for byte in 0..row_bytes {
                             let mut b = 0u8;
                             for bit in 0..8 {
                                 let col = byte * 8 + bit;
-                                if col < dots {
+                                if col < dots_x {
                                     let src_col = col / scale;
                                     if colors[src_row * modules + src_col] == dark {
                                         b |= 0x80 >> bit;

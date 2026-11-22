@@ -86,20 +86,13 @@ fn get_key(key: &Option<String>) -> Result<String> {
         .map_err(|_| CoreError::Validation("未提供签发私钥".into()))
 }
 
-fn read_license(path: &PathBuf) -> Result<(LicensePayload, String)> {
+/// 读取并**验签**许可证：续期/换绑只允许在已签名载荷上操作，
+/// 否则任何人手工改 base64 JSON 就能给自己续期或换绑到别的设备。
+fn read_license(path: &PathBuf, public_key: &[u8; 32]) -> Result<(LicensePayload, String)> {
     let token =
         fs::read_to_string(path).map_err(|e| CoreError::Other(format!("读取许可证失败: {e}")))?;
     let token = token.trim().to_string();
-    // CLI 侧用任意公钥验签即可取出载荷：此处仅解析不验签来源，用签发私钥对应公钥
-    let json_b64 = token
-        .split('.')
-        .next()
-        .ok_or(CoreError::Other("格式错误".into()))?;
-    use base64::Engine;
-    let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(json_b64)
-        .map_err(|e| CoreError::Other(format!("base64: {e}")))?;
-    let payload: LicensePayload = serde_json::from_slice(&json)?;
+    let (payload, _) = parse_and_verify(&token, public_key)?;
     Ok((payload, token))
 }
 
@@ -173,7 +166,7 @@ fn run() -> Result<()> {
             out,
         } => {
             let sk = signing_key_from_hex(&get_key(&key)?)?;
-            let (payload, _) = read_license(&license)?;
+            let (payload, _) = read_license(&license, sk.verifying_key().as_bytes())?;
             let maint = valid_until.clone();
             let renewed = renew_payload(&payload, valid_until, maint);
             let token = issue(&sk, &renewed)?;
@@ -187,7 +180,7 @@ fn run() -> Result<()> {
             out,
         } => {
             let sk = signing_key_from_hex(&get_key(&key)?)?;
-            let (payload, _) = read_license(&license)?;
+            let (payload, _) = read_license(&license, sk.verifying_key().as_bytes())?;
             if payload.device_fingerprint.as_deref() != Some(old_fp.as_str()) {
                 return Err(CoreError::Validation("旧指纹摘要不匹配".into()));
             }
@@ -204,10 +197,4 @@ fn uuid_like() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     format!("{:08x}{:04x}", rng.gen::<u32>(), rng.gen::<u16>())
-}
-
-// 确保验签函数被引用（CLI 侧留作校验续期码完整性）
-#[allow(dead_code)]
-fn _verify_with_public(token: &str, pk: &[u8; 32]) -> Result<LicensePayload> {
-    Ok(parse_and_verify(token, pk)?.0)
 }

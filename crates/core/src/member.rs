@@ -58,6 +58,23 @@ pub fn append_asset_log(
     Ok(true)
 }
 
+/// 会员必须存在且未停用：停用后不得充值/扣款/退货回补。
+fn ensure_active(conn: &Connection, member_id: i64) -> Result<()> {
+    use rusqlite::OptionalExtension;
+    let status: Option<i64> = conn
+        .query_row(
+            "SELECT status FROM member WHERE member_id=?1",
+            [member_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match status {
+        Some(1) => Ok(()),
+        Some(_) => Err(CoreError::Validation("会员已停用，不能进行资金操作".into())),
+        None => Err(CoreError::Validation(format!("会员 {member_id} 不存在"))),
+    }
+}
+
 /// 充值入账（§13.3）：本金 += 实充，赠送 += 赠送额，不计成长值。
 pub fn recharge(
     conn: &Connection,
@@ -66,6 +83,13 @@ pub fn recharge(
     principal_cents: i64,
     bonus_cents: i64,
 ) -> Result<()> {
+    ensure_active(conn, member_id)?;
+    if principal_cents < 0 || bonus_cents < 0 {
+        return Err(CoreError::Validation("充值金额不得为负".into()));
+    }
+    if principal_cents == 0 && bonus_cents == 0 {
+        return Err(CoreError::Validation("充值金额必须大于 0".into()));
+    }
     let now = format_utc(&Utc::now());
     append_asset_log(
         conn,
@@ -105,6 +129,10 @@ pub fn deduct(
     order_no: &str,
     amount_cents: i64,
 ) -> Result<Deduction> {
+    ensure_active(conn, member_id)?;
+    if amount_cents <= 0 {
+        return Err(CoreError::Validation("储值扣款金额必须大于 0".into()));
+    }
     let bonus_bal: i64 = conn
         .query_row(
             "SELECT balance FROM member_asset WHERE member_id=?1 AND asset_type=?2",
@@ -155,6 +183,44 @@ pub fn deduct(
     })
 }
 
+/// 支付失败回滚储值扣款：按原扣减构成原路补回（BONUS/PRINCIPAL 各自足额）。
+/// 与 `refund_mirror` 的区别：这是"这笔钱从未真正支付成功"的撤销，不是退货退款，
+/// 因此独立 reason/idempotency_key，不参与退款报表口径。
+pub fn reverse_sale(
+    conn: &Connection,
+    member_id: i64,
+    order_no: &str,
+    deduction: Deduction,
+) -> Result<()> {
+    ensure_active(conn, member_id)?;
+    let now = format_utc(&Utc::now());
+    if deduction.bonus_cents > 0 {
+        append_asset_log(
+            conn,
+            member_id,
+            BONUS,
+            deduction.bonus_cents,
+            "PAYMENT_REVERSAL",
+            Some(order_no),
+            &format!("REVERSAL:{order_no}:{BONUS}"),
+            &now,
+        )?;
+    }
+    if deduction.principal_cents > 0 {
+        append_asset_log(
+            conn,
+            member_id,
+            PRINCIPAL,
+            deduction.principal_cents,
+            "PAYMENT_REVERSAL",
+            Some(order_no),
+            &format!("REVERSAL:{order_no}:{PRINCIPAL}"),
+            &now,
+        )?;
+    }
+    Ok(())
+}
+
 /// 退款镜像回补（§13.2）：先补 BONUS（上限=原单 BONUS 扣减），超出补 PRINCIPAL
 /// （上限=原单 PRINCIPAL 扣减）。超出总额 → 程序错误，拒绝执行。
 pub fn refund_mirror(
@@ -165,6 +231,7 @@ pub fn refund_mirror(
     refund_amount: i64,
     original: Deduction,
 ) -> Result<Deduction> {
+    ensure_active(conn, member_id)?;
     let total_original = original.bonus_cents + original.principal_cents;
     if refund_amount > total_original {
         return Err(CoreError::Validation(

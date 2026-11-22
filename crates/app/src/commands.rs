@@ -19,6 +19,9 @@ use checkout_core::constants::{
     PERM_USER_MANAGE, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER,
 };
 use checkout_core::error::{CoreError, Result};
+/// 本地模拟支付开关（联调/开发用）。生产默认关闭：未配置渠道凭据时直接拒绝收款，
+/// 而不是把任意付款码静默记成"已收款"。
+const CFG_ALLOW_LOCAL_SIMULATION: &str = "pay.allow_local_simulation";
 use checkout_core::industry::{IndustryOption, StoreProfile};
 use checkout_core::license::{LicenseSnapshot, LicenseStatus};
 use checkout_core::orderview::{OrderDetail, OrderSummary};
@@ -351,15 +354,43 @@ pub fn close_service_table(table_id: i64, force: bool, state: State<'_, AppState
     Ok(())
 }
 
-/// 餐饮下单：记录本次新增菜品并返回后厨出品行，前端据此打印厨打单。
+/// 餐饮下单结果：厨打先于"已下单"快照推进，打印失败时不推进并直接把错误抛给前台。
+#[derive(Debug, Serialize)]
+pub struct KitchenSubmitResult {
+    pub items: Vec<checkout_core::service::KitchenItem>,
+    pub print_message: String,
+}
+
+/// 餐饮下单：计算新增菜品 → 打印厨打 → 打印全成功后才推进已下单快照。
+/// 顺序不能颠倒：先记"已下单"再打印，一旦打印机掉线，后厨没收到菜、账单却认为已做，
+/// 只有把快照推进放在打印成功之后，重试时这几道菜才会仍被算作新增。
 #[tauri::command]
 pub fn submit_service_table_order(
     table_id: i64,
     scene: String,
     state: State<'_, AppState>,
-) -> Result<Vec<checkout_core::service::KitchenItem>> {
+) -> Result<KitchenSubmitResult> {
     let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
-    checkout_core::service::submit_order(&conn, table_id, &scene)
+    let (items, cart_json) = checkout_core::service::prepare_order(&conn, table_id, &scene)?;
+    if items.is_empty() {
+        return Ok(KitchenSubmitResult {
+            items,
+            print_message: "本次没有新增菜品，无需厨打".into(),
+        });
+    }
+    let code: String = conn
+        .query_row(
+            "SELECT code FROM service_table WHERE table_id=?1",
+            [table_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| CoreError::Validation("桌台不存在".into()))?;
+    let print_message = print_kitchen_items(&conn, &code, &items)?;
+    checkout_core::service::commit_order(&conn, table_id, &cart_json, &items)?;
+    Ok(KitchenSubmitResult {
+        items,
+        print_message,
+    })
 }
 
 /// 已下单退菜：需作废权限，写审计；M0017 前的退菜按购物车行删除处理。
@@ -436,11 +467,9 @@ pub fn chess_table_fee(
 }
 
 /// 厨打：打印该桌最后一次“下单”新增的出品行，复用当前网络打印机。
-/// 未配置打印机时明确提示，不把失败写进小票重打队列（重打队列按订单号组织）。
+/// 任何一张没发出去（未配置/网络失败）都返回 Err：后厨看不到单就是漏菜，不能报成功。
 #[tauri::command]
 pub fn print_kitchen_ticket(table_id: i64, state: State<'_, AppState>) -> Result<String> {
-    use checkout_core::escpos::{render_receipt, Template};
-    use serde_json::json;
     let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     let (code, ticket_json): (String, String) = conn
         .query_row(
@@ -456,7 +485,18 @@ pub fn print_kitchen_ticket(table_id: i64, state: State<'_, AppState>) -> Result
     if items.is_empty() {
         return Ok("本次没有新增菜品，无需厨打".into());
     }
-    let main_host = cfg_get(&conn, CFG_PRINT_HOST)?.unwrap_or_default();
+    print_kitchen_items(&conn, &code, &items)
+}
+
+/// 按档口路由渲染并发送厨打，返回可读结果；任何一组失败即返回 Err。
+fn print_kitchen_items(
+    conn: &Connection,
+    code: &str,
+    items: &[checkout_core::service::KitchenItem],
+) -> Result<String> {
+    use checkout_core::escpos::{render_receipt, Template};
+    use serde_json::json;
+    let main_host = cfg_get(conn, CFG_PRINT_HOST)?.unwrap_or_default();
     let main_port = cfg_get(&conn, CFG_PRINT_PORT)?
         .and_then(|s| s.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PRINT_PORT);
@@ -509,10 +549,10 @@ pub fn print_kitchen_ticket(table_id: i64, state: State<'_, AppState>) -> Result
             .push(item);
     }
     let mut sent = Vec::new();
-    let mut skipped = Vec::new();
+    let mut failed = Vec::new();
     for (_, (label, host, port, group)) in groups {
         if host.trim().is_empty() {
-            skipped.push(label);
+            failed.push(format!("{label}未配置打印机"));
             continue;
         }
         let item_text = group
@@ -553,21 +593,22 @@ pub fn print_kitchen_ticket(table_id: i64, state: State<'_, AppState>) -> Result
         let bytes = render_receipt(&template, &vars)?;
         match checkout_core::printer::send_bytes(&host, port, &bytes) {
             Ok(()) => sent.push(label),
-            Err(e) => skipped.push(format!("{label}发送失败: {e}")),
+            Err(e) => failed.push(format!("{label}发送失败: {e}")),
         }
     }
-    if sent.is_empty() {
-        return Ok(if skipped.is_empty() {
-            "没有可发送的厨打内容".into()
+    // 只要有一组没发出去，后厨就会漏菜：返回 Err 让前台明确"下单未生效"并重试。
+    if !failed.is_empty() {
+        let detail = failed.join("；");
+        let prefix = if sent.is_empty() {
+            "厨打未发送".to_string()
         } else {
-            format!("厨打未发送：{}（请在设置中配置打印机）", skipped.join("；"))
-        });
+            format!("厨打部分失败（已发送：{}）", sent.join("、"))
+        };
+        return Err(CoreError::Validation(format!(
+            "{prefix}：{detail}。请检查打印机配置后重试"
+        )));
     }
-    let mut msg = format!("厨打已发送：{}", sent.join("、"));
-    if !skipped.is_empty() {
-        msg.push_str(&format!("；未发送：{}", skipped.join("；")));
-    }
-    Ok(msg)
+    Ok(format!("厨打已发送：{}", sent.join("、")))
 }
 
 /// 读取厨打档口路由（分类 → 打印机）。
@@ -872,10 +913,8 @@ pub fn lookup_product(
     let limit = limit.unwrap_or(20).clamp(1, 500);
     let group = category_group.unwrap_or_default();
     let group = group.trim().to_string();
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    // 商品检索虽只读，但会暴露完整价表与毛利敏感信息：必须登录且有收银权限。
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     query_products(&conn, &state.data_dir, &keyword, limit, &group, None)
 }
 
@@ -885,10 +924,7 @@ pub fn list_pos_products(
     category_id: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<Vec<ProductHit>> {
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     query_products(&conn, &state.data_dir, "", 500, "", category_id)
 }
 
@@ -897,10 +933,7 @@ pub fn list_pos_products(
 pub fn list_pos_categories(
     state: State<'_, AppState>,
 ) -> Result<Vec<checkout_core::product::Category>> {
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     checkout_core::product::list_categories(&conn)
 }
 
@@ -913,16 +946,7 @@ pub struct SkuMemberPrice {
 
 #[tauri::command]
 pub fn member_prices(sku_ids: Vec<i64>, state: State<'_, AppState>) -> Result<Vec<SkuMemberPrice>> {
-    let session = state
-        .session
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    session.as_ref().ok_or(CoreError::NotAuthenticated)?;
-    drop(session);
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     let mut out = Vec::with_capacity(sku_ids.len());
     for sku_id in sku_ids {
         let mp: Option<i64> = conn
@@ -1089,13 +1113,16 @@ pub struct CartLineInput {
 /// 服务端权威单价：一律取 sku.sale_price_cents，不信任客户端传价
 /// （否则改包/旧缓存即可任意改价）。SKU 不存在直接拒绝。
 fn sku_sale_price(conn: &Connection, sku_id: i64) -> Result<i64> {
-    conn.query_row(
-        "SELECT sale_price_cents FROM sku WHERE sku_id=?1",
-        [sku_id],
-        |r| r.get(0),
-    )
-    .optional()?
-    .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在，拒绝下单")))
+    use rusqlite::OptionalExtension;
+    let row: Option<i64> = conn
+        .query_row(
+            "SELECT s.sale_price_cents FROM sku s JOIN spu p ON p.spu_id=s.spu_id
+             WHERE s.sku_id=?1 AND p.status=1",
+            [sku_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    row.ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在或已停用，拒绝下单")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1371,6 +1398,26 @@ pub fn quote_order(
 }
 
 /// 收银结算（F-05/F-06）。现金本地闭环；储值走领域扣款；扫码渠道走网关状态机。
+/// 生成未被占用的订单号：极小概率撞号时重试，避免主键冲突把整单收银打回。
+fn generate_unique_order_no(
+    conn: &Connection,
+    store_no: &str,
+    device_no: &str,
+) -> Result<String> {
+    for _ in 0..8 {
+        let cand = checkout_core::order::generate_order_no(store_no, device_no);
+        let used: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sales_order WHERE order_no=?1",
+            [&cand],
+            |r| r.get(0),
+        )?;
+        if used == 0 {
+            return Ok(cand);
+        }
+    }
+    Err(CoreError::Other("订单号连续冲突，请重试".into()))
+}
+
 /// 促销引擎计算行/整单优惠并落 order_promotion；tx A → 支付 → tx B。
 /// 授权门禁只校验 entitlement，任何非 UNACTIVATED 状态不阻断 pos.core。
 #[tauri::command]
@@ -1531,10 +1578,9 @@ pub async fn checkout(
         )));
     }
 
-    let order_no = checkout_core::order::generate_order_no(
-        &cfg_str(&conn, CFG_STORE_NO, "STORE"),
-        &cfg_str(&conn, CFG_DEVICE_NO, "POS1"),
-    );
+    let store_no = cfg_str(&conn, CFG_STORE_NO, "STORE");
+    let device_no = cfg_str(&conn, CFG_DEVICE_NO, "POS1");
+    let order_no = generate_unique_order_no(&conn, &store_no, &device_no)?;
     let biz = business_date_for(&conn, &now_dt)?;
     let shift_id: i64 = *state
         .current_shift
@@ -1643,92 +1689,121 @@ pub async fn checkout(
     });
 
     // 支付执行：每个渠道的「扣款 + 流水置成功」各自成事务，避免半状态。
+    // 任一渠道失败：已成功的渠道必须显式回滚，并把订单号与逐笔结果返回给操作员；
+    // 不能只抛一个"扫码支付未完成"就结束——那会让后续渠道不执行、订单挂 PENDING，
+    // 操作员重试还会重复收款。
     let mut native_code_url: Option<String> = None;
-    for (i, p) in payments.iter().enumerate() {
-        let channel = match p.channel.as_str() {
-            PAY_CASH => PayChannel::CASH,
-            PAY_STORED_VALUE => PayChannel::STORED_VALUE,
-            PAY_WECHAT => PayChannel::WECHAT,
-            PAY_ALIPAY => PayChannel::ALIPAY,
-            other => return Err(CoreError::Validation(format!("未知支付渠道: {other}"))),
-        };
-        let out_trade_no = checkout_core::payment::make_out_trade_no(&order_no, i as u32 + 1);
-        let net = if channel == PayChannel::CASH {
-            p.tendered_cents.unwrap_or(p.amount_cents) - p.change_cents.unwrap_or(0)
-        } else {
-            p.amount_cents
-        };
+    let pay_result: Result<()> = (|| {
+        for (i, p) in payments.iter().enumerate() {
+            let channel = match p.channel.as_str() {
+                PAY_CASH => PayChannel::CASH,
+                PAY_STORED_VALUE => PayChannel::STORED_VALUE,
+                PAY_WECHAT => PayChannel::WECHAT,
+                PAY_ALIPAY => PayChannel::ALIPAY,
+                other => return Err(CoreError::Validation(format!("未知支付渠道: {other}"))),
+            };
+            let out_trade_no = checkout_core::payment::make_out_trade_no(&order_no, i as u32 + 1);
+            let net = if channel == PayChannel::CASH {
+                p.tendered_cents.unwrap_or(p.amount_cents) - p.change_cents.unwrap_or(0)
+            } else {
+                p.amount_cents
+            };
 
-        match channel {
-            PayChannel::STORED_VALUE => {
-                if has_native {
-                    // 储值后扣：等 Native 成功后在 finalize 中扣款
-                    continue;
-                }
-                let mid = member_id
-                    .ok_or_else(|| CoreError::Validation("储值支付需先识别会员".into()))?;
-                // 扣款与流水置成功必须同一事务：否则储值已扣、流水仍 PENDING，
-                // 崩溃恢复会把已付订单当作未付再次收银。
-                let tx = conn.unchecked_transaction()?;
-                let d = checkout_core::member::deduct(&tx, mid, &order_no, net)?;
-                tx.execute(
-                    "UPDATE payment_record SET status='SUCCESS', sv_bonus_cents=?1, sv_principal_cents=?2, paid_at=?3
-                     WHERE order_no=?4 AND out_trade_no=?5",
-                    rusqlite::params![d.bonus_cents, d.principal_cents, now, order_no, out_trade_no],
-                )?;
-                tx.commit()?;
-            }
-            PayChannel::WECHAT | PayChannel::ALIPAY => {
-                let is_native = p.mode.as_deref() == Some(PAY_MODE_NATIVE);
-                let mode = if is_native {
-                    PayMode::NATIVE
-                } else {
-                    PayMode::MICROPAY
-                };
-                let req = PayRequest {
-                    out_trade_no: out_trade_no.clone(),
-                    amount_cents: net,
-                    auth_code: p.auth_code.clone(),
-                    mode,
-                    channel,
-                };
-                if is_native {
-                    // Native：预下单拿 code_url 即返回，顾客扫码后由 poll/confirm 收敛
-                    let outcome = state.gateway.native_precreate(&req)?;
-                    native_code_url = outcome.code_url;
-                    continue;
-                }
-                let poll =
-                    cfg_i64(&conn, CFG_MICROPAY_POLL_MS, DEFAULT_MICROPAY_POLL_MS as i64) as u64;
-                let timeout = cfg_i64(
-                    &conn,
-                    CFG_MICROPAY_TIMEOUT_S,
-                    DEFAULT_MICROPAY_TIMEOUT_S as i64,
-                ) as u64;
-                let out = run_micropay(&state.gateway, &req, poll, timeout, &mut |ms| {
-                    std::thread::sleep(std::time::Duration::from_millis(ms));
-                })?;
-                match out.state {
-                    PaymentState::SUCCESS => {
-                        conn.execute(
-                            "UPDATE payment_record SET status='SUCCESS', trade_no=?1, paid_at=?2
-                             WHERE order_no=?3 AND out_trade_no=?4",
-                            rusqlite::params![out.trade_no, now, order_no, out_trade_no],
-                        )?;
+            match channel {
+                PayChannel::STORED_VALUE => {
+                    if has_native {
+                        // 储值后扣：等 Native 成功后在 finalize 中扣款
+                        continue;
                     }
-                    other => {
-                        // 流水保持 PENDING → 崩溃恢复可向渠道查单收敛；
-                        // 明确失败/关闭由恢复扫描或操作员重试处理
-                        let _ = conn.execute(
-                            "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
-                            rusqlite::params![order_no, out_trade_no],
-                        );
-                        return Err(CoreError::Validation(format!("扫码支付未完成: {other:?}")));
+                    let mid = member_id
+                        .ok_or_else(|| CoreError::Validation("储值支付需先识别会员".into()))?;
+                    // 扣款与流水置成功必须同一事务：否则储值已扣、流水仍 PENDING，
+                    // 崩溃恢复会把已付订单当作未付再次收银。
+                    let tx = conn.unchecked_transaction()?;
+                    let d = checkout_core::member::deduct(&tx, mid, &order_no, net)?;
+                    let n = tx.execute(
+                        "UPDATE payment_record SET status='SUCCESS', sv_bonus_cents=?1, sv_principal_cents=?2, paid_at=?3
+                         WHERE order_no=?4 AND out_trade_no=?5",
+                        rusqlite::params![d.bonus_cents, d.principal_cents, now, order_no, out_trade_no],
+                    )?;
+                    if n != 1 {
+                        return Err(CoreError::Other("储值支付流水状态异常".into()));
+                    }
+                    tx.commit()?;
+                }
+                PayChannel::WECHAT | PayChannel::ALIPAY => {
+                    let is_native = p.mode.as_deref() == Some(PAY_MODE_NATIVE);
+                    let mode = if is_native {
+                        PayMode::NATIVE
+                    } else {
+                        PayMode::MICROPAY
+                    };
+                    let req = PayRequest {
+                        out_trade_no: out_trade_no.clone(),
+                        amount_cents: net,
+                        auth_code: p.auth_code.clone(),
+                        mode,
+                        channel,
+                    };
+                    if is_native {
+                        // Native：预下单拿 code_url 即返回，顾客扫码后由 poll/confirm 收敛
+                        let outcome = state.gateway.native_precreate(&req)?;
+                        native_code_url = outcome.code_url;
+                        continue;
+                    }
+                    let poll =
+                        cfg_i64(&conn, CFG_MICROPAY_POLL_MS, DEFAULT_MICROPAY_POLL_MS as i64) as u64;
+                    let timeout = cfg_i64(
+                        &conn,
+                        CFG_MICROPAY_TIMEOUT_S,
+                        DEFAULT_MICROPAY_TIMEOUT_S as i64,
+                    ) as u64;
+                    let out = run_micropay(&state.gateway, &req, poll, timeout, &mut |ms| {
+                        std::thread::sleep(std::time::Duration::from_millis(ms));
+                    })?;
+                    match out.state {
+                        PaymentState::SUCCESS => {
+                            conn.execute(
+                                "UPDATE payment_record SET status='SUCCESS', trade_no=?1, paid_at=?2
+                                 WHERE order_no=?3 AND out_trade_no=?4",
+                                rusqlite::params![out.trade_no, now, order_no, out_trade_no],
+                            )?;
+                        }
+                        other => {
+                            // 明确失败/关闭 → 本笔置 CLOSED；由外层统一回滚已成功的渠道
+                            let _ = conn.execute(
+                                "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
+                                rusqlite::params![order_no, out_trade_no],
+                            );
+                            return Err(CoreError::Validation(format!(
+                                "扫码支付未完成: {other:?}"
+                            )));
+                        }
                     }
                 }
+                PayChannel::CASH => {
+                    // 现金在收银台已实际收取：订单流水必须同步置成功，
+                    // 否则 commit_order 只统计 SUCCESS 流水，现金单永远无法完成。
+                    let tx = conn.unchecked_transaction()?;
+                    let n = tx.execute(
+                        "UPDATE payment_record SET status='SUCCESS', paid_at=?1
+                         WHERE order_no=?2 AND out_trade_no=?3 AND status='PENDING'",
+                        rusqlite::params![now, order_no, out_trade_no],
+                    )?;
+                    if n != 1 {
+                        return Err(CoreError::Other("现金支付流水状态异常".into()));
+                    }
+                    tx.commit()?;
+                }
             }
-            PayChannel::CASH => {}
         }
+        Ok(())
+    })();
+    if let Err(e) = pay_result {
+        let rollback = rollback_partial_payments(&conn, &state.gateway, &order_no)?;
+        return Err(CoreError::Validation(format!(
+            "支付未完成（订单号 {order_no}）：{e}。{rollback}"
+        )));
     }
 
     if has_native {
@@ -1750,6 +1825,142 @@ pub async fn checkout(
         code_url: None,
         points_earned,
     })
+}
+
+/// 支付中途失败的收口：
+/// - 储值：按原扣减构成原路补回，流水置 CLOSED；
+/// - 渠道：按真实金额发起原路退款，只有渠道确认 SUCCESS 才置 CLOSED；
+/// - 现金：钱已在钱箱，流水置 CLOSED 并明确要求退还顾客。
+/// 全部渠道都已关闭且不需要人工处理时，订单转 CANCELED 并释放券；
+/// 否则保留 PENDING_PAYMENT 与成功流水，交给对账/人工继续处理。
+fn rollback_partial_payments(
+    conn: &Connection,
+    gateway: &checkout_core::payment::RoutingGateway,
+    order_no: &str,
+) -> Result<String> {
+    use checkout_core::money::cents_to_yuan;
+    use checkout_core::payment::Channel;
+
+    let rows: Vec<(String, Option<String>, i64, Option<i64>, Option<i64>)> = {
+        let mut stmt = conn.prepare(
+            "SELECT pay_channel, out_trade_no, amount_cents, sv_bonus_cents, sv_principal_cents
+             FROM payment_record WHERE order_no=?1 AND status='SUCCESS' ORDER BY pay_id",
+        )?;
+        let rows = stmt.query_map([order_no], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let member_id: Option<i64> = conn
+        .query_row(
+            "SELECT member_id FROM sales_order WHERE order_no=?1",
+            [order_no],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+
+    let mut notes: Vec<String> = Vec::new();
+    let mut all_closed = true;
+    for (channel, out_trade_no, amount, sv_bonus, sv_principal) in rows {
+        let out_trade_no = out_trade_no.unwrap_or_default();
+        match channel.as_str() {
+            PAY_CASH => {
+                conn.execute(
+                    "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
+                    rusqlite::params![order_no, out_trade_no],
+                )?;
+                notes.push(format!(
+                    "现金 {} 元已收，请从钱箱退还顾客",
+                    cents_to_yuan(amount)
+                ));
+            }
+            PAY_STORED_VALUE => {
+                match member_id {
+                    Some(mid) => {
+                        let tx = conn.unchecked_transaction()?;
+                        checkout_core::member::reverse_sale(
+                            &tx,
+                            mid,
+                            order_no,
+                            checkout_core::member::Deduction {
+                                bonus_cents: sv_bonus.unwrap_or(0),
+                                principal_cents: sv_principal.unwrap_or(0),
+                            },
+                        )?;
+                        tx.execute(
+                            "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
+                            rusqlite::params![order_no, out_trade_no],
+                        )?;
+                        tx.commit()?;
+                        notes.push(format!("储值 {} 元已退回会员账户", cents_to_yuan(amount)));
+                    }
+                    None => {
+                        all_closed = false;
+                        notes.push("储值支付缺少会员信息，需人工退回".into());
+                    }
+                }
+            }
+            _ => {
+                let ch = if channel == PAY_WECHAT {
+                    Channel::WECHAT
+                } else {
+                    Channel::ALIPAY
+                };
+                let refund_no = format!("{out_trade_no}:ROLLBACK");
+                match gateway
+                    .of_channel(ch)
+                    .refund(&out_trade_no, &refund_no, amount)
+                {
+                    Ok(PaymentState::SUCCESS) => {
+                        conn.execute(
+                            "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND out_trade_no=?2",
+                            rusqlite::params![order_no, out_trade_no],
+                        )?;
+                        notes.push(format!(
+                            "{channel} {} 元已原路退回",
+                            cents_to_yuan(amount)
+                        ));
+                    }
+                    Ok(other) => {
+                        all_closed = false;
+                        notes.push(format!(
+                            "{channel} 退款状态 {other:?}，资金可能已收，请人工核对"
+                        ));
+                    }
+                    Err(e) => {
+                        all_closed = false;
+                        notes.push(format!("{channel} 自动退款失败（{e}），请人工处理"));
+                    }
+                }
+            }
+        }
+    }
+
+    if all_closed {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE sales_order SET status='CANCELED' WHERE order_no=?1 AND status='PENDING_PAYMENT'",
+            [order_no],
+        )?;
+        let coupon: Option<String> =
+            tx.query_row("SELECT coupon_code FROM sales_order WHERE order_no=?1", [order_no], |r| r.get(0))
+                .optional()?
+                .flatten();
+        if let Some(code) = coupon {
+            // 券可能已 LOCKED，取消订单必须释放回 UNUSED
+            let _ = checkout_core::member::transition_coupon(&tx, &code, COUPON_UNUSED);
+        }
+        tx.commit()?;
+        notes.push("已全额回滚，订单已取消，可直接重新收款".into());
+    } else {
+        notes.push("订单保留待处理状态，请按对账/人工退款流程收口".into());
+    }
+
+    if notes.is_empty() {
+        return Ok("没有已成功的支付需要回滚".into());
+    }
+    Ok(format!("处理结果：{}", notes.join("；")))
 }
 
 /// 订单资产收口（§13.3/§13.4/§13.7 + 订单提交）：在全部渠道支付确认后执行。
@@ -1836,18 +2047,7 @@ pub fn park_cart(
     remark: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<i64> {
-    let session = state
-        .session
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    let cashier = session
-        .as_ref()
-        .map(|s| s.user_id)
-        .ok_or(CoreError::NotAuthenticated)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (cashier, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     checkout_core::order::park_cart(
         &conn,
         &cart_json,
@@ -1860,10 +2060,7 @@ pub fn park_cart(
 
 #[tauri::command]
 pub fn list_parked(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     let mut stmt = conn.prepare(
         "SELECT park_id, cart_json, status, created_at FROM parked_order WHERE status='PENDING' ORDER BY park_id",
     )?;
@@ -1884,10 +2081,7 @@ pub fn list_parked(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>>
 
 #[tauri::command]
 pub fn resume_cart(park_id: i64, state: State<'_, AppState>) -> Result<String> {
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     checkout_core::order::resume_cart(&conn, park_id, &now_str())
 }
 
@@ -1901,10 +2095,8 @@ pub struct DailyReport {
 
 #[tauri::command]
 pub fn daily_report(date: String, state: State<'_, AppState>) -> Result<DailyReport> {
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    // 日营业报表属敏感财务数据：需要报表查看权限，不能只凭"已登录"。
+    let (_operator_id, conn) = admin_guard(&state, PERM_REPORT_VIEW)?;
     let d = checkout_core::report::generate_daily_summary(&conn, &date, &now_str())?;
     Ok(DailyReport {
         order_count: d.order_count,
@@ -1917,10 +2109,7 @@ pub fn daily_report(date: String, state: State<'_, AppState>) -> Result<DailyRep
 /// 打印：用订单真实数据渲染 ESC/POS 字节流并发往网络打印机，失败入重打队列，不阻断（§7）。
 #[tauri::command]
 pub async fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<String> {
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
     print_receipt_inner(&conn, order_no.trim())
 }
 
@@ -2152,15 +2341,7 @@ pub fn list_products(
     include_disabled: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Vec<checkout_core::product::ProductRow>> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    license.gate(ENT_REPORT_STANDARD)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     let mut rows = checkout_core::product::list_products(
         &conn,
         &keyword,
@@ -2218,15 +2399,7 @@ pub fn set_product_status(spu_id: i64, status: i64, state: State<'_, AppState>) 
 pub fn list_categories(
     state: State<'_, AppState>,
 ) -> Result<Vec<checkout_core::product::Category>> {
-    let license = state
-        .license
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
-    license.gate(ENT_REPORT_STANDARD)?;
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::product::list_categories(&conn)
 }
 
@@ -2670,10 +2843,17 @@ pub fn recharge_member(
         .map(str::trim)
         .filter(|c| !c.is_empty())
         .unwrap_or(PAY_CASH);
-    if !matches!(channel, PAY_CASH | PAY_WECHAT | PAY_ALIPAY) {
-        return Err(CoreError::Validation("充值收款渠道非法".into()));
+    // 扫码充值尚未接入真实渠道收款流程：允许它等于"不扫顾客的码就把钱记成已收"。
+    // 先只放行现金；接入真实 Native/付款码充值后再放开对应渠道。
+    if channel != PAY_CASH {
+        return Err(CoreError::Validation(
+            "扫码充值暂未接入渠道收款，请使用现金充值".into(),
+        ));
     }
     let now = now_str();
+    // 幂等指纹：同一 request_id 但金额/会员/渠道不同，说明是客户端复用错了 ID，
+    // 必须报冲突，不能直接返回成功把前一笔充值冒充成本次结果。
+    let fingerprint = format!("{member_id}:{principal_cents}:{bonus_cents}:{channel}");
     let recharge_no = match request_id
         .as_deref()
         .map(str::trim)
@@ -2681,14 +2861,25 @@ pub fn recharge_member(
     {
         Some(rid) => {
             // 幂等：同一 request_id 已入账则直接成功返回，绝不二次充值。
-            let exists: Option<i64> = conn
+            let existing: Option<(i64, String, Option<String>)> = conn
                 .query_row(
-                    "SELECT pay_id FROM payment_record WHERE out_trade_no=?1",
+                    "SELECT amount_cents, pay_channel, request_fingerprint
+                     FROM payment_record WHERE out_trade_no=?1",
                     [rid],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )
                 .optional()?;
-            if exists.is_some() {
+            if let Some((amount, ch, fp)) = existing {
+                let same = match fp.as_deref().filter(|s| !s.is_empty()) {
+                    Some(stored) => stored == fingerprint,
+                    // 老库无指纹：退化为金额+渠道比对
+                    None => amount == principal_cents && ch == channel,
+                };
+                if !same {
+                    return Err(CoreError::Validation(
+                        "request_id 已被另一笔充值使用，请刷新后重试".into(),
+                    ));
+                }
                 return Ok(());
             }
             format!("RC{rid}")
@@ -2705,9 +2896,9 @@ pub fn recharge_member(
     let tx = conn.unchecked_transaction()?;
     checkout_core::member::recharge(&tx, member_id, &recharge_no, principal_cents, bonus_cents)?;
     if let Err(e) = tx.execute(
-        "INSERT INTO payment_record(order_no,pay_channel,pay_mode,attempt_no,amount_cents,out_trade_no,status,paid_at,created_at)
-         VALUES (?1,?2,'',1,?3,?4,'SUCCESS',?5,?5)",
-        rusqlite::params![recharge_no, channel, principal_cents, out_trade_no, now],
+        "INSERT INTO payment_record(order_no,pay_channel,pay_mode,attempt_no,amount_cents,out_trade_no,status,paid_at,created_at,request_fingerprint)
+         VALUES (?1,?2,'',1,?3,?4,'SUCCESS',?5,?5,?6)",
+        rusqlite::params![recharge_no, channel, principal_cents, out_trade_no, now, fingerprint],
     ) {
         if e.to_string().contains("UNIQUE") {
             // 并发双击：另一请求已用同一 request_id 入账，本事务回滚（资产流水幂等键亦防重）
@@ -3817,6 +4008,34 @@ pub fn open_shift(opening_float_cents: i64, state: State<'_, AppState>) -> Resul
 }
 
 #[derive(Debug, Serialize)]
+pub struct CurrentShift {
+    pub shift_id: i64,
+    pub opened_at: String,
+    pub opening_float_cents: i64,
+}
+
+/// 当前未关闭班次：应用重启后前端据此恢复"当前班次"，否则关班会打到 #0 上。
+#[tauri::command]
+pub fn current_shift(state: State<'_, AppState>) -> Result<Option<CurrentShift>> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    let row = conn
+        .query_row(
+            "SELECT shift_id, opened_at, opening_float_cents FROM shift
+             WHERE status='OPEN' ORDER BY shift_id DESC LIMIT 1",
+            [],
+            |r| {
+                Ok(CurrentShift {
+                    shift_id: r.get(0)?,
+                    opened_at: r.get(1)?,
+                    opening_float_cents: r.get(2)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+#[derive(Debug, Serialize)]
 pub struct ShiftCloseResult {
     pub shift_id: i64,
     pub expected_cash_cents: i64,
@@ -3879,6 +4098,9 @@ pub fn close_shift(
             "班次 {shift_id} 状态为 {status}，不可重复关班"
         )));
     }
+    if actual_cash_cents < 0 {
+        return Err(CoreError::Validation("实收现金不能为负数".into()));
+    }
     // 归属守卫：本人班次可直接交班；店长/管理员可代交，其他收银员不行。
     let owns = serde_json::from_str::<Vec<i64>>(&cashiers_json)
         .map(|ids| ids.contains(&operator_id))
@@ -3917,6 +4139,17 @@ pub fn close_shift(
     )?;
     let expected_cash = opening + cash_net - cash_refund + recharge_cash;
     let diff = actual_cash_cents - expected_cash;
+    let reason = difference_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    // 长短款必须写原因：没有说明的差额在审计里无法追责，也无法与后续对账闭环。
+    if diff != 0 && reason.is_none() {
+        return Err(CoreError::Validation(format!(
+            "现金差额 {} 元，必须填写差异原因",
+            checkout_core::money::cents_to_yuan(diff)
+        )));
+    }
     // 条件更新 + affected 行校验：并发/重复关班不会写出两份账。
     let updated = conn.execute(
         "UPDATE shift SET closed_at=?1, actual_cash_cents=?2, expected_cash_cents=?3,
@@ -3927,7 +4160,7 @@ pub fn close_shift(
             actual_cash_cents,
             expected_cash,
             diff,
-            difference_reason,
+            reason,
             shift_id
         ],
     )?;
@@ -4246,10 +4479,8 @@ pub async fn poll_native_pay(
 /// 取消 Native 支付：渠道关单；遇"已支付"自动全额退款 + 审计（§6.2）。
 #[tauri::command]
 pub fn cancel_native_pay(order_no: String, state: State<'_, AppState>) -> Result<()> {
-    let conn = state
-        .conn
-        .lock()
-        .map_err(|e| CoreError::Other(e.to_string()))?;
+    // 撤销在途收款等同退款级敏感操作：必须登录 + 退款权限 + 审计，不能裸调渠道关单。
+    let (operator_id, conn) = admin_guard(&state, PERM_POS_REFUND)?;
     let (out_trade_no, channel_str, amount): (String, String, i64) = conn
         .query_row(
             "SELECT out_trade_no, pay_channel, amount_cents FROM payment_record
@@ -4265,35 +4496,76 @@ pub fn cancel_native_pay(order_no: String, state: State<'_, AppState>) -> Result
         other => return Err(CoreError::Validation(format!("未知渠道 {other}"))),
     };
     let gw = state.gateway.of_channel(channel);
+    let now = now_str();
     let outcome = match gw.cancel(&out_trade_no)? {
         checkout_core::payment::CancelResult::Canceled => "CANCELED".to_string(),
         checkout_core::payment::CancelResult::AlreadyPaid => {
-            // 渠道已扣款 → 自动全额退款（幂等 refund_no）+ 审计
+            // 渠道已扣款 → 自动全额退款（幂等 refund_no）+ 审计。
+            // 退款结果必须按渠道终态判定：处理中/失败都不能宣告"已退款"并关单，
+            // 否则钱在商户账上、本地已当退款完成。
             let refund_no = format!("{out_trade_no}:AUTO_REFUND");
-            let _ = gw.refund(&out_trade_no, &refund_no, amount);
-            checkout_core::rbac::audit_operation(
-                &conn,
-                "native_cancel_already_paid",
-                None,
-                None,
-                serde_json::json!({"order_no": order_no, "auto_refunded": amount}),
-                &now_str(),
-            )?;
-            "AUTO_REFUNDED".to_string()
+            match gw.refund(&out_trade_no, &refund_no, amount) {
+                Ok(PaymentState::SUCCESS) => {
+                    checkout_core::rbac::audit_operation(
+                        &conn,
+                        "native_cancel_already_paid",
+                        Some(operator_id),
+                        None,
+                        serde_json::json!({"order_no": order_no, "auto_refunded": amount}),
+                        &now,
+                    )?;
+                    "AUTO_REFUNDED".to_string()
+                }
+                Ok(other) => {
+                    checkout_core::rbac::audit_operation(
+                        &conn,
+                        "native_cancel_refund_pending",
+                        Some(operator_id),
+                        None,
+                        serde_json::json!({
+                            "order_no": order_no, "amount": amount, "state": format!("{other:?}")
+                        }),
+                        &now,
+                    )?;
+                    return Err(CoreError::Validation(format!(
+                        "渠道已扣款，自动退款状态为 {other:?}；订单保持待支付，请稍后在对账中确认退款结果"
+                    )));
+                }
+                Err(e) => {
+                    checkout_core::rbac::audit_operation(
+                        &conn,
+                        "native_cancel_refund_failed",
+                        Some(operator_id),
+                        None,
+                        serde_json::json!({"order_no": order_no, "amount": amount, "error": e.to_string()}),
+                        &now,
+                    )?;
+                    return Err(CoreError::Validation(format!(
+                        "渠道已扣款但自动退款失败（{e}），订单保持待支付，请人工在渠道退款"
+                    )));
+                }
+            }
         }
     };
-    conn.execute(
+    // 只有渠道确认关单/退款成功，才把流水关闭并取消订单、释放券。
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "UPDATE payment_record SET status='CLOSED' WHERE order_no=?1 AND status='PENDING'",
         [order_no.clone()],
     )?;
-    release_order_coupon(&conn, &order_no)?;
+    tx.execute(
+        "UPDATE sales_order SET status='CANCELED' WHERE order_no=?1 AND status='PENDING_PAYMENT'",
+        [order_no.clone()],
+    )?;
+    release_order_coupon(&tx, &order_no)?;
+    tx.commit()?;
     checkout_core::rbac::audit_operation(
         &conn,
         "cancel_native_pay",
-        None,
+        Some(operator_id),
         None,
         serde_json::json!({"order_no": order_no, "outcome": outcome}),
-        &now_str(),
+        &now,
     )?;
     Ok(())
 }
@@ -5179,7 +5451,22 @@ pub fn run() {
                     });
                 (w, a)
             };
-            let gateway = checkout_core::payment::RoutingGateway::new(wechat_gw, alipay_gw);
+            // 本地模拟网关仅在显式开关或 debug 构建下启用；release 构建默认拒绝扫码收款，
+            // 避免"没配商户号也能收款成功"的静默兜底。
+            let allow_local_simulation = cfg!(debug_assertions)
+                || cfg_get(&conn, CFG_ALLOW_LOCAL_SIMULATION)
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    == Some("1");
+            if allow_local_simulation {
+                tracing::warn!("本地模拟支付网关已启用（{CFG_ALLOW_LOCAL_SIMULATION}=1 或 debug 构建）");
+            }
+            let gateway = checkout_core::payment::RoutingGateway::new(
+                wechat_gw,
+                alipay_gw,
+                allow_local_simulation,
+            );
 
             // 崩溃恢复扫描（§23）：PENDING_PAYMENT 订单向渠道查单收敛
             match recover_pending_orders(&conn, &gateway) {
@@ -5339,6 +5626,7 @@ pub fn run() {
             retry_print,
             shift_report,
             open_shift,
+            current_shift,
             close_shift,
             request_sensitive_auth,
             get_configs,

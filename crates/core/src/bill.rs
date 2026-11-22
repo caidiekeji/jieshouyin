@@ -21,50 +21,69 @@ pub struct BillRow {
 }
 
 /// 元字符串 → 分（处理科学计数法与多余空格；禁止浮点）。
+///
+/// 严格文法：`-?digits(.digits)?([eE][+-]?digits)?`。
+/// 不能用"字符集里出现就算合法"判定——"1.2.3"、"-"、"1-2" 都会通过字符集检查，
+/// 再被过滤成 123 / 0 / 12，属于静默错账。
 pub fn yuan_str_to_cents(s: &str) -> Result<i64> {
     let t = s.trim();
     if t.is_empty() {
         return Err(CoreError::Validation("金额为空".into()));
     }
-    // 严格字符集：只允许数字、小数点、负号、指数；逗号/正号/货币符号一律拒绝，
-    // 避免"1,234.56"被静默解析成 1234.56 或 12.3456。
-    if !t
-        .chars()
-        .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | 'e' | 'E'))
+    // 科学计数法拆分（最多一个 e/E）
+    let (mantissa, exp) = match t.find(['e', 'E']) {
+        Some(i) => (
+            &t[..i],
+            t[i + 1..]
+                .parse::<i32>()
+                .map_err(|_| CoreError::Validation(format!("非法指数: {t}")))?,
+        ),
+        None => (t, 0),
+    };
+    // 尾数结构：可选负号 + 整数部分 + 可选小数部分
+    let (negative, body) = match mantissa.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, mantissa),
+    };
+    if body.matches('.').count() > 1 {
+        return Err(CoreError::Validation(format!("非法金额: {t}")));
+    }
+    let (int_part, frac_part) = match body.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (body, ""),
+    };
+    if int_part.is_empty() && frac_part.is_empty() {
+        return Err(CoreError::Validation(format!("非法金额: {t}")));
+    }
+    if body.contains('.') && frac_part.is_empty() {
+        return Err(CoreError::Validation(format!("非法金额: {t}")));
+    }
+    if !int_part.chars().all(|c| c.is_ascii_digit())
+        || !frac_part.chars().all(|c| c.is_ascii_digit())
     {
         return Err(CoreError::Validation(format!("非法金额: {t}")));
     }
-    // 科学计数法：按小数点位置手工移位，避免浮点
-    let (mantissa, exp) = match t.to_ascii_lowercase().split_once('e') {
-        Some((m, e)) => (
-            m.to_string(),
-            e.parse::<i32>()
-                .map_err(|_| CoreError::Validation(format!("非法指数: {t}")))?,
-        ),
-        None => (t.to_string(), 0),
-    };
-    let negative = mantissa.starts_with('-');
-    let digits: String = mantissa.chars().filter(|c| c.is_ascii_digit()).collect();
-    // 小数点后实际位数（不含小数点字符本身）
-    let frac_places = match mantissa.find('.') {
-        Some(i) => (mantissa.len() as i32) - i as i32 - 1,
-        None => 0,
-    };
-    // 结果单位是分：以两位小数为基准，总移位 = 原小数位 - 指数 - 2
-    let frac_len = frac_places - exp - 2;
-    let mut value: i64 = digits
+    let digits: String = format!("{int_part}{frac_part}");
+    let digits: i128 = digits
         .parse()
         .map_err(|_| CoreError::Validation(format!("非法金额: {t}")))?;
-    if frac_len > 0 {
-        // 多余小数位截断（账单金额不会出现精度问题之外的位）
-        for _ in 0..frac_len {
-            value = value.div_euclid(10);
+    // 结果单位是分：以两位小数为基准，总移位 = 小数位 - 指数 - 2
+    let shift = 2i128 + exp as i128 - frac_part.len() as i128;
+    let mut value = digits;
+    if shift >= 0 {
+        for _ in 0..shift {
+            value = value
+                .checked_mul(10)
+                .ok_or_else(|| CoreError::Validation(format!("金额溢出: {t}")))?;
         }
     } else {
-        for _ in 0..(-frac_len) {
-            value = value.saturating_mul(10);
+        // 多余小数位截断（账单金额不会出现精度问题之外的位）
+        for _ in 0..(-shift) {
+            value /= 10;
         }
     }
+    let value = i64::try_from(value)
+        .map_err(|_| CoreError::Validation(format!("金额超出范围: {t}")))?;
     Ok(if negative { -value } else { value })
 }
 
@@ -255,23 +274,26 @@ pub fn reconcile_channel(
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(stmt);
 
-    // 本地退款记录（按订单号索引）：退款行必须核对 refund_record，不能只看支付流水。
+    // 本地退款记录：必须用支付流水号 out_trade_no 做索引——
+    // 渠道退款行给的是原支付单号（ORD1P1），而 refund_record.order_no 是订单号（ORD1），
+    // 用订单号匹配会把所有退款行判成"渠道有账无本地退款"。
+    // 日期按退款发生日（本地时区）而非下单日，跨日退款不会被漏掉。
     struct LocalRefund {
-        order_no: String,
+        out_trade_no: String,
         amount: i64,
     }
     let refunds: Vec<LocalRefund> = {
         let mut stmt = conn.prepare(
-            "SELECT r.order_no, r.amount_cents
+            "SELECT p.out_trade_no, r.amount_cents
              FROM refund_record r
              JOIN payment_record p ON p.pay_id = r.pay_id
-             JOIN sales_order o ON o.order_no = r.order_no
-             WHERE p.pay_channel = ?1 AND r.status IN ('PROCESSING','COMPLETED')
-               AND o.business_date = ?2",
+             WHERE p.pay_channel = ?1 AND p.status='SUCCESS'
+               AND r.status IN ('PROCESSING','COMPLETED')
+               AND date(r.created_at, '+8 hours') = ?2",
         )?;
         let rows = stmt.query_map([channel, recon_date], |r| {
             Ok(LocalRefund {
-                order_no: r.get(0)?,
+                out_trade_no: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
                 amount: r.get(1)?,
             })
         })?;
@@ -295,16 +317,16 @@ pub fn reconcile_channel(
 
     for row in rows {
         if row.is_refund {
-            // 退款行：按原订单号核对 refund_record 金额（渠道退款可能分多笔）
+            // 退款行：按原支付单号核对 refund_record 金额（渠道退款可能分多笔）
             match refunds
                 .iter()
-                .find(|r| r.order_no == row.out_trade_no && r.amount == row.amount_cents)
+                .find(|r| r.out_trade_no == row.out_trade_no && r.amount == row.amount_cents)
             {
                 Some(_) => summary.matched += 1,
                 None => {
                     let sum: i64 = refunds
                         .iter()
-                        .filter(|r| r.order_no == row.out_trade_no)
+                        .filter(|r| r.out_trade_no == row.out_trade_no)
                         .map(|r| r.amount)
                         .sum();
                     if sum > 0 {
@@ -361,9 +383,12 @@ pub fn reconcile_channel(
         }
     }
 
-    // 渠道缺失的本地流水（本地收款但账单无）
+    // 渠道缺失的本地支付流水（本地收款但账单无）。
+    // 退款行不能算"已对上的支付"：否则只要渠道侧有一条退款行，
+    // 对应的支付单就会被误判成已核对，本地的支付缺失被掩盖。
     let billed: std::collections::HashSet<&str> = rows
         .iter()
+        .filter(|r| !r.is_refund)
         .flat_map(|r| std::iter::once(r.out_trade_no.as_str()).chain(r.trade_no.as_deref()))
         .collect();
     for l in &locals {

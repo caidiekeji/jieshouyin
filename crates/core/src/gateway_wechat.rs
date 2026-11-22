@@ -284,6 +284,21 @@ impl PaymentGateway for WechatGateway {
             .as_ref()
             .and_then(|a| a.total)
             .unwrap_or_default();
+        // 0 元退款会被微信当作「退 0 元」受理成功，钱却留在商户账上。
+        // 调用方传 0 表示全额退款时，必须换算成原单总额。
+        let amount_cents = if amount_cents <= 0 {
+            i64::from(total)
+        } else {
+            amount_cents
+        };
+        if amount_cents <= 0 {
+            return Err(CoreError::Other("微信退款金额必须大于 0".into()));
+        }
+        if i64::from(total) > 0 && amount_cents > i64::from(total) {
+            return Err(CoreError::Other(format!(
+                "微信退款金额 {amount_cents} 超过原单总额 {total}"
+            )));
+        }
         let amount = i32::try_from(amount_cents)
             .map_err(|_| CoreError::Other("退款金额超出单笔限额".into()))?;
         let resp = self

@@ -158,6 +158,9 @@ pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
 
     let mut inserted = 0usize;
     let mut roots: Vec<String> = Vec::new();
+    // 分类树、旧分类停用、行业配置必须同一事务：中途失败会留下
+    // "半套分类树 + 仍是旧行业配置"的错位状态。
+    let tx = conn.unchecked_transaction()?;
     for path in &paths {
         let mut parent: Option<i64> = None;
         for name in path.split('/').filter(|s| !s.trim().is_empty()) {
@@ -165,7 +168,7 @@ pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
             if parent.is_none() {
                 roots.push(name.to_string());
             }
-            let existing: Option<(i64, i64)> = conn
+            let existing: Option<(i64, i64)> = tx
                 .query_row(
                     "SELECT category_id, status FROM category WHERE name=?1 AND parent_id IS ?2",
                     params![name, parent],
@@ -175,23 +178,24 @@ pub fn apply_industry(conn: &Connection, industry: &str) -> Result<usize> {
             parent = match existing {
                 Some((id, 0)) => {
                     // 切回旧行业时复用并重新启用在售分类，避免同名重复建。
-                    conn.execute("UPDATE category SET status=1 WHERE category_id=?1", [id])?;
+                    tx.execute("UPDATE category SET status=1 WHERE category_id=?1", [id])?;
                     Some(id)
                 }
                 Some((id, _)) => Some(id),
                 None => {
-                    conn.execute(
+                    tx.execute(
                         "INSERT INTO category(parent_id,name) VALUES (?1,?2)",
                         params![parent, name],
                     )?;
                     inserted += 1;
-                    Some(conn.last_insert_rowid())
+                    Some(tx.last_insert_rowid())
                 }
             };
         }
     }
-    hide_stale_roots(conn, &roots)?;
-    cfg_set(conn, CFG_INDUSTRY, industry)?;
+    hide_stale_roots(&tx, &roots)?;
+    cfg_set(&tx, CFG_INDUSTRY, industry)?;
+    tx.commit()?;
     Ok(inserted)
 }
 

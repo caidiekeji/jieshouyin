@@ -253,17 +253,25 @@ function scheduleTableSave() {
   }, 400)
 }
 
-async function flushTableCart() {
-  if (!activeTable.value) return
+async function flushTableCart(): Promise<boolean> {
+  if (!activeTable.value) return true
   try {
     await api.saveServiceTableCart(activeTable.value.table_id, JSON.stringify(cart.value))
+    return true
   } catch (e) {
     showToast(`桌台购物车保存失败：${String(e)}`, true)
+    return false
   }
 }
 
 async function selectSceneTable(table: ServiceTable, lines: CartLine[]) {
-  if (activeTable.value && activeTable.value.table_id !== table.table_id) await flushTableCart()
+  // 原桌台未保存成功就切台 = 菜品丢失，必须停下让用户处理，不能带着失败继续。
+  if (activeTable.value && activeTable.value.table_id !== table.table_id) {
+    if (!(await flushTableCart())) {
+      showToast('原桌台购物车未保存，已取消切换桌台', true)
+      return
+    }
+  }
   if (tableSaveTimer) {
     clearTimeout(tableSaveTimer)
     tableSaveTimer = null
@@ -996,6 +1004,20 @@ async function routeAfterLogin() {
   }
   onboarding.value = false
   view.value = 'pos'
+  await restoreCurrentShift()
+}
+
+/** 应用重启/重新登录后恢复后端仍然 OPEN 的班次，避免关班打到 #0。 */
+async function restoreCurrentShift() {
+  try {
+    const s = await api.currentShift()
+    if (s && s.shift_id > 0) {
+      currentShiftId.value = s.shift_id
+      shiftId.value = s.shift_id
+    }
+  } catch {
+    // 无收银权限或后端未开放班：保持 0，等用户开班
+  }
 }
 
 async function submitAdmin() {
@@ -1164,11 +1186,16 @@ function setLineQty(index: number, raw: string) {
   const line = cart.value[index]
   if (!line || line.is_chess_fee) return
   const qty = Math.floor(Number(raw))
+  const sent = tableSentQty.value[line.sku_id] || 0
   if (!Number.isFinite(qty) || qty <= 0) {
+    // 已下厨的行不能靠"数量归零"绕过退菜校验，减菜必须走退菜流程。
+    if (sent > 0) {
+      showToast(`该菜已下厨 ${sent} 份，减菜请用「退菜」`, true)
+      return
+    }
     cart.value.splice(index, 1)
     return
   }
-  const sent = tableSentQty.value[line.sku_id] || 0
   if (qty < sent) {
     showToast(`该菜已下厨 ${sent} 份，不能改成 ${qty}，减菜请用「退菜」`, true)
     return
@@ -1202,19 +1229,22 @@ async function submitTableOrder() {
     showToast('购物车为空', true)
     return
   }
-  await flushTableCart()
+  if (!(await flushTableCart())) {
+    showToast('购物车未保存，未执行下单', true)
+    return
+  }
   try {
-    const items = await api.submitServiceTableOrder(table.table_id, 'DINING')
-    if (!items.length) {
-      showToast('没有新增菜品需要下单')
+    const result = await api.submitServiceTableOrder(table.table_id, 'DINING')
+    if (!result.items.length) {
+      showToast(result.print_message || '没有新增菜品需要下单')
       return
     }
-    // 已下发快照与当前购物车一致，本地同步，避免退菜按钮状态滞后。
+    // 后端已在厨打成功后推进快照，这里同步本地，避免退菜按钮状态滞后。
     activeTable.value = { ...table, sent_json: JSON.stringify(cart.value) }
-    const printMsg = await api.printKitchenTicket(table.table_id)
-    showToast(`已下单 ${items.length} 类菜品；${printMsg}`, printMsg.includes('失败') || printMsg.includes('未配置'))
+    showToast(`已下单 ${result.items.length} 类菜品；${result.print_message}`)
   } catch (e) {
-    showToast(`下单失败：${String(e)}`, true)
+    // 打印失败时后端不会推进已下单状态：提示重试，而不是谎报"已下单"。
+    showToast(`下单未完成：${String(e)}`, true)
   }
 }
 

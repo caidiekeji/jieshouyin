@@ -19,10 +19,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
-      - name: cargo clippy (core + issuance, all targets)
-        run: cargo clippy -p checkout-core -p license-issuance --all-targets -- -D warnings
-      - name: cargo test (core + issuance)
-        run: cargo test -p checkout-core -p license-issuance --all-targets
+      - name: cargo clippy (core + issuance + app, all targets)
+        run: cargo clippy -p checkout-core -p license-issuance -p checkout-app --all-targets -- -D warnings
+      - name: cargo test (core + issuance + app)
+        run: cargo test -p checkout-core -p license-issuance -p checkout-app --all-targets
 
   build-app:
     name: Tauri 2 Windows x64 build
@@ -48,6 +48,9 @@ jobs:
         env:
           # 内置官网/激活服务地址，发行包开箱即用；仓库变量可覆盖
           ACTIVATION_ENDPOINT: ${{ vars.ACTIVATION_ENDPOINT || 'https://www.lequ.pw' }}
+          # 生产 Ed25519 公钥（64 位 hex）：release 构建缺失会直接失败，必须配在仓库 Secrets。
+          # 未配置时 build.rs 会 panic，不会静默把 DEV 公钥打进安装包。
+          CHECKOUT_PUBLIC_KEY: ${{ secrets.CHECKOUT_PUBLIC_KEY }}
         run: npx -y @tauri-apps/cli@2 build
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4

@@ -92,7 +92,7 @@ pub fn login(
             ))
         },
     );
-    let (user_id, hash, role_id, role_name, failed, locked) = match row {
+    let (user_id, hash, role_id, role_name, mut failed, locked) = match row {
         Ok(v) => v,
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             return Err(CoreError::PermissionDenied("账号或密码错误".into()))
@@ -109,6 +109,8 @@ pub fn login(
             "UPDATE user_account SET failed_attempts=0, locked_until=NULL WHERE user_id=?1",
             [user_id],
         )?;
+        // 内存里的计数也要清零：否则解禁后首次输错就被当成第 6 次，立刻再次锁死。
+        failed = 0;
     }
 
     if !verify_password(password, &hash) {
@@ -237,6 +239,15 @@ pub fn guard(conn: &Connection, req: &GuardRequest<'_>) -> Result<()> {
     // 2. 会话校验
     if req.session.expires_at < req.now {
         return Err(CoreError::SessionExpired);
+    }
+    // 会话期间账号被停用：必须立刻失效，不能靠 12 小时会话自然过期。
+    let active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM user_account WHERE user_id=?1 AND status=1",
+        [req.session.user_id],
+        |r| r.get(0),
+    )?;
+    if active == 0 {
+        return Err(CoreError::PermissionDenied("账号已停用".into()));
     }
 
     // 3. RBAC 权限

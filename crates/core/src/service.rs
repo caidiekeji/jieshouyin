@@ -343,6 +343,19 @@ pub fn close_table(conn: &Connection, table_id: i64) -> Result<()> {
 /// 餐饮下单：把本次新增菜品写入后厨出品清单，并推进已下单快照。
 /// 只允许购物车数量不低于已下发数量；减菜必须先走 return_sent，避免厨房与账单脱节。
 pub fn submit_order(conn: &Connection, table_id: i64, scene: &str) -> Result<Vec<KitchenItem>> {
+    let (additions, cart_json) = prepare_order(conn, table_id, scene)?;
+    commit_order(conn, table_id, &cart_json, &additions)?;
+    Ok(additions)
+}
+
+/// 计算"本次新增"的出品行，**不写库**。
+/// 调用方应先打印成功（厨打发不出去就等于后厨不知道有这道菜），再调 `commit_order`
+/// 推进已下单快照；打印失败时快照保持不变，下一单仍会把这几道菜算作新增。
+pub fn prepare_order(
+    conn: &Connection,
+    table_id: i64,
+    scene: &str,
+) -> Result<(Vec<KitchenItem>, String)> {
     if scene != SCENE_DINING {
         return Err(CoreError::Validation("仅餐饮桌台支持厨打下单".into()));
     }
@@ -393,13 +406,23 @@ pub fn submit_order(conn: &Connection, table_id: i64, scene: &str) -> Result<Vec
             qty: add,
         });
     }
-    let ticket_json = serde_json::to_string(&additions)?;
+    Ok((additions, cart_json))
+}
+
+/// 厨打成功后推进已下单快照，并记录最后一张厨打单内容（供重打）。
+pub fn commit_order(
+    conn: &Connection,
+    table_id: i64,
+    cart_json: &str,
+    additions: &[KitchenItem],
+) -> Result<()> {
+    let ticket_json = serde_json::to_string(additions)?;
     conn.execute(
         "UPDATE table_session SET sent_json=?1, last_ticket_json=?2, updated_at=?3
          WHERE table_id=?4 AND status='OPEN'",
         params![cart_json, ticket_json, format_utc(&Utc::now()), table_id],
     )?;
-    Ok(additions)
+    Ok(())
 }
 
 /// 已下单退菜：同时从购物车与已下发快照扣减，qty 不得超过已下单数量。

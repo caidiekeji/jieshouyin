@@ -109,13 +109,24 @@ const poTotalCents = computed(() =>
 async function submitPo() {
   if (poSupplierId.value == null) return fail('请选择供应商')
   if (!poLines.value.length) return fail('请添加采购明细')
+  // 提交前先在前端拦掉脏数据：数量必须为正整数、单价必须是非负数字，
+  // 否则后端整单事务会失败，用户只能看到一句笼统错误。
+  for (const l of poLines.value) {
+    if (!Number.isInteger(l.qty) || l.qty <= 0) {
+      return fail(`${l.name} 的采购数量必须是大于 0 的整数`)
+    }
+    const cost = Number(l.cost)
+    if (l.cost === '' || !Number.isFinite(cost) || cost < 0) {
+      return fail(`${l.name} 的采购单价必须是不小于 0 的数字`)
+    }
+  }
   try {
     const poNo = await api.createPurchaseOrder(
       poSupplierId.value,
       poLines.value.map((l) => ({
         sku_id: l.sku_id,
         ordered_qty: l.qty,
-        unit_cost_cents: Math.round(parseFloat(l.cost || '0') * CENTS_PER_YUAN)
+        unit_cost_cents: Math.round(Number(l.cost) * CENTS_PER_YUAN)
       }))
     )
     showCreatePo.value = false
@@ -147,9 +158,12 @@ async function submitReceive() {
   if (receivePo.value == null) return
   try {
     const rows = receiveRows.value.map((r) => {
+      const already = r.received_qty ?? 0
       const raw = receiveQty.value[r.item_id]
       if (raw === undefined || String(raw).trim() === '') {
-        throw new Error(`${r.product_name} 未填写实收数量`)
+        // 已收齐的行可以不填（本次为 0）；未收齐的行必须逐行核对，不能默认全收。
+        if (already >= r.ordered_qty) return { item_id: r.item_id, received_qty: 0 }
+        throw new Error(`${r.product_name} 未填写本次实收数量`)
       }
       const n = Number(raw)
       if (!Number.isInteger(n) || n < 0) throw new Error(`${r.product_name} 实收数量必须是不小于 0 的整数`)
@@ -359,9 +373,9 @@ onMounted(() => {
               <td>{{ o.supplier_name }}</td>
               <td class="num-cell">{{ o.item_count }} 行</td>
               <td class="num-cell">{{ formatMoney(o.total_cents) }}</td>
-              <td>{{ o.status === 'RECEIVED' ? '已验收' : '待验收' }}</td>
+              <td>{{ o.status === 'RECEIVED' ? '已验收' : o.status === 'PARTIAL_RECEIVED' ? '部分收货' : '待验收' }}</td>
               <td>
-                <button v-if="o.status === 'DRAFT'" class="btn btn-sm" @click="openReceive(o.po_no)">验收</button>
+                <button v-if="o.status === 'DRAFT' || o.status === 'PARTIAL_RECEIVED'" class="btn btn-sm" @click="openReceive(o.po_no)">验收</button>
               </td>
             </tr>
             <tr v-if="!pos.length"><td colspan="6" class="empty">暂无采购单，用上方表单录入第一笔采购</td></tr>
@@ -371,14 +385,15 @@ onMounted(() => {
 
       <div v-if="receivePo" class="card">
         <h3>验收：{{ receivePo }}</h3>
-        <p class="muted small">逐行录入实收数量，与订购数的差异将留痕记录；验收通过后库存入账</p>
+        <p class="muted small">逐行录入本次实收数量（累计入账），与订购数的差异将留痕记录；已部分收货的单据可多次验收，收齐后自动置为已验收</p>
         <table class="tbl">
-          <thead><tr><th>商品</th><th class="num-cell">订购</th><th class="num-cell">实收</th></tr></thead>
+          <thead><tr><th>商品</th><th class="num-cell">订购</th><th class="num-cell">已收</th><th class="num-cell">本次实收</th></tr></thead>
           <tbody>
             <tr v-for="r in receiveRows" :key="r.item_id">
               <td>{{ r.product_name }}</td>
               <td class="num-cell">{{ r.ordered_qty }}</td>
-              <td class="num-cell"><input v-model="receiveQty[r.item_id]" class="input input-sm" type="number" min="0" aria-label="实收数量" /></td>
+              <td class="num-cell">{{ r.received_qty ?? 0 }}</td>
+              <td class="num-cell"><input v-model="receiveQty[r.item_id]" class="input input-sm" type="number" min="0" :placeholder="`待收 ${Math.max(0, r.ordered_qty - (r.received_qty ?? 0))}`" aria-label="本次实收数量" /></td>
             </tr>
           </tbody>
         </table>

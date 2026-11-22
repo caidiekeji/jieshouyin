@@ -12,11 +12,30 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CHECKOUT_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=ACTIVATION_ENDPOINT");
 
-    let hex_key = match env::var("CHECKOUT_PUBLIC_KEY") {
-        Ok(k) => k,
-        Err(_) => "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
+    // RFC 8032 测试向量：仅用于开发构建与单元测试，绝不能进发行包。
+    const DEV_KEY: &str = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+    let provided = env::var("CHECKOUT_PUBLIC_KEY")
+        .ok()
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty());
+    // PROFILE 由 cargo 提供：release 构建必须注入生产公钥，否则直接编译失败，
+    // 避免"忘记配 Secret 也能打出带 DEV 公钥的发行包"。
+    let is_release = env::var("PROFILE").map(|p| p == "release").unwrap_or(false);
+    let (hex_key, is_dev_key) = match provided {
+        Some(k) => (k, false),
+        None => {
+            if is_release {
+                panic!(
+                    "release 构建必须通过环境变量 CHECKOUT_PUBLIC_KEY 注入生产 Ed25519 公钥（64 位 hex）。\
+                     CI 请在仓库 Secrets 中配置该变量；本地请先 export 再 build。"
+                );
+            }
+            (DEV_KEY.to_string(), true)
+        }
     };
-    let is_dev_key = env::var("CHECKOUT_PUBLIC_KEY").is_err();
+    if is_release && hex_key.eq_ignore_ascii_case(DEV_KEY) {
+        panic!("CHECKOUT_PUBLIC_KEY 仍是开发占位公钥，禁止用于 release 构建");
+    }
     let bytes = hex::decode(&hex_key).expect("CHECKOUT_PUBLIC_KEY 必须是 64 位 hex");
     let arr: [u8; 32] = bytes
         .try_into()

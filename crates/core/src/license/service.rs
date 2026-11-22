@@ -174,6 +174,8 @@ impl LicenseService {
                 .map(str::trim)
                 .filter(|k| !k.is_empty())
                 .map(str::to_string),
+            // 重新激活/续期成功即清除撤销标记。
+            revoked: false,
         };
         self.store.save(&bundle)?;
         mirror_to_db(conn, &bundle)?;
@@ -269,6 +271,21 @@ impl LicenseService {
         };
 
         // 权威源裁决：安全存储载荷为准，重验签后覆盖镜像
+        // 服务端已撤销的授权：签名仍有效，但必须按撤销处理，不得显示已激活。
+        if bundle.revoked {
+            append_audit(
+                conn,
+                AuditEvent::DegradedEntered,
+                Some(&payload.license_id),
+                Some(&token_hash_prefix(&bundle.token)),
+                None,
+                json!({"event":"REVOKE_REMEMBERED"}),
+                &now,
+            )?;
+            let snap = Self::degraded_snapshot(Some(payload.clone()));
+            self.persist_state(conn, &snap)?;
+            return Ok(snap);
+        }
         mirror_to_db(conn, &bundle)?;
 
         let current_fp = device_fingerprint()?;
@@ -410,18 +427,14 @@ impl LicenseService {
     /// 不再显示「已激活」以免误导。原始载荷保留，便于恢复后重新刷新。
     pub fn mark_revoked(&self, conn: &Connection, reason: &str) -> Result<LicenseSnapshot> {
         let bundle = self.store.load()?;
+        // 必须先落持久撤销标记再降级内存状态：否则下次启动只用签名重验，
+        // 会重新判成 ACTIVE，服务端的撤销决定在离线启动后失效。
+        if let Some(mut b) = bundle.clone() {
+            b.revoked = true;
+            self.store.save(&b)?;
+        }
         let payload = bundle.as_ref().map(|b| b.payload.clone());
-        let snap = LicenseSnapshot {
-            status: LicenseStatus::OFFLINE_DEGRADED,
-            entitlements: payload
-                .as_ref()
-                .map(|p| p.entitlements.clone())
-                .unwrap_or_default(),
-            valid_until: payload.as_ref().and_then(|p| p.valid_until.clone()),
-            maintenance_until: payload.as_ref().and_then(|p| p.maintenance_until.clone()),
-            trial_ends_at: None,
-            payload,
-        };
+        let snap = Self::degraded_snapshot(payload);
         let license_id = snap.payload.as_ref().map(|p| p.license_id.clone());
         append_audit(
             conn,
@@ -456,13 +469,17 @@ impl LicenseService {
         match row {
             Some((started_at, ends_at)) => {
                 let start = parse_rfc3339(&started_at)?;
-                // 单调水位：试用期判定不早于开始时间，回拨不延长试用
-                let effective = if system_now > start {
-                    system_now
-                } else {
-                    start
-                };
-                if system_now < start - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS) {
+                // 单调水位：单独持久化"见过的最大时间"。
+                // 只看 max(now, start) 不够——回拨到开始日之前时 now 永远小于 start，
+                // 试用期就永久停在第一天；水位必须写盘并在每次启动时推进。
+                let watermark = Self::trial_watermark(conn)?;
+                let mut effective = system_now.max(start);
+                if let Some(w) = watermark {
+                    effective = effective.max(w);
+                }
+                if watermark.map(|w| system_now < w - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS)).unwrap_or(false)
+                    || system_now < start - chrono::Duration::hours(CLOCK_SKEW_TOLERANCE_HOURS)
+                {
                     append_audit(
                         conn,
                         AuditEvent::ClockRollbackDetected,
@@ -472,6 +489,9 @@ impl LicenseService {
                         json!({"scope": "trial", "effective_now": format_utc(&effective)}),
                         &now,
                     )?;
+                }
+                if watermark.map(|w| effective > w).unwrap_or(true) {
+                    Self::save_trial_watermark(conn, effective)?;
                 }
                 let ends = match ends_at.as_deref().map(parse_rfc3339) {
                     Some(Ok(t)) => t,
@@ -527,14 +547,50 @@ impl LicenseService {
         }
     }
 
-    fn trial_snapshot(ends: DateTime<Utc>) -> LicenseSnapshot {
-        LicenseSnapshot {
+    /// 读取试用单调水位（见过的最大可信时间）。损坏记录按"无水位"处理。
+    fn trial_watermark(conn: &Connection) -> Result<Option<DateTime<Utc>>> {
+        let row: Option<String> = conn
+            .query_row(
+                "SELECT updated_at FROM license_state WHERE state_key='trial_watermark'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        Ok(row.and_then(|s| parse_rfc3339(&s).ok()))
+    }
+
+    fn save_trial_watermark(conn: &Connection, t: DateTime<Utc>) -> Result<()> {
+        conn.execute(
+            "INSERT INTO license_state(state_key,state,license_type,entitlements_json,valid_until,maintenance_until,updated_at)
+             VALUES ('trial_watermark','TRIAL_CLOCK','TRIAL','[]',NULL,NULL,?1)
+             ON CONFLICT(state_key) DO UPDATE SET updated_at=excluded.updated_at",
+            [format_utc(&t)],
+        )?;
+        Ok(())
+    }
+
+    fn trial_snapshot(ends: DateTime<Utc>) -> LicenseSnapshot {        LicenseSnapshot {
             status: LicenseStatus::TRIAL_ACTIVE,
             payload: None,
             entitlements: TRIAL_ENTITLEMENTS.iter().map(|s| s.to_string()).collect(),
             valid_until: Some(format_utc(&ends)),
             maintenance_until: None,
             trial_ends_at: Some(format_utc(&ends)),
+        }
+    }
+
+    /// 授权被服务端撤销后的降级快照：保留载荷与权益用于展示/恢复，但不显示已激活。
+    fn degraded_snapshot(payload: Option<LicensePayload>) -> LicenseSnapshot {
+        LicenseSnapshot {
+            status: LicenseStatus::OFFLINE_DEGRADED,
+            entitlements: payload
+                .as_ref()
+                .map(|p| p.entitlements.clone())
+                .unwrap_or_default(),
+            valid_until: payload.as_ref().and_then(|p| p.valid_until.clone()),
+            maintenance_until: payload.as_ref().and_then(|p| p.maintenance_until.clone()),
+            trial_ends_at: None,
+            payload,
         }
     }
 

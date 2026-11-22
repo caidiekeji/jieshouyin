@@ -10,17 +10,32 @@ const parentId = ref<number | null>(null)
 const err = ref('')
 const okMsg = ref('')
 
+type CategoryNode = Category & { children: CategoryNode[] }
+
 /** 扁平分类按 parent_id 组装成树；孤儿节点（父不存在）归为顶层，避免丢失 */
-const tree = computed(() => {
-  const nodes = new Map<number, Category & { children: Category[] }>()
+const tree = computed<CategoryNode[]>(() => {
+  const nodes = new Map<number, CategoryNode>()
   categories.value.forEach((c) => nodes.set(c.category_id, { ...c, children: [] }))
-  const roots: Array<Category & { children: Category[] }> = []
+  const roots: CategoryNode[] = []
   nodes.forEach((node) => {
     const parent = node.parent_id != null ? nodes.get(node.parent_id) : null
     if (parent) parent.children.push(node)
     else roots.push(node)
   })
   return roots
+})
+
+/** 展平成带层级的行：分类树不限层数，第三层及以下也要能看见、改名、删除 */
+const flatTree = computed(() => {
+  const out: Array<{ node: CategoryNode; depth: number }> = []
+  const walk = (list: CategoryNode[], depth: number) => {
+    for (const node of list) {
+      out.push({ node, depth })
+      if (node.children.length) walk(node.children, depth + 1)
+    }
+  }
+  walk(tree.value, 0)
+  return out
 })
 
 const allParents = computed(() =>
@@ -91,20 +106,18 @@ onMounted(reload)
       <p v-if="err" class="error">{{ err }}</p>
       <p v-if="okMsg" class="ok-msg">{{ okMsg }}</p>
 
-      <div v-if="tree.length" class="category-tree">
-        <div v-for="root in tree" :key="root.category_id" class="category-branch">
-          <div class="category-node root-node">
-            {{ root.name }}
-            <button class="btn btn-sm ghost" @click="rename(root)">改名</button>
-            <button class="btn btn-sm ghost danger-text" @click="remove(root)">删除</button>
-          </div>
-          <div v-if="root.children.length" class="category-children">
-            <span v-for="child in root.children" :key="child.category_id" class="category-node child-node">
-              {{ child.name }}
-              <button class="btn btn-sm ghost" @click="rename(child)">改名</button>
-              <button class="btn btn-sm ghost danger-text" @click="remove(child)">删除</button>
-            </span>
-          </div>
+      <div v-if="flatTree.length" class="category-tree">
+        <div
+          v-for="row in flatTree"
+          :key="row.node.category_id"
+          class="category-row"
+          :style="{ paddingLeft: `${row.depth * 20}px` }"
+        >
+          <span class="category-node" :class="row.depth === 0 ? 'root-node' : 'child-node'">
+            {{ row.node.name }}
+          </span>
+          <button class="btn btn-sm ghost" @click="rename(row.node)">改名</button>
+          <button class="btn btn-sm ghost danger-text" @click="remove(row.node)">删除</button>
         </div>
       </div>
       <p v-else class="empty">暂无分类</p>
@@ -131,10 +144,9 @@ onMounted(reload)
 </template>
 
 <style scoped>
-.category-tree { display: flex; flex-direction: column; gap: var(--space-3); }
-.category-branch { display: flex; flex-direction: column; gap: var(--space-2); padding-left: var(--space-2); border-left: var(--border-width) solid var(--brand-border); }
+.category-tree { display: flex; flex-direction: column; gap: var(--space-2); }
+.category-row { display: flex; align-items: center; gap: var(--space-2); border-left: var(--border-width) solid var(--brand-border); }
 .category-node { padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); width: fit-content; }
 .root-node { background: var(--chrome-subtle); color: var(--chrome); font-weight: 600; }
-.category-children { display: flex; flex-wrap: wrap; gap: var(--space-2); padding-left: var(--space-4); }
 .child-node { background: var(--surface-subtle); color: var(--text); font-size: var(--font-sm); }
 </style>

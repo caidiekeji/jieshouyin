@@ -393,6 +393,16 @@ pub fn create_product_full(
     if is_weighed && instore_code.is_none() {
         return Err(CoreError::Validation("称重商品必须填写店内码".into()));
     }
+    if let Some(mp) = member_price_cents {
+        if mp < 0 {
+            return Err(CoreError::Validation("会员价不能为负".into()));
+        }
+        if mp > sale_price_cents {
+            return Err(CoreError::Validation(format!(
+                "会员价 {mp} 不能高于售价 {sale_price_cents}"
+            )));
+        }
+    }
     // 店内码是唯一检索键，先给可读错误。
     if let Some(code) = instore_code.map(str::trim).filter(|c| !c.is_empty()) {
         let exists: Option<i64> = conn
@@ -493,11 +503,27 @@ pub fn update_product_full(
     member_price_cents: Option<i64>,
     instore_code: Option<&str>,
 ) -> Result<()> {
-    update_product(conn, sku_id, sale_price_cents, alert_qty)?;
-    conn.execute(
+    if let Some(mp) = member_price_cents {
+        // 负数会员价会在促销引擎里被当成 0 优惠，也会让退款按负价计算；
+        // 高于售价则等于没有会员价，统一拒绝，避免脏数据进入结算。
+        if mp < 0 {
+            return Err(CoreError::Validation("会员价不能为负".into()));
+        }
+        if mp > sale_price_cents {
+            return Err(CoreError::Validation(format!(
+                "会员价 {mp} 不能高于售价 {sale_price_cents}"
+            )));
+        }
+    }
+    // 售价/预警/会员价/店内码必须原子更新：分开写会在半途失败时留下
+    // "售价已改、会员价还是旧值"的错配数据。
+    let tx = conn.unchecked_transaction()?;
+    update_product(&tx, sku_id, sale_price_cents, alert_qty)?;
+    tx.execute(
         "UPDATE sku SET member_price_cents=?1, instore_code=?2 WHERE sku_id=?3",
         params![member_price_cents, instore_code, sku_id],
     )?;
+    tx.commit()?;
     Ok(())
 }
 

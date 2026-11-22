@@ -68,6 +68,12 @@ export interface KitchenRoute {
   port: number
 }
 
+/** 下单结果：厨打成功后才推进已下单快照，失败直接抛错 */
+export interface KitchenSubmitResult {
+  items: KitchenItem[]
+  print_message: string
+}
+
 /** 棋牌计时账单 */
 export interface ChessFee {
   elapsed_minutes: number
@@ -488,7 +494,7 @@ export const api = {
   saveServiceTableCart: (tableId: number, cartJson: string) =>
     invoke<void>('save_service_table_cart', { tableId, cartJson }),
   submitServiceTableOrder: (tableId: number, scene: string) =>
-    invoke<KitchenItem[]>('submit_service_table_order', { tableId, scene }),
+    invoke<KitchenSubmitResult>('submit_service_table_order', { tableId, scene }),
   returnServiceTableLine: (
     tableId: number,
     scene: string,
@@ -687,6 +693,10 @@ export const api = {
   // 交班闭环（§5.4）
   openShift: (openingFloatCents: number) =>
     invoke<number>('open_shift', { openingFloatCents }),
+  currentShift: () =>
+    invoke<{ shift_id: number; opened_at: string; opening_float_cents: number } | null>(
+      'current_shift'
+    ),
   closeShift: (
     shiftId: number,
     actualCashCents: number,

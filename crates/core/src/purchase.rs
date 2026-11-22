@@ -14,17 +14,49 @@ pub fn create_purchase_order(
     supplier_id: i64,
     items: &[(i64, i64, i64)], // (sku_id, ordered_qty, unit_cost_cents)
 ) -> Result<()> {
-    let total: i64 = items.iter().map(|(_, q, c)| q * c).sum();
-    conn.execute(
+    if items.is_empty() {
+        return Err(CoreError::Validation("采购单至少需要一条明细".into()));
+    }
+    // 先校验再写库：负数数量/成本会直接产生负库存与负总额，
+    // 溢出则让金额失真（i64 乘法在 release 下静默回绕）。
+    let mut total: i64 = 0;
+    for (sku, qty, cost) in items {
+        if *qty <= 0 {
+            return Err(CoreError::Validation(format!("SKU {sku} 订购数量必须大于 0")));
+        }
+        if *cost < 0 {
+            return Err(CoreError::Validation(format!("SKU {sku} 采购单价不能为负")));
+        }
+        let line = qty
+            .checked_mul(*cost)
+            .ok_or(CoreError::Money(format!("SKU {sku} 采购金额溢出")))?;
+        total = total
+            .checked_add(line)
+            .ok_or(CoreError::Money("采购单总额溢出".into()))?;
+    }
+    let supplier_exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM supplier WHERE supplier_id=?1 AND status=1",
+        [supplier_id],
+        |r| r.get(0),
+    )?;
+    if supplier_exists == 0 {
+        return Err(CoreError::Validation(format!(
+            "供应商 {supplier_id} 不存在或已停用"
+        )));
+    }
+    // 表头 + 明细同一事务：中途失败不留半张采购单。
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "INSERT INTO purchase_order(po_no,supplier_id,status,total_cents,created_at) VALUES (?1,?2,'DRAFT',?3,?4)",
         params![po_no, supplier_id, total, format_utc(&Utc::now())],
     )?;
     for (sku, qty, cost) in items {
-        conn.execute(
+        tx.execute(
             "INSERT INTO purchase_order_item(po_no,sku_id,ordered_qty,unit_cost_cents) VALUES (?1,?2,?3,?4)",
             params![po_no, sku, qty, cost],
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 
@@ -177,11 +209,11 @@ pub fn approve_stocktake(conn: &Connection, task_no: &str, approver_id: i64) -> 
             "盘点单状态 {status} 不可审批（需先录入实盘数）"
         )));
     }
-    let items: Vec<(i64, i64, i64)> = {
+    let items: Vec<(i64, i64)> = {
         let mut stmt = conn.prepare(
-            "SELECT sku_id, book_qty, COALESCE(counted_qty, book_qty) FROM stocktake_item WHERE stocktake_id=?1",
+            "SELECT sku_id, COALESCE(counted_qty, book_qty) FROM stocktake_item WHERE stocktake_id=?1",
         )?;
-        let rows = stmt.query_map([task_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let rows = stmt.query_map([task_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         let mut v = Vec::new();
         for row in rows {
             v.push(row?);
@@ -189,8 +221,15 @@ pub fn approve_stocktake(conn: &Connection, task_no: &str, approver_id: i64) -> 
         v
     };
     let tx = conn.unchecked_transaction()?;
-    for (sku, book, counted) in items {
-        let diff = counted - book;
+    for (sku, counted) in items {
+        // 调账基准必须是审批时的实时库存，而不是建单快照：
+        // 盘点期间发生的销售/入库若按快照调账，会把这段时间的变动再抹一遍。
+        let current: i64 = tx.query_row(
+            "SELECT COALESCE(qty,0) FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",
+            [sku],
+            |r| r.get(0),
+        )?;
+        let diff = counted - current;
         if diff != 0 {
             apply_event(
                 &tx,
@@ -202,6 +241,11 @@ pub fn approve_stocktake(conn: &Connection, task_no: &str, approver_id: i64) -> 
                 true,
             )?;
         }
+        // 覆盖快照差异为审批实际差异，供审计复核（book_qty 保留建单快照）。
+        tx.execute(
+            "UPDATE stocktake_item SET diff_qty=?1 WHERE stocktake_id=?2 AND sku_id=?3",
+            params![diff, task_id, sku],
+        )?;
     }
     let affected = tx.execute(
         "UPDATE stocktake SET status='ADJUSTED', approver_id=?1, finished_at=?2
