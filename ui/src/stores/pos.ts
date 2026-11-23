@@ -293,8 +293,14 @@ export const usePosStore = defineStore('pos', {
       }
     },
     onIndustryChange() {
+      // 切换行业后阻断旧行业信息：台位会话、购物车、POS 目录全部复位重载
       this.activeTable = null
       this.stopChessFeeTimer()
+      this.cart = []
+      this.tableSentQty = {}
+      this.posCategoryId = null
+      this.posProducts = []
+      void this.loadPosCatalog()
       void this.loadTechnicians()
       if (tableSaveTimer) { clearTimeout(tableSaveTimer); tableSaveTimer = null }
     },

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, formatMoney, type CartLine, type ProductHit, type ServiceTable, type TableCreateSpec } from '../api'
-import { ICON_SIZE } from '../constants'
-import Icon from './Icon.vue'
 import TableCreateDialog from './TableCreateDialog.vue'
 
 /**
@@ -174,19 +172,6 @@ async function clear(t: ServiceTable) {
   }
 }
 
-async function remove(t: ServiceTable) {
-  if (!window.confirm(`删除空包间 ${t.code}？`)) return
-  busy.value = true
-  try {
-    await api.deleteServiceTable(t.table_id)
-    await load()
-  } catch (e) {
-    emit('error', String(e))
-  } finally {
-    busy.value = false
-  }
-}
-
 onMounted(() => {
   void load()
   void loadFees()
@@ -224,10 +209,9 @@ onUnmounted(() => {
           <span v-else class="fee muted">未绑定房费</span>
           <span class="count">{{ itemCount(r) }} 件</span>
         </div>
-        <div class="card-actions" @click.stop>
-          <button v-if="r.status === 'OCCUPIED'" class="link" @click="startTransfer(r)">转台</button>
-          <button v-if="r.status === 'OCCUPIED'" class="link danger" @click="clear(r)">清台</button>
-          <button v-else-if="canManage" class="link danger" @click="remove(r)"><Icon name="trash" :size="ICON_SIZE.xs" />删除</button>
+        <div v-if="r.status === 'OCCUPIED'" class="card-actions" @click.stop>
+          <button class="link" @click="startTransfer(r)">转台</button>
+          <button class="link danger" @click="clear(r)">清台</button>
         </div>
       </article>
       <div v-if="!rooms.length" class="empty-board">

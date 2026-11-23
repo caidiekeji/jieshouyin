@@ -18,7 +18,8 @@ const {
   lockCode, lockCodeDraft, openOfficialSite, pendingIndustry, pointsConfigs,
   previewReceipt, printQueue, receiptPaperWidth, receiptPreview,
   receiptTemplateJson, reconDate, reconDiffs, reconSummary, trialDaysLeft,
-  reconText, refreshLicense, removeCredential, saveAllCredentials, saveConfig,
+  reconText, refreshLicense, removeCredential, saveAllCredentials,
+  configGroupChanged, saveConfigGroup, savePointsConfigs,
   saveLockCode, saveReceiptTemplate, saveStoreName, search,
   settingsTab, storeNameDraft, storeProfile, systemConfigGroups,
   theme, toggleChannel, toggleConfigSwitch, toggleUser,
@@ -202,8 +203,16 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
                     :type="c.kind === 'text' ? 'text' : 'number'"
                     :step="c.kind === 'decimal' ? '0.01' : '1'"
                   />
-                  <button v-if="c.kind !== 'switch'" class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
                 </div>
+              </div>
+              <!-- 组级统一保存：改完一组点一次，不再每个字段一个保存按钮 -->
+              <div class="config-group-actions">
+                <button
+                  class="btn btn-sm primary"
+                  :disabled="!configGroupChanged(g.title)"
+                  @click="saveConfigGroup(g.title)"
+                >保存本组修改{{ configGroupChanged(g.title) ? `（${configGroupChanged(g.title)} 项）` : '' }}</button>
+                <span v-if="configGroupChanged(g.title)" class="muted small">有未保存的修改</span>
               </div>
             </div>
             <div v-show="activeConfigGroup === '安全'" class="card wide">
@@ -273,8 +282,10 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
                   step="1"
                   min="0"
                 />
-                <button v-if="c.kind !== 'switch'" class="btn btn-sm" @click="saveConfig(c.config_key)">保存</button>
               </div>
+            </div>
+            <div class="config-group-actions">
+              <button class="btn btn-sm primary" @click="savePointsConfigs">保存积分配置</button>
             </div>
             <div class="points-summary">
               <Icon name="star" :size="ICON_SIZE.md" />

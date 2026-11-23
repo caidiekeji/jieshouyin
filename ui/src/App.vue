@@ -12,6 +12,7 @@ import AuthView from './views/AuthView.vue'
 import PosView from './views/PosView.vue'
 import ReportView from './views/ReportView.vue'
 import SettingsView from './views/SettingsView.vue'
+import TableManageView from './views/TableManageView.vue'
 import DialogLayer from './views/DialogLayer.vue'
 import { useAppStore } from './stores/app'
 import { usePosStore } from './stores/pos'
@@ -26,8 +27,7 @@ const {
   couponDialogOpen, currentRole, currentUser, doLogout,
   focusScan, goPOS, goProducts, goReport, goShift,
   goSettings, goodsTab, gotoOrder, gotoRefund,
-  industry, keyword, loadLockCode, loadPosCatalog,
-  loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
+  industry, keyword, loadLockCode, loadPosCatalog,  loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
   memberId, nativeDialog, nativeMode, openMemberDialog,
   openParkDialog, orderNo, park, parkDialogOpen,
   parked, payChannel, payMode, posDialogOpen,
@@ -56,7 +56,7 @@ watch(view, (v) => {
   }
 })
 watch([view, currentRole], () => {
-  const guarded: string[] = ['products', 'categories', 'supply', 'member', 'refund', 'order', 'report', 'settings', 'parked']
+  const guarded: string[] = ['products', 'categories', 'tables', 'supply', 'member', 'refund', 'order', 'report', 'settings', 'parked']
   if (guarded.includes(view.value) && !app.atLeast('MANAGER')) view.value = 'pos'
   if (view.value === 'settings') {
     const tab = app.settingsTabs.find((t) => t.id === settingsTab.value)
@@ -152,6 +152,12 @@ onUnmounted(() => {
           <button :class="['nav-btn', { active: view === 'shift' }]" @click="goShift"><Icon name="clipboard" :size="ICON_SIZE.lg" />交班</button>
           <template v-if="atLeast('MANAGER')">
             <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="package" :size="ICON_SIZE.lg" />商品</button>
+            <!-- 桌台/包间管理：台位的批量创建与删除集中在此，收银看板保持纯净 -->
+            <button
+              v-if="industry === 'RESTAURANT' || industry === 'BOARD_GAME' || industry === 'WELLNESS'"
+              :class="['nav-btn', { active: view === 'tables' }]"
+              @click="view = 'tables'"
+            ><Icon name="store" :size="ICON_SIZE.lg" />{{ industry === 'RESTAURANT' ? '桌台管理' : '包间管理' }}</button>
             <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="clipboard" :size="ICON_SIZE.lg" />采购盘点</button>
             <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="heart" :size="ICON_SIZE.lg" />会员营销</button>
             <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="undo" :size="ICON_SIZE.lg" />退款</button>
@@ -190,6 +196,9 @@ onUnmounted(() => {
         <ProductAdmin v-if="goodsTab === 'list'" />
         <CategoryAdmin v-else />
       </main>
+
+      <!-- 桌台/包间管理：餐饮=桌台，棋牌/养生=包间 -->
+      <TableManageView v-else-if="view === 'tables'" />
 
       <!-- 采购与盘点 -->
       <SupplyAdmin v-else-if="view === 'supply'" :request-auth="requireSensitiveAuth" />

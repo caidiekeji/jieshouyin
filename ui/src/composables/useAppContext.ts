@@ -205,6 +205,9 @@ const configOptions = (k: string) => ops.configOptions(k)
 const loadConfigs = () => ops.loadConfigs()
 const saveConfig = (k: string) => ops.saveConfig(k)
 const toggleConfigSwitch = (k: string) => ops.toggleConfigSwitch(k)
+const configGroupChanged = (title: string) => ops.configGroupChanged(title)
+const saveConfigGroup = (title: string) => ops.saveConfigGroup(title)
+const savePointsConfigs = () => ops.savePointsConfigs()
 const loadPaymentSettings = () => ops.loadPaymentSettings()
 const toggleChannel = (k: string, cur: string) => ops.toggleChannel(k, cur)
 const saveCredential = (f: string) => ops.saveCredential(f)
@@ -462,6 +465,9 @@ const goProducts = () => app.goProducts()
     runActiveReport,
     sanitizeCashInput,
     saveConfig,
+    configGroupChanged,
+    saveConfigGroup,
+    savePointsConfigs,
     saveCredential,
     saveLockCode,
     saveStoreName,

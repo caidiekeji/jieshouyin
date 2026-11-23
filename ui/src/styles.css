@@ -763,6 +763,12 @@ h2 { font-size: var(--font-lg); }
 /* 配置项控件按内容收缩，不再通栏铺满：文本框/下拉固定紧凑宽度，保存按钮紧随其右 */
 .config-control .input { flex: none; width: var(--layout-form-col-min); max-width: 100%; }
 .config-control select.input { width: var(--layout-form-col-min); }
+/* 配置分组卡片的组级保存条：与行内容留白分隔 */
+.config-group-actions {
+  display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-3); padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--border);
+}
 /* 行业选择：卡片式单选，每张卡片自述行业特征 */
 .industry-list {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--layout-form-col-min), 1fr));

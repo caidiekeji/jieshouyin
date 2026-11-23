@@ -8,7 +8,7 @@ import {
 
 export type View =
   | 'boot' | 'industry' | 'activate' | 'login' | 'pos'
-  | 'products' | 'categories' | 'supply' | 'member'
+  | 'products' | 'categories' | 'tables' | 'supply' | 'member'
   | 'parked' | 'report' | 'shift' | 'settings' | 'refund' | 'order'
 export type Role = 'CASHIER' | 'MANAGER' | 'ADMIN'
 export type SettingsTab = 'overview' | 'appearance' | 'staff' | 'technicians' | 'system' | 'payment' | 'points' | 'recon' | 'print'

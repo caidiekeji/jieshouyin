@@ -424,7 +424,8 @@
   --scene-title: var(--p-brand-800);
   --scene-sub: var(--p-ink-500);
   --scene-card: var(--p-ink-0);
-  --scene-card-line: var(--p-ink-300);
+  /* 桌台卡片描边：ink-400 保证白底看板上卡片轮廓一眼可辨 */
+  --scene-card-line: var(--p-ink-400);
   --scene-card-hover: var(--p-brand-50);
   --scene-card-active-line: var(--p-brand-600);
   --scene-card-active-ring: var(--p-brand-100);
@@ -513,7 +514,8 @@
   --scene-title: var(--p-sage-700);
   --scene-sub: var(--p-ink-500);
   --scene-card: var(--p-ink-0);
-  --scene-card-line: var(--p-sage-100);
+  /* 包间卡片描边：sage-300 保证浅绿底上卡片轮廓一眼可辨 */
+  --scene-card-line: var(--p-sage-300);
   --scene-card-hover: var(--p-sage-50);
   --scene-card-active-line: var(--p-sage-600);
   --scene-card-active-ring: rgba(109, 155, 118, 0.35);

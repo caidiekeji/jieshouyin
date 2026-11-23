@@ -47,6 +47,8 @@ export const useOpsStore = defineStore('ops', {
     // 系统配置
     configs: [] as ConfigRow[],
     configDraft: {} as Record<string, string>,
+    /** 加载时的基线快照：分组保存时只提交与基线不同的项 */
+    configBaseline: {} as Record<string, string>,
     // 支付设置
     credChannel: 'WECHAT' as 'WECHAT' | 'ALIPAY',
     credDraft: {} as Record<string, string>,
@@ -232,6 +234,7 @@ export const useOpsStore = defineStore('ops', {
         const draft: Record<string, string> = {}
         for (const c of this.configs) draft[c.config_key] = c.config_value
         this.configDraft = draft
+        this.configBaseline = { ...draft }
         const gap = Number(draft['scan_gap_ms'])
         if (Number.isFinite(gap) && gap > 0) usePosStore().setScanGapMs(gap)
       } catch (e) {
@@ -255,6 +258,63 @@ export const useOpsStore = defineStore('ops', {
       const next = prev === '1' ? '0' : '1'
       this.configDraft[key] = next
       if (!(await this.saveConfig(key))) this.configDraft[key] = prev
+    },
+    /** 分组内已修改（与基线不同）的配置项数量，0 表示无修改 */
+    configGroupChanged(title: string): number {
+      const group = this.systemConfigGroups.find((g) => g.title === title)
+      if (!group) return 0
+      return group.items.filter(
+        (c) => (this.configDraft[c.config_key] ?? '') !== (this.configBaseline[c.config_key] ?? '')
+      ).length
+    },
+    /** 分组统一保存：一次提交组内全部已修改项，避免每个字段一个保存按钮 */
+    async saveConfigGroup(title: string) {
+      const group = this.systemConfigGroups.find((g) => g.title === title)
+      if (!group) return
+      const changed = group.items.filter(
+        (c) => (this.configDraft[c.config_key] ?? '') !== (this.configBaseline[c.config_key] ?? '')
+      )
+      if (!changed.length) {
+        this.showToast('本组没有修改')
+        return
+      }
+      let saved = 0
+      for (const c of changed) {
+        try {
+          await api.setConfig(c.config_key, this.configDraft[c.config_key] ?? '')
+          saved++
+          if (c.config_key === 'print_auto') {
+            useAppStore().printAuto = this.configDraft[c.config_key] === '1'
+          }
+        } catch (e) {
+          this.showToast(`「${c.label}」保存失败：${String(e)}`, true)
+          break
+        }
+      }
+      await this.loadConfigs()
+      this.showToast(saved === changed.length ? `已保存 ${saved} 项配置` : `已保存 ${saved}/${changed.length} 项配置`)
+    },
+    /** 积分配置统一保存（同分组保存模式） */
+    async savePointsConfigs() {
+      const changed = this.pointsConfigs.filter(
+        (c) => (this.configDraft[c.config_key] ?? '') !== (this.configBaseline[c.config_key] ?? '')
+      )
+      if (!changed.length) {
+        this.showToast('积分配置没有修改')
+        return
+      }
+      let saved = 0
+      for (const c of changed) {
+        try {
+          await api.setConfig(c.config_key, this.configDraft[c.config_key] ?? '')
+          saved++
+        } catch (e) {
+          this.showToast(`「${c.label}」保存失败：${String(e)}`, true)
+          break
+        }
+      }
+      await this.loadConfigs()
+      this.showToast(saved === changed.length ? '积分配置已保存' : `已保存 ${saved}/${changed.length} 项`)
     },
 
     // ===== 支付设置 =====

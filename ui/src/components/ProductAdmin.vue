@@ -12,6 +12,15 @@ import {
   PRODUCT_NAME_MAX,
   TOAST_DURATION_MS,
 } from '../constants'
+import { useAppContext } from '../composables/useAppContext'
+
+const ctx = useAppContext()
+const { industry } = ctx
+
+/** 计时行业（棋牌/养生）：商品是按时间计费的服务项目，表单区别于零售 */
+const timedIndustry = computed(() => industry.value === 'BOARD_GAME' || industry.value === 'WELLNESS')
+/** 计时行业的计价单位选项（存入 SKU 的 unit 字段，POS 与房费展示共用） */
+const TIMED_UNITS = ['小时', '分钟', '次']
 
 const products = ref<ProductRow[]>([])
 const categories = ref<Category[]>([])
@@ -161,10 +170,14 @@ const EMPTY_FORM = () => ({
   isService: false, initialQty: 0, alertQty: 0, imageUrl: '',
 })
 
-/** 打开新增表单 */
+/** 打开新增表单：计时行业默认为按时间计费的服务项目 */
 function openCreate() {
   editSku.value = null
   form.value = EMPTY_FORM()
+  if (timedIndustry.value) {
+    form.value.isService = true
+    form.value.unit = '小时'
+  }
   createImageFile.value = null
   showCreate.value = true
 }
@@ -203,19 +216,21 @@ async function submitProduct() {
     if (form.value.name.trim().length > PRODUCT_NAME_MAX) {
       throw new Error(`商品名不能超过 ${PRODUCT_NAME_MAX} 个字符`)
     }
+    const timed = timedIndustry.value
     const payload = {
       name: form.value.name.trim(),
-      barcode: form.value.barcode.trim() || null,
-      instoreCode: form.value.instoreCode.trim() || null,
+      // 计时行业不涉及条码/店内码/库存，统一置空避免残留零售语义
+      barcode: timed ? null : (form.value.barcode.trim() || null),
+      instoreCode: timed ? null : (form.value.instoreCode.trim() || null),
       categoryId: form.value.categoryId,
-      unit: form.value.unit.trim() || '件',
+      unit: timed ? (form.value.unit.trim() || '小时') : (form.value.unit.trim() || '件'),
       salePriceCents: yuanToCents(form.value.salePrice || '0', '售价'),
-      costPriceCents: yuanToCents(form.value.costPrice || '0', '成本'),
+      costPriceCents: timed ? 0 : yuanToCents(form.value.costPrice || '0', '成本'),
       memberPriceCents: form.value.memberPrice.trim()
         ? yuanToCents(form.value.memberPrice, '会员价')
         : null,
-      isWeighed: form.value.isWeighed,
-      alertQty: intOrZero(String(form.value.alertQty), '预警值'),
+      isWeighed: timed ? false : form.value.isWeighed,
+      alertQty: timed ? 0 : intOrZero(String(form.value.alertQty), '预警值'),
     }
     const currentSku = editSku.value
     let skuId: number
@@ -223,10 +238,11 @@ async function submitProduct() {
       await api.updateProductProfile(currentSku, payload)
       skuId = currentSku
     } else {
+      const asService = timed || form.value.isService
       skuId = await api.createProduct({
         ...payload,
-        isService: form.value.isService,
-        initialQty: form.value.isService ? 0 : intOrZero(String(form.value.initialQty), '初始库存'),
+        isService: asService,
+        initialQty: asService ? 0 : intOrZero(String(form.value.initialQty), '初始库存'),
       })
     }
     // 图片：上传的本地文件优先，其次登记在线地址。
@@ -323,10 +339,33 @@ onMounted(reload)
     <p v-if="err" class="error">{{ err }}</p>
     <p v-if="okMsg" class="ok-msg">{{ okMsg }}</p>
 
-    <!-- 新增/编辑共用同一张完整表单 -->
+    <!-- 新增/编辑共用同一张完整表单；计时行业（棋牌/养生）显示按时间计费的精简表单 -->
     <div v-if="showCreate" class="card">
       <h3>{{ editSku != null ? `编辑商品 · ${editingProduct?.name ?? ''}` : '新增商品' }}</h3>
-      <div class="form-grid">
+      <!-- 计时行业：项目按时间计费，不计库存、无条码 -->
+      <template v-if="timedIndustry">
+        <p class="muted small">当前为计时行业：项目按时间计费（单价 × 时长），不计库存；包间房费绑定在「包间管理」里维护。</p>
+        <div class="form-grid">
+          <label>名称<input v-model="form.name" class="input" placeholder="如 棋牌房费 / 按摩理疗" /></label>
+          <label>分类
+            <select v-model="form.categoryId" class="input">
+              <option v-for="c in categories" :key="c.category_id" :value="c.category_id">{{ c.name }}</option>
+            </select>
+          </label>
+          <label>单价（元）<input v-model="form.salePrice" class="input" placeholder="如 20.00" /></label>
+          <label>计价单位
+            <select v-model="form.unit" class="input">
+              <option v-for="u in TIMED_UNITS" :key="u" :value="u">{{ u }}</option>
+            </select>
+          </label>
+          <label>会员价（元）<input v-model="form.memberPrice" class="input" placeholder="可选" /></label>
+          <label class="checkbox-label">
+            <input type="checkbox" checked disabled /> 计时/服务项目（不计库存）
+          </label>
+        </div>
+      </template>
+      <!-- 零售行业：完整商品档案 -->
+      <div v-else class="form-grid">
         <label>名称<input v-model="form.name" class="input" placeholder="商品名称" /></label>
         <label>条码<input v-model="form.barcode" class="input" placeholder="条码（称重商品可留空）" /></label>
         <label>店内码（称重必填）<input v-model="form.instoreCode" class="input" placeholder="5 位店内商品代码" /></label>
@@ -341,10 +380,6 @@ onMounted(reload)
         <label>成本（元）<input v-model="form.costPrice" class="input" placeholder="如 2.10" /></label>
         <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" :disabled="form.isService || editSku != null" /></label>
         <label>库存预警值<input v-model.number="form.alertQty" class="input" type="number" min="0" :disabled="form.isService" /></label>
-        <label>商品图片（本地文件）
-          <input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="pickCreateImage" />
-        </label>
-        <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
         <label class="checkbox-label">
           <input v-model="form.isService" type="checkbox" :disabled="editSku != null" @change="onServiceToggle" /> 服务项目（不计库存）
         </label>
@@ -352,7 +387,13 @@ onMounted(reload)
           <input v-model="form.isWeighed" type="checkbox" :disabled="form.isService" /> 称重商品（按克计价）
         </label>
       </div>
-      <p v-if="editSku != null" class="muted small">编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。</p>
+      <div class="form-grid">
+        <label>商品图片（本地文件）
+          <input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="pickCreateImage" />
+        </label>
+        <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
+      </div>
+      <p v-if="editSku != null && !timedIndustry" class="muted small">编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。</p>
       <div class="op-form">
         <button class="btn primary" @click="submitProduct"><Icon name="check" :size="ICON_SIZE.sm" />{{ editSku != null ? '保存修改' : '创建商品' }}</button>
         <button class="btn ghost" @click="closeForm">取消</button>

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, type CartLine, type ServiceTable, type TableCreateSpec } from '../api'
-import { ICON_SIZE } from '../constants'
-import Icon from './Icon.vue'
 import TableCreateDialog from './TableCreateDialog.vue'
 
 const props = defineProps<{
@@ -145,19 +143,6 @@ async function clear(t: ServiceTable) {
   }
 }
 
-async function remove(t: ServiceTable) {
-  if (!window.confirm(`删除空桌台 ${t.code}？`)) return
-  busy.value = true
-  try {
-    await api.deleteServiceTable(t.table_id)
-    await load()
-  } catch (e) {
-    emit('error', String(e))
-  } finally {
-    busy.value = false
-  }
-}
-
 onMounted(() => {
   void load()
   timer = setInterval(() => (nowTick.value = Date.now()), 30000)
@@ -200,13 +185,10 @@ onUnmounted(() => {
           <span v-else class="free">空闲</span>
           <span class="count">{{ itemCount(t) }} 件</span>
         </div>
-        <div class="card-actions" @click.stop>
-          <template v-if="t.status === 'OCCUPIED'">
-            <button class="link" @click="startAction('transfer', t)">转台</button>
-            <button class="link" @click="startAction('merge', t)">并台</button>
-            <button class="link danger" @click="clear(t)">清台</button>
-          </template>
-          <button v-else-if="canManage" class="link danger" @click="remove(t)"><Icon name="trash" :size="ICON_SIZE.xs" />删除</button>
+        <div v-if="t.status === 'OCCUPIED'" class="card-actions" @click.stop>
+          <button class="link" @click="startAction('transfer', t)">转台</button>
+          <button class="link" @click="startAction('merge', t)">并台</button>
+          <button class="link danger" @click="clear(t)">清台</button>
         </div>
       </article>
       <div v-if="!tables.length" class="empty-board">
