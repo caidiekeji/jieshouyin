@@ -3,7 +3,6 @@ import RestaurantScene from '../components/RestaurantScene.vue'
 import ChessScene from '../components/ChessScene.vue'
 import BabyScene from '../components/BabyScene.vue'
 import WellnessScene from '../components/WellnessScene.vue'
-import TechnicianPanel from '../components/TechnicianPanel.vue'
 import Icon from '../components/Icon.vue'
 import { useAppContext } from '../composables/useAppContext'
 
@@ -26,7 +25,8 @@ const {
   couponCode,
   couponHint,
   couponRecoverable,
-  diningTableStage,
+  sceneBoardStage,
+  sceneCatalogOnly,
   effectivePrice,
   enterMixedMode,
   focusScan,
@@ -84,11 +84,22 @@ const {
       <main
         v-if="view === 'pos'"
         class="pos-layout"
-        :class="{ 'dining-table-stage': diningTableStage }"
+        :class="{ 'scene-board-stage': sceneBoardStage }"
       >
-        <!-- 餐饮桌台首页：未选中桌台时首屏只显示桌台看板，新建/进入桌台后再点菜或收银 -->
-        <section v-if="diningTableStage" class="panel dining-home-panel">
+        <!-- 台位看板首页：餐饮桌台 / 棋牌包间。未选中台位时首屏只显示看板，进入台位后再点单收银 -->
+        <section v-if="sceneBoardStage" class="panel scene-home-panel">
           <RestaurantScene
+            v-if="industry === 'RESTAURANT'"
+            :active-table-id="null"
+            :cart="[]"
+            :member-id="memberId"
+            :can-manage="atLeast('MANAGER')"
+            @select="selectSceneTable"
+            @cleared="clearActiveTable"
+            @error="showSceneError"
+          />
+          <ChessScene
+            v-else-if="industry === 'BOARD_GAME'"
             :active-table-id="null"
             :cart="[]"
             :member-id="memberId"
@@ -102,25 +113,15 @@ const {
         <!-- 点菜/收银阶段：餐饮已选桌台，或其他行业 -->
         <template v-else>
           <section class="panel product-panel">
-            <!-- 餐饮进入桌台后：显示当前桌台与返回桌台入口 -->
-            <div v-if="industry === 'RESTAURANT' && activeTable" class="dining-active-bar">
+            <!-- 进入台位后：当前台位信息条 + 返回看板入口 -->
+            <div v-if="activeTable" class="scene-active-bar">
               <div>
                 <strong>{{ activeTable.code }}</strong>
-                <span class="muted small">{{ activeTable.name }} · 用餐中</span>
+                <span class="muted small">{{ activeTable.name }} · {{ industry === 'RESTAURANT' ? '用餐中' : '使用中' }}</span>
               </div>
-              <button class="btn btn-sm ghost" @click="backToDiningTables">← 返回桌台</button>
+              <button class="btn btn-sm ghost" @click="backToDiningTables">← 返回{{ industry === 'RESTAURANT' ? '桌台' : '包间' }}</button>
             </div>
 
-            <ChessScene
-              v-if="industry === 'BOARD_GAME'"
-              :active-table-id="activeTable?.table_id ?? null"
-              :cart="cart"
-              :member-id="memberId"
-              :can-manage="atLeast('MANAGER')"
-              @select="selectSceneTable"
-              @cleared="clearActiveTable"
-              @error="showSceneError"
-            />
             <BabyScene
               v-if="industry === 'BABY'"
               @add="addToCart"
@@ -130,11 +131,6 @@ const {
               v-if="industry === 'WELLNESS'"
               @add="addToCart"
               @error="showSceneError"
-            />
-            <TechnicianPanel
-              v-if="industry === 'WELLNESS'"
-              :can-manage="atLeast('MANAGER')"
-              @changed="loadTechnicians"
             />
             <div class="search-row scan-search">
             <input
@@ -166,7 +162,7 @@ const {
             </div>
           </div>
           <!-- 能扫能点：分类页签 + 商品卡片，触摸屏不用键盘也能点单 -->
-          <div v-else class="pos-catalog">
+          <div v-else-if="!sceneCatalogOnly" class="pos-catalog">
             <div v-if="posRootCategories.length" class="pos-cat-row">
               <button
                 v-for="c in posRootCategories"

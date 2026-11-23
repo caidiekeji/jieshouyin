@@ -203,11 +203,11 @@ h2 { font-size: var(--font-lg); }
   gap: var(--space-4);
   padding: var(--space-4);
 }
-/* 餐饮桌台首页：未选桌台时桌台看板独占整屏，不显示点菜/收银两栏 */
-.pos-layout.dining-table-stage { grid-template-columns: 1fr; }
-.dining-home-panel { overflow: auto; }
-/* 已进入桌台：当前桌台信息条 + 返回桌台入口 */
-.dining-active-bar {
+/* 台位看板首页（餐饮桌台/棋牌包间）：未进台位时看板独占整屏，不显示点单/收银两栏 */
+.pos-layout.scene-board-stage { grid-template-columns: 1fr; }
+.scene-home-panel { overflow: auto; }
+/* 已进入台位：当前台位信息条 + 返回看板入口 */
+.scene-active-bar {
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--space-3); flex: none;
   padding: var(--space-2) var(--space-3);
@@ -216,7 +216,7 @@ h2 { font-size: var(--font-lg); }
   border-radius: var(--radius-md);
   background: var(--brand-subtle);
 }
-.dining-active-bar strong { margin-right: var(--space-2); }
+.scene-active-bar strong { margin-right: var(--space-2); }
 .panel {
   background: var(--panel);
   border: var(--border-width) solid var(--border);

@@ -11,8 +11,8 @@ export type View =
   | 'products' | 'categories' | 'supply' | 'member'
   | 'parked' | 'report' | 'settings' | 'refund' | 'order'
 export type Role = 'CASHIER' | 'MANAGER' | 'ADMIN'
-export type SettingsTab = 'overview' | 'appearance' | 'staff' | 'system' | 'payment' | 'points' | 'recon' | 'print'
-export type SettingsIcon = 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'star' | 'report' | 'print'
+export type SettingsTab = 'overview' | 'appearance' | 'staff' | 'technicians' | 'system' | 'payment' | 'points' | 'recon' | 'print'
+export type SettingsIcon = 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'star' | 'report' | 'print' | 'users'
 
 const ACTIVATION_PENDING_KEY = 'checkoutr.activation_pending'
 const LOCK_CODE_KEY = 'checkoutr.lock_code'
@@ -31,6 +31,8 @@ export interface SettingsTabDef {
   label: string
   icon: SettingsIcon
   minRole: Role
+  /** 限定可见行业；缺省为全部行业 */
+  industries?: string[]
 }
 
 export const useAppStore = defineStore('app', {
@@ -112,6 +114,7 @@ export const useAppStore = defineStore('app', {
         { id: 'overview', label: '门店概览', icon: 'store', minRole: 'MANAGER' },
         { id: 'appearance', label: '外观主题', icon: 'sun', minRole: 'MANAGER' },
         { id: 'staff', label: '员工管理', icon: 'shield', minRole: 'ADMIN' },
+        { id: 'technicians', label: '技师管理', icon: 'users', minRole: 'MANAGER', industries: ['WELLNESS'] },
         { id: 'system', label: '系统配置', icon: 'sliders', minRole: 'ADMIN' },
         { id: 'payment', label: '支付设置', icon: 'wallet', minRole: 'MANAGER' },
         { id: 'points', label: '积分配置', icon: 'star', minRole: 'MANAGER' },
@@ -120,7 +123,9 @@ export const useAppStore = defineStore('app', {
       ]
     },
     visibleSettingsTabs(): SettingsTabDef[] {
-      return this.settingsTabs.filter((t) => this.atLeast(t.minRole))
+      return this.settingsTabs.filter(
+        (t) => this.atLeast(t.minRole) && (!t.industries || t.industries.includes(this.industry)),
+      )
     },
     banner(state): string {
       if (!state.license) return ''

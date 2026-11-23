@@ -54,7 +54,8 @@ const {
 const needsActivation = computed(() => app.needsActivation)
 const authStep = computed(() => app.authStep)
 const industry = computed(() => app.industry)
-const diningTableStage = computed(() => pos.diningTableStage)
+const sceneBoardStage = computed(() => pos.sceneBoardStage)
+const sceneCatalogOnly = computed(() => pos.sceneCatalogOnly)
 const atLeast = app.atLeast
 const settingsTabs = computed(() => app.settingsTabs)
 const visibleSettingsTabs = computed(() => app.visibleSettingsTabs)
@@ -294,7 +295,8 @@ const goProducts = () => app.goProducts()
     currentShiftId,
     currentUser,
     differenceReason,
-    diningTableStage,
+    sceneBoardStage,
+    sceneCatalogOnly,
     doCloseShift,
     doLogout,
     doOpenShift,

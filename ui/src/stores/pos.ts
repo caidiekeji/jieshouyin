@@ -96,9 +96,15 @@ export const usePosStore = defineStore('pos', {
     // 弹窗聚焦
   }),
   getters: {
-    diningTableStage(state): boolean {
+    /** 台位看板阶段：餐饮/棋牌未选中台位时，首屏只显示看板（新建/进入后再点单收银） */
+    sceneBoardStage(state): boolean {
       const app = useAppStore()
-      return app.industry === 'RESTAURANT' && !state.activeTable
+      return (app.industry === 'RESTAURANT' || app.industry === 'BOARD_GAME') && !state.activeTable
+    },
+    /** 养生/母婴以场景看板为唯一浏览入口，隐藏通用商品分类（避免双份点单 UI） */
+    sceneCatalogOnly(state): boolean {
+      const app = useAppStore()
+      return app.industry === 'BABY' || app.industry === 'WELLNESS'
     },
     posRootCategories(state): Category[] {
       return state.posCategories.filter((c) => c.parent_id == null)

@@ -1,61 +1,25 @@
 <script setup lang="ts">
 import KitchenRoutePanel from '../components/KitchenRoutePanel.vue'
+import TechnicianPanel from '../components/TechnicianPanel.vue'
 import Switch from '../components/Switch.vue'
 import Icon from '../components/Icon.vue'
 import { useAppContext } from '../composables/useAppContext'
 
 const ctx = useAppContext()
 const {
-  ICON_SIZE,
-  addUser,
-  applyTheme,
-  atLeast,
-  channelDraft,
-  clearLockCode,
-  configDraft,
-  configLabel,
-  configOptions,
-  confirmIndustry,
-  credChannel,
-  credDraft,
-  credSaved,
-  currentCredFields,
-  doRetryPrint,
-  formatMoney,
-  gatewayModes,
-  importBill,
-  industries,
-  industry,
-  license,
-  licenseStatusLabel,
-  loadReconDiffs,
-  lockCode,
-  lockCodeDraft,
-  pendingIndustry,
-  pointsConfigs,
-  printQueue,
-  reconDate,
-  reconDiffs,
-  reconSummary,
-  reconText,
-  refreshLicense,
-  removeCredential,
-  saveConfig,
-  saveCredential,
-  saveLockCode,
-  saveStoreName,
-  search,
-  settingsTab,
-  storeNameDraft,
-  storeProfile,
-  systemConfigGroups,
-  theme,
-  toggleChannel,
-  toggleConfigSwitch,
-  toggleUser,
-  uForm,
-  users,
-  visibleSettingsTabs,
+  ICON_SIZE, addUser, applyTheme, atLeast,
+  channelDraft, clearLockCode, configDraft, configLabel,
+  configOptions, confirmIndustry, credChannel, credDraft,
+  credSaved, currentCredFields, doRetryPrint, formatMoney,
+  gatewayModes, importBill, industries, industry,
+  license, licenseStatusLabel, loadReconDiffs, loadTechnicians,
+  lockCode, lockCodeDraft, pendingIndustry, pointsConfigs,
+  printQueue, reconDate, reconDiffs, reconSummary,
+  reconText, refreshLicense, removeCredential, saveConfig,
+  saveCredential, saveLockCode, saveStoreName, search,
+  settingsTab, storeNameDraft, storeProfile, systemConfigGroups,
+  theme, toggleChannel, toggleConfigSwitch, toggleUser,
+  uForm, users, visibleSettingsTabs
 } = ctx
 </script>
 
@@ -317,6 +281,15 @@ const {
                 </div>
               </div>
               <p v-else class="muted small">无待重打订单</p>
+            </div>
+          </template>
+
+          <!-- 技师管理：仅养生行业（排班/在岗管理，从收银首屏移入设置中心） -->
+          <template v-else-if="settingsTab === 'technicians'">
+            <div class="card wide">
+              <h3>技师排班与在岗</h3>
+              <p class="muted small">维护技师资料、在岗状态与排班；收银台按在岗技师展示点单入口。仅店长及以上可修改。</p>
+              <TechnicianPanel :can-manage="atLeast('MANAGER')" @changed="loadTechnicians" />
             </div>
           </template>
         </div>
