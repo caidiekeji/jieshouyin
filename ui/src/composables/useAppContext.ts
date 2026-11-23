@@ -45,7 +45,7 @@ const {
 const {
   shiftRows, openingFloat, actualCash, differenceReason,
   reportMetas, activeReportId, activeReport, reportLoading, centerFrom, centerTo, reportTool,
-  configs, configDraft, credChannel, credDraft, credSaved, channelDraft,
+  configs, configDraft, credChannel, credDraft, credSaved, credBusy, channelDraft,
   reconDate, reconText, reconSummary, reconDiffs, printQueue,
   receiptTemplateJson, receiptPaperWidth, receiptPreview,
   opOrderNo, opItems, opQty, opMode, users, uForm,
@@ -302,7 +302,6 @@ const goProducts = () => app.goProducts()
     credChannel,
     credDraft,
     credSaved,
-    credBusy,
     currentCredFields,
     currentRole,
     currentShiftId,
