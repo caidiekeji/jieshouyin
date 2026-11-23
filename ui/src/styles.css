@@ -579,6 +579,17 @@ h2 { font-size: var(--font-lg); }
 .segmented button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .toolbar .input { flex: 1; min-width: var(--control-search-min-width); }
+/* 交班视图（班次管理）：单栏全宽下内容限宽居中，避免卡片被拉成通栏长条 */
+.admin-shell.shift-only .admin-main { max-width: var(--layout-admin-width); margin: 0 auto; width: 100%; }
+/* 班次管理：分节卡片 + 限宽字段；短字段定宽，仅差异原因可伸展 */
+.shift-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.shift-card h4 { margin: 0; font-size: var(--font-sm); }
+.shift-fields { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
+.shift-fields .btn { height: var(--control-height-form); }
+.shift-fields .field-label { gap: var(--space-1); }
+.shift-input { width: var(--control-input-md-width); flex: none; }
+.shift-field-grow { flex: 1 1 var(--control-search-min-width); min-width: 0; }
+.shift-field-grow .input { width: 100%; }
 .search-row .input { flex: 1; min-width: 0; }
 .form-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .form-row .input { flex: 1; min-width: var(--control-search-min-width); }

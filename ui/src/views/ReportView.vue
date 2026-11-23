@@ -98,39 +98,61 @@ const {
             </template>
             <div v-else class="empty">请选择左侧报表</div>
           </template>
-          <!-- 工具：班次管理 -->
+          <!-- 工具：班次管理（分节卡片 + 限宽字段，避免输入框被通栏拉宽） -->
           <template v-else-if="reportTool === 'shift'">
             <div class="report-head">
-              <h3>班次管理</h3>
-              <p class="muted small">开班设置备用金，关班需授权并核对现金差额。</p>
+              <h3>班次管理 <span v-if="currentShiftId" class="badge">当前班次 #{{ currentShiftId }}</span></h3>
+              <p class="muted small">开班设置备用金；关班需接班收银员或店长授权，并核对现金差额。</p>
             </div>
-            <div class="toolbar">
-              <input v-model="openingFloat" class="input" type="number" placeholder="开班备用金(元)" />
-              <button class="btn" @click="doOpenShift">开班</button>
-              <span v-if="currentShiftId" class="badge">当前班次 {{ currentShiftId }}</span>
+
+            <!-- 开班 -->
+            <div class="card shift-card">
+              <h4>开班</h4>
+              <div class="shift-fields">
+                <label class="field-label">备用金（元）
+                  <input v-model="openingFloat" class="input shift-input" type="number" min="0" aria-label="开班备用金（元）" />
+                </label>
+                <button class="btn" @click="doOpenShift">开班</button>
+              </div>
             </div>
-            <div class="toolbar">
-              <input v-model="actualCash" class="input" type="number" placeholder="关班实收现金(元)" />
-              <input v-model="differenceReason" class="input" type="text" placeholder="差异原因(有现金差额时必填)" />
-              <button class="btn" @click="doCloseShift">关班（需授权）</button>
+
+            <!-- 关班 -->
+            <div class="card shift-card">
+              <h4>关班</h4>
+              <div class="shift-fields">
+                <label class="field-label">实收现金（元）
+                  <input v-model="actualCash" class="input shift-input" type="number" min="0" aria-label="关班实收现金（元）" />
+                </label>
+                <label class="field-label shift-field-grow">差异原因<span class="muted">（有现金差额时必填）</span>
+                  <input v-model="differenceReason" class="input" type="text" aria-label="差异原因" />
+                </label>
+                <button class="btn" @click="doCloseShift">关班（需授权）</button>
+              </div>
             </div>
-            <div class="toolbar">
-              <input v-model.number="shiftId" class="input" type="number" placeholder="班次 ID" />
-              <button class="btn" @click="loadShift">查询汇总</button>
+
+            <!-- 汇总查询 -->
+            <div class="card shift-card">
+              <h4>交班汇总</h4>
+              <div class="shift-fields">
+                <label class="field-label">班次 ID
+                  <input v-model.number="shiftId" class="input shift-input" type="number" min="1" aria-label="班次 ID" />
+                </label>
+                <button class="btn" @click="loadShift">查询</button>
+              </div>
+              <table v-if="shiftRows.length" class="tbl">
+                <thead><tr><th>收银员</th><th class="num-cell">订单数</th><th class="num-cell">应收</th><th class="num-cell">实收</th><th class="num-cell">现金净额</th></tr></thead>
+                <tbody>
+                  <tr v-for="r in shiftRows" :key="r.cashier_id">
+                    <td>{{ r.cashier_id }}</td>
+                    <td class="num-cell">{{ r.order_count }}</td>
+                    <td class="num-cell">{{ formatMoney(r.total_cents) }}</td>
+                    <td class="num-cell">{{ formatMoney(r.pay_cents) }}</td>
+                    <td class="num-cell">{{ formatMoney(r.cash_net_cents) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-else class="empty">输入班次 ID 查询交班汇总</div>
             </div>
-            <table v-if="shiftRows.length" class="tbl">
-              <thead><tr><th>收银员</th><th class="num-cell">订单数</th><th class="num-cell">应收</th><th class="num-cell">实收</th><th class="num-cell">现金净额</th></tr></thead>
-              <tbody>
-                <tr v-for="r in shiftRows" :key="r.cashier_id">
-                  <td>{{ r.cashier_id }}</td>
-                  <td class="num-cell">{{ r.order_count }}</td>
-                  <td class="num-cell">{{ formatMoney(r.total_cents) }}</td>
-                  <td class="num-cell">{{ formatMoney(r.pay_cents) }}</td>
-                  <td class="num-cell">{{ formatMoney(r.cash_net_cents) }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-else class="empty">输入班次 ID 查询交班汇总</div>
           </template>
           <!-- 工具：订单作废 / 退货 -->
           <template v-else>
