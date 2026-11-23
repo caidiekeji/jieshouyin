@@ -394,6 +394,11 @@ h2 { font-size: var(--font-lg); }
   overflow-y: auto;
   display: flex; flex-direction: column; gap: var(--space-1);
 }
+/* 交班独立视图（收银员）：只有内容区，无报表目录侧栏 */
+.admin-shell.shift-only { grid-template-columns: 1fr; }
+/* 报表侧栏：隐藏滚动条视觉但保留滚动能力，避免窄栏里的滚动条抢视线 */
+.report-side { scrollbar-width: none; }
+.report-side::-webkit-scrollbar { display: none; }
 .admin-side-title {
   font-size: var(--font-sm); font-weight: 700;
   padding: var(--space-1) var(--space-2) var(--space-3);
@@ -403,35 +408,25 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-5) var(--space-6);
 }
 .settings-content { display: flex; flex-direction: column; gap: var(--space-5); }
-/* 设置中心：顶部页签布局（替代旧左栏），页头固定、内容独立滚动，一屏看全部分组 */
-.settings-shell {
-  flex: 1; min-height: 0; width: 100%;
-  display: flex; flex-direction: column;
-}
-.settings-head {
-  flex: none; padding: var(--space-4) var(--space-6) var(--space-0);
-  border-bottom: var(--border-width) solid var(--border);
-  background: var(--panel);
-}
-.settings-head h2 { margin: 0 0 var(--space-3); }
-.settings-tabs {
+/* 设置中心：一级导航恢复左栏（admin-shell + admin-side），内容区沿用 admin-main 独立滚动。
+   一级导航按钮带图标，复用报表左栏 .report-nav-item 的语义色，不另造一套。 */
+.settings-side .report-nav-item { display: flex; align-items: center; gap: var(--space-2); }
+/* 系统配置分组：顶部 tab 切换，选中态取主体石墨，与设置一级导航同语义 */
+.config-tabs {
   display: flex; gap: var(--space-1); flex-wrap: wrap;
+  border-bottom: var(--border-width) solid var(--border);
+  padding-bottom: var(--space-2);
 }
-.settings-tab {
-  display: inline-flex; align-items: center; gap: var(--space-2);
+.config-tab {
+  display: inline-flex; align-items: center;
   padding: var(--space-2) var(--space-3);
-  border: none; border-bottom: 2px solid transparent;
+  border: none; border-radius: var(--radius-sm);
   background: transparent; color: var(--text-muted);
   cursor: pointer; font-size: var(--font-sm);
 }
-.settings-tab:hover { color: var(--text); background: var(--surface-subtle); }
-.settings-tab.active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
-.settings-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-.settings-shell > .settings-content {
-  flex: 1; min-height: 0; overflow-y: auto;
-  padding: var(--space-5) var(--space-6);
-  max-width: var(--layout-admin-width); width: 100%;
-}
+.config-tab:hover { color: var(--text); background: var(--surface-subtle); }
+.config-tab.active { background: var(--chrome); color: var(--on-chrome); font-weight: 600; }
+.config-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 /* 凭据渠道按钮行：两个入口并列，不铺满 */
 .cred-channel-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
 .cred-modal { width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto; }

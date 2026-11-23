@@ -31,7 +31,7 @@ const {
   memberId, nativeDialog, nativeMode, openMemberDialog,
   openParkDialog, orderNo, park, parkDialogOpen,
   parked, payChannel, payMode, posDialogOpen,
-  products, refreshQuote, refundOrderNo, reportTool, requireSensitiveAuth,
+  products, refreshQuote, refundOrderNo, requireSensitiveAuth,
   scheduleTableSave, search, settingsTab, settingsTabs,
   stopChessFeeTimer, stopNativePolling, storeProfile, theme,
   view
@@ -148,9 +148,9 @@ onUnmounted(() => {
         </div>
         <nav class="nav">
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
+          <!-- 交班：收银员日常动作，接班收银员或店长二次授权确认；不依赖报表权限 -->
+          <button :class="['nav-btn', { active: view === 'shift' }]" @click="goShift"><Icon name="clipboard" :size="ICON_SIZE.lg" />交班</button>
           <template v-if="atLeast('MANAGER')">
-            <!-- 交班：班次管理入口，与报表同权限等级，避免收银员进入后被守卫踢回 -->
-            <button :class="['nav-btn', { active: view === 'report' && reportTool === 'shift' }]" @click="goShift"><Icon name="clipboard" :size="ICON_SIZE.lg" />交班</button>
             <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="package" :size="ICON_SIZE.lg" />商品</button>
             <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="clipboard" :size="ICON_SIZE.lg" />采购盘点</button>
             <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="heart" :size="ICON_SIZE.lg" />会员营销</button>
@@ -198,7 +198,7 @@ onUnmounted(() => {
       <MemberAdmin v-else-if="view === 'member'" />
 
       <!-- 报表 -->
-      <ReportView v-else-if="view === 'report'" />
+      <ReportView v-else-if="view === 'report' || view === 'shift'" />
 
 
       <!-- 退款 -->

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import KitchenRoutePanel from '../components/KitchenRoutePanel.vue'
 import TechnicianPanel from '../components/TechnicianPanel.vue'
 import ReceiptPreview from '../components/ReceiptPreview.vue'
@@ -29,6 +29,24 @@ const {
 const showTemplateJson = ref(false)
 /** 模板变量说明（含双花括号，放脚本里避免被 Vue 当作插值解析） */
 const templateVarHint = '模板 sections：header / items / summary / footer。可用变量：{{store_name}}、{{created_at}}、{{items}}、{{pay_total}}、{{table_code}} 等。修改后点「保存模板」，再点「刷新预览」查看渲染结果。'
+/** 系统配置分组顶部 tab：当前选中的分组标题（营业规则/支付时序/…/安全） */
+const activeConfigGroup = ref('')
+/** 分组标签 + 固定的「安全」卡片，前者随配置加载动态变化 */
+const configGroupTabs = computed(() => [
+  ...systemConfigGroups.value.map((g) => g.title),
+  '安全',
+])
+// 配置加载完成或行业切换导致分组变化时同步选中项：
+// 首次拿到真实分组前 tabs 只有「安全」，先不选；拿到后默认落到第一个业务分组。
+watch(configGroupTabs, (tabs) => {
+  const realGroups = tabs.filter((t) => t !== '安全')
+  if (!activeConfigGroup.value && realGroups.length) {
+    activeConfigGroup.value = realGroups[0]
+  } else if (!tabs.includes(activeConfigGroup.value)) {
+    activeConfigGroup.value = tabs[0] ?? ''
+  }
+}, { immediate: true })
+
 /** 商户凭据弹窗：点击渠道按钮弹出，避免设置页被密钥字段铺满 */
 const credDialogOpen = ref(false)
 function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
@@ -38,24 +56,21 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
 </script>
 
 <template>
-      <main class="settings-shell">
-        <header class="settings-head">
-          <h2>设置中心</h2>
-          <nav class="settings-tabs" role="tablist" aria-label="设置分类">
-            <button
-              v-for="t in visibleSettingsTabs"
-              :key="t.id"
-              role="tab"
-              :aria-selected="settingsTab === t.id"
-              :class="['settings-tab', { active: settingsTab === t.id }]"
-              @click="settingsTab = t.id"
-            >
-              <Icon :name="t.icon" :size="ICON_SIZE.md" />{{ t.label }}
-            </button>
-          </nav>
-        </header>
+      <main class="admin-shell">
+        <!-- 设置中心一级导航：恢复左栏（后台管理式布局），与报表中心同构 -->
+        <aside class="admin-side settings-side">
+          <div class="admin-side-title">设置中心</div>
+          <button
+            v-for="t in visibleSettingsTabs"
+            :key="t.id"
+            :class="['report-nav-item', { active: settingsTab === t.id }]"
+            @click="settingsTab = t.id"
+          >
+            <Icon :name="t.icon" :size="ICON_SIZE.md" />{{ t.label }}
+          </button>
+        </aside>
 
-        <div class="settings-content">
+        <div class="settings-content admin-main">
           <!-- 概览：门店信息 + 授权状态 -->
           <template v-if="settingsTab === 'overview'">
             <div class="card wide">
@@ -139,9 +154,24 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
             </div>
           </div>
 
-          <!-- 系统配置：按功能分区，同组同卡片；支付渠道归 payment 页、积分归 points 页，不重复 -->
+          <!-- 系统配置：分组用顶部 tab 切换，同组同卡片；支付渠道归 payment 页、积分归 points 页，不重复 -->
           <template v-else-if="settingsTab === 'system'">
-            <div v-for="g in systemConfigGroups" :key="g.title" class="card wide">
+            <nav class="config-tabs" role="tablist" aria-label="系统配置分组">
+              <button
+                v-for="title in configGroupTabs"
+                :key="title"
+                role="tab"
+                :aria-selected="activeConfigGroup === title"
+                :class="['config-tab', { active: activeConfigGroup === title }]"
+                @click="activeConfigGroup = title"
+              >{{ title }}</button>
+            </nav>
+            <div
+              v-for="g in systemConfigGroups"
+              v-show="activeConfigGroup === g.title"
+              :key="g.title"
+              class="card wide"
+            >
               <h3>{{ g.title }}</h3>
               <p class="muted small">{{ g.hint }}</p>
               <div v-for="c in g.items" :key="c.config_key" class="config-row config-row-stacked">
@@ -176,7 +206,7 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
                 </div>
               </div>
             </div>
-            <div class="card wide">
+            <div v-show="activeConfigGroup === '安全'" class="card wide">
               <h3>安全</h3>
               <p class="muted small">离岗锁屏、关闭窗口隐藏到托盘后需输入此码解锁（仅存本机）。</p>
               <div class="config-row config-row-stacked">

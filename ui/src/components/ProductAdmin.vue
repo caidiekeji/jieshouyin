@@ -20,8 +20,9 @@ const loading = ref(false)
 const err = ref('')
 const okMsg = ref('')
 
-// 新增商品表单
+// 商品表单：新增与编辑共用同一张完整表单，editSku 为 null 表示新增
 const showCreate = ref(false)
+const editSku = ref<number | null>(null)
 const form = ref({
   name: '',
   barcode: '',
@@ -37,15 +38,9 @@ const form = ref({
   alertQty: 0,
   imageUrl: '',
 })
-/** 新增表单选择的图片文件（file input 不能 v-model，单独持有 File） */
+/** 表单选择的图片文件（file input 不能 v-model，单独持有 File） */
 const createImageFile = ref<File | null>(null)
 
-// 行内编辑
-const editSku = ref<number | null>(null)
-const editPrice = ref('')
-const editAlert = ref('')
-const editMemberPrice = ref('')
-const editInstore = ref('')
 // 库存调整
 const adjustSku = ref<number | null>(null)
 const adjustQty = ref('')
@@ -160,88 +155,109 @@ function onServiceToggle() {
   }
 }
 
-async function createProduct() {
+const EMPTY_FORM = () => ({
+  name: '', barcode: '', instoreCode: '', categoryId: 1, unit: '件',
+  salePrice: '', costPrice: '', memberPrice: '', isWeighed: false,
+  isService: false, initialQty: 0, alertQty: 0, imageUrl: '',
+})
+
+/** 打开新增表单 */
+function openCreate() {
+  editSku.value = null
+  form.value = EMPTY_FORM()
+  createImageFile.value = null
+  showCreate.value = true
+}
+
+/** 打开编辑表单：用商品当前数据回填与新增相同的完整字段 */
+function startEdit(p: ProductRow) {
+  editSku.value = p.sku_id
+  form.value = {
+    name: p.name,
+    barcode: p.barcode ?? '',
+    instoreCode: p.instore_code ?? '',
+    categoryId: p.category_id,
+    unit: p.unit,
+    salePrice: (p.sale_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS),
+    costPrice: (p.cost_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS),
+    memberPrice: p.member_price_cents != null
+      ? (p.member_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS)
+      : '',
+    isWeighed: p.is_weighed,
+    isService: p.is_service,
+    // 期初库存是新建台账概念，编辑时仅回填展示、不允许修改（库存请用「库存」按钮调整）
+    initialQty: p.qty,
+    alertQty: p.alert_qty,
+    imageUrl: p.image_url ?? '',
+  }
+  createImageFile.value = null
+  showCreate.value = true
+}
+
+/** 当前正在编辑的商品（表单标题用） */
+const editingProduct = computed(() => products.value.find((p) => p.sku_id === editSku.value) ?? null)
+
+async function submitProduct() {
   try {
     if (!form.value.name.trim()) throw new Error('商品名不能为空')
     if (form.value.name.trim().length > PRODUCT_NAME_MAX) {
       throw new Error(`商品名不能超过 ${PRODUCT_NAME_MAX} 个字符`)
     }
-    const sale = yuanToCents(form.value.salePrice || '0', '售价')
-    const cost = yuanToCents(form.value.costPrice || '0', '成本')
-    const skuId = await api.createProduct({
-      name: form.value.name,
+    const payload = {
+      name: form.value.name.trim(),
       barcode: form.value.barcode.trim() || null,
       instoreCode: form.value.instoreCode.trim() || null,
       categoryId: form.value.categoryId,
       unit: form.value.unit.trim() || '件',
-      salePriceCents: sale,
-      costPriceCents: cost,
+      salePriceCents: yuanToCents(form.value.salePrice || '0', '售价'),
+      costPriceCents: yuanToCents(form.value.costPrice || '0', '成本'),
       memberPriceCents: form.value.memberPrice.trim()
         ? yuanToCents(form.value.memberPrice, '会员价')
         : null,
       isWeighed: form.value.isWeighed,
-      isService: form.value.isService,
-      initialQty: form.value.isService
-        ? 0
-        : intOrZero(String(form.value.initialQty), '初始库存'),
       alertQty: intOrZero(String(form.value.alertQty), '预警值'),
-    })
+    }
+    const currentSku = editSku.value
+    let skuId: number
+    if (currentSku != null) {
+      await api.updateProductProfile(currentSku, payload)
+      skuId = currentSku
+    } else {
+      skuId = await api.createProduct({
+        ...payload,
+        isService: form.value.isService,
+        initialQty: form.value.isService ? 0 : intOrZero(String(form.value.initialQty), '初始库存'),
+      })
+    }
     // 图片：上传的本地文件优先，其次登记在线地址。
-    // 商品已落库后再失败不会回滚商品，但必须明确告知并保留编辑入口，不能当成创建失败。
+    // 商品已落库后再失败不会回滚档案，但必须明确告知并保留编辑入口。
     try {
       if (createImageFile.value) {
-        const base64 = await readFileBase64(createImageFile.value)
-        await api.uploadProductImage(skuId, base64)
+        await api.uploadProductImage(skuId, await readFileBase64(createImageFile.value))
       }
       if (form.value.imageUrl.trim()) {
         await api.setProductImageUrl(skuId, form.value.imageUrl.trim())
       }
     } catch (imgErr) {
-      showCreate.value = false
-      createImageFile.value = null
+      closeForm()
       await reload()
-      fail(`商品已创建，但图片设置失败：${String(imgErr)}。可在商品编辑中重试图片`)
+      fail(`档案已保存，但图片设置失败：${String(imgErr)}。可再次编辑重试图片`)
       return
     }
-    showCreate.value = false
-    createImageFile.value = null
-    form.value = { name: '', barcode: '', instoreCode: '', categoryId: 1, unit: '件', salePrice: '', costPrice: '', memberPrice: '', isWeighed: false, isService: false, initialQty: 0, alertQty: 0, imageUrl: '' }
-    done('商品已创建')
+    closeForm()
+    done(currentSku != null ? '商品档案已保存' : '商品已创建')
     await reload()
   } catch (e) {
     fail(e)
   }
 }
 
-function startEdit(p: ProductRow) {
-  editSku.value = p.sku_id
-  editPrice.value = (p.sale_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS)
-  editAlert.value = String(p.alert_qty)
-  editMemberPrice.value = p.member_price_cents != null
-    ? (p.member_price_cents / CENTS_PER_YUAN).toFixed(CURRENCY_DECIMALS)
-    : ''
-  editInstore.value = p.instore_code ?? ''
-}
-
-/** 当前正在编辑的商品（弹窗标题用） */
-const editingProduct = computed(() => products.value.find((p) => p.sku_id === editSku.value) ?? null)
-
-async function saveEdit() {
-  if (editSku.value == null) return
-  try {
-    await api.updateProduct(
-      editSku.value,
-      yuanToCents(editPrice.value || '0', '售价'),
-      intOrZero(editAlert.value || '0', '预警值'),
-      editMemberPrice.value.trim() ? yuanToCents(editMemberPrice.value, '会员价') : null,
-      editInstore.value.trim() || null
-    )
-    editSku.value = null
-    done('已保存')
-    await reload()
-  } catch (e) {
-    fail(e)
-  }
+/** 关闭表单并复位编辑态 */
+function closeForm() {
+  showCreate.value = false
+  editSku.value = null
+  createImageFile.value = null
+  form.value = EMPTY_FORM()
 }
 
 /** 实体/服务互转：服务项目不计库存，转换前需库存为 0 且不能是称重商品。 */
@@ -301,14 +317,15 @@ onMounted(reload)
         <span v-if="loading" class="btn-spinner" aria-label="查询中"></span>
         <Icon v-else name="search" :size="ICON_SIZE.md" />{{ loading ? '查询中…' : '查询' }}
       </button>
-      <button class="btn primary" :aria-expanded="showCreate" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />{{ showCreate ? '收起表单' : '新增商品' }}</button>
+      <button class="btn primary" :aria-expanded="showCreate" @click="showCreate ? closeForm() : openCreate()"><Icon name="plus" :size="ICON_SIZE.md" />{{ showCreate ? '收起表单' : '新增商品' }}</button>
     </div>
 
     <p v-if="err" class="error">{{ err }}</p>
     <p v-if="okMsg" class="ok-msg">{{ okMsg }}</p>
 
+    <!-- 新增/编辑共用同一张完整表单 -->
     <div v-if="showCreate" class="card">
-      <h3>新增商品</h3>
+      <h3>{{ editSku != null ? `编辑商品 · ${editingProduct?.name ?? ''}` : '新增商品' }}</h3>
       <div class="form-grid">
         <label>名称<input v-model="form.name" class="input" placeholder="商品名称" /></label>
         <label>条码<input v-model="form.barcode" class="input" placeholder="条码（称重商品可留空）" /></label>
@@ -322,20 +339,24 @@ onMounted(reload)
         <label>售价（元）<input v-model="form.salePrice" class="input" placeholder="如 3.50" /></label>
         <label>会员价（元）<input v-model="form.memberPrice" class="input" placeholder="可选" /></label>
         <label>成本（元）<input v-model="form.costPrice" class="input" placeholder="如 2.10" /></label>
-        <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" :disabled="form.isService" /></label>
+        <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" :disabled="form.isService || editSku != null" /></label>
         <label>库存预警值<input v-model.number="form.alertQty" class="input" type="number" min="0" :disabled="form.isService" /></label>
         <label>商品图片（本地文件）
           <input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="pickCreateImage" />
         </label>
         <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
         <label class="checkbox-label">
-          <input v-model="form.isService" type="checkbox" @change="onServiceToggle" /> 服务项目（不计库存）
+          <input v-model="form.isService" type="checkbox" :disabled="editSku != null" @change="onServiceToggle" /> 服务项目（不计库存）
         </label>
         <label class="checkbox-label">
           <input v-model="form.isWeighed" type="checkbox" :disabled="form.isService" /> 称重商品（按克计价）
         </label>
       </div>
-      <button class="btn primary" @click="createProduct">创建商品</button>
+      <p v-if="editSku != null" class="muted small">编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。</p>
+      <div class="op-form">
+        <button class="btn primary" @click="submitProduct"><Icon name="check" :size="ICON_SIZE.sm" />{{ editSku != null ? '保存修改' : '创建商品' }}</button>
+        <button class="btn ghost" @click="closeForm">取消</button>
+      </div>
     </div>
 
     <div class="card">
@@ -410,29 +431,6 @@ onMounted(reload)
       </div>
     </div>
 
-    <!-- 编辑商品弹窗：后端支持的价格/会员价/店内码/预警字段集中填写 -->
-    <div v-if="editSku != null" class="modal-mask" @click.self="editSku = null">
-      <div class="modal edit-product-modal" role="dialog" aria-label="编辑商品">
-        <div class="modal-head">
-          <div>
-            <h3>编辑商品</h3>
-            <p class="muted small">{{ editingProduct?.name }} · {{ editingProduct?.category_name }} · {{ editingProduct?.unit }}</p>
-          </div>
-          <button class="btn btn-sm ghost" aria-label="关闭" @click="editSku = null"><Icon name="close" :size="ICON_SIZE.md" /></button>
-        </div>
-        <div class="form-grid">
-          <label>售价（元）<input v-model="editPrice" class="input" inputmode="decimal" aria-label="售价（元）" /></label>
-          <label>会员价（元，可空）<input v-model="editMemberPrice" class="input" inputmode="decimal" placeholder="留空表示无会员价" aria-label="会员价（元）" /></label>
-          <label>店内码（称重商品必填）<input v-model="editInstore" class="input" placeholder="5 位店内代码" aria-label="店内码" /></label>
-          <label>库存预警值<input v-model="editAlert" class="input" type="number" min="0" aria-label="库存预警值" /></label>
-        </div>
-        <p class="muted small">名称、条码、分类、单位、成本等档案字段如需修改，请新建商品后停用旧商品。类型切换、启停、图片请用列表中的对应按钮。</p>
-        <div class="modal-actions">
-          <button class="btn ghost" @click="editSku = null">取消</button>
-          <button class="btn primary" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" />保存修改</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -442,11 +440,6 @@ onMounted(reload)
    不复用全局 .actions（那是 POS 支付区双列 grid），避免覆盖导致表头与内容错位。 */
 .row-actions-cell { white-space: nowrap; }
 .row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-/* 编辑商品弹窗：紧凑表单 + 头部信息 + 底部操作 */
-.edit-product-modal { width: 560px; max-width: 92vw; }
-.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-.modal-head h3 { margin: 0; }
-.modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 /* 商品缩略图：固定方形，缺图不撑表格 */
 .thumb {
   width: var(--control-thumb-size); height: var(--control-thumb-size);

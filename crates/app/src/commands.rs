@@ -2517,6 +2517,40 @@ pub fn update_product(
     )
 }
 
+/// 商品档案全量编辑：与新增表单同字段范围，供设置/商品页「编辑」复用新增的完整表单。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn update_product_profile(
+    sku_id: i64,
+    category_id: i64,
+    name: String,
+    barcode: Option<String>,
+    instore_code: Option<String>,
+    unit: String,
+    sale_price_cents: i64,
+    cost_price_cents: i64,
+    member_price_cents: Option<i64>,
+    is_weighed: bool,
+    alert_qty: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::product::update_product_profile(
+        &conn,
+        sku_id,
+        category_id,
+        &name,
+        barcode.as_deref(),
+        instore_code.as_deref(),
+        &unit,
+        sale_price_cents,
+        cost_price_cents,
+        member_price_cents,
+        is_weighed,
+        alert_qty,
+    )
+}
+
 #[tauri::command]
 pub fn set_product_service(
     sku_id: i64,
@@ -5782,6 +5816,7 @@ pub fn run() {
             create_product,
             list_products,
             update_product,
+            update_product_profile,
             set_product_service,
             set_product_status,
             list_categories,

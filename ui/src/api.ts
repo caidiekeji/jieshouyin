@@ -607,6 +607,19 @@ export const api = {
     instoreCode: string | null
   ) =>
     invoke<void>('update_product', { skuId, salePriceCents, alertQty, memberPriceCents, instoreCode }),
+  /** 与 createProduct 同字段范围的完整档案编辑（不含期初库存/项目类型） */
+  updateProductProfile: (skuId: number, p: {
+    name: string
+    barcode: string | null
+    instoreCode: string | null
+    categoryId: number
+    unit: string
+    salePriceCents: number
+    costPriceCents: number
+    memberPriceCents: number | null
+    isWeighed: boolean
+    alertQty: number
+  }) => invoke<void>('update_product_profile', { skuId, ...p }),
   setProductService: (skuId: number, isService: boolean) =>
     invoke<void>('set_product_service', { skuId, isService }),
   setProductStatus: (spuId: number, status: number) =>

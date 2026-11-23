@@ -547,6 +547,113 @@ pub fn update_product(
     Ok(())
 }
 
+/// 商品档案全量编辑（与新增同字段范围）：名称/条码/店内码/分类/单位/售价/成本/会员价/称重/预警。
+/// 期初库存与项目类型不在此改：库存走 adjust_stock，类型走 set_product_service，避免绕过台账校验。
+pub fn update_product_profile(
+    conn: &Connection,
+    sku_id: i64,
+    category_id: i64,
+    name: &str,
+    barcode: Option<&str>,
+    instore_code: Option<&str>,
+    unit: &str,
+    sale_price_cents: i64,
+    cost_price_cents: i64,
+    member_price_cents: Option<i64>,
+    is_weighed: bool,
+    alert_qty: i64,
+) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CoreError::Validation("商品名不能为空".into()));
+    }
+    if name.chars().count() > crate::constants::PRODUCT_NAME_MAX_CHARS {
+        return Err(CoreError::Validation(format!(
+            "商品名不能超过 {} 个字符",
+            crate::constants::PRODUCT_NAME_MAX_CHARS
+        )));
+    }
+    if unit.trim().is_empty() {
+        return Err(CoreError::Validation("单位不能为空".into()));
+    }
+    if sale_price_cents < 0 || cost_price_cents < 0 || alert_qty < 0 {
+        return Err(CoreError::Validation("售价/成本/预警值不能为负".into()));
+    }
+    if let Some(mp) = member_price_cents {
+        if mp < 0 {
+            return Err(CoreError::Validation("会员价不能为负".into()));
+        }
+        if mp > sale_price_cents {
+            return Err(CoreError::Validation("会员价不能高于售价".into()));
+        }
+    }
+    let barcode = barcode.map(str::trim).filter(|b| !b.is_empty());
+    let instore_code = instore_code.map(str::trim).filter(|c| !c.is_empty());
+    if is_weighed && instore_code.is_none() {
+        return Err(CoreError::Validation("称重商品必须填写店内码".into()));
+    }
+    let spu_id: i64 = conn
+        .query_row("SELECT spu_id FROM sku WHERE sku_id=?1", [sku_id], |r| r.get(0))
+        .optional()?
+        .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在")))?;
+    let cat_exists: Option<i64> = conn
+        .query_row(
+            "SELECT category_id FROM category WHERE category_id=?1",
+            [category_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if cat_exists.is_none() {
+        return Err(CoreError::Validation(format!("分类 {category_id} 不存在")));
+    }
+    // 条码/店内码唯一：查重排除自身，否则编辑自身会被误判占用。
+    if let Some(b) = barcode {
+        let dup: Option<i64> = conn
+            .query_row(
+                "SELECT sku_id FROM sku WHERE barcode=?1 AND sku_id<>?2",
+                params![b, sku_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if dup.is_some() {
+            return Err(CoreError::Validation(format!("条码 {b} 已存在")));
+        }
+    }
+    if let Some(c) = instore_code {
+        let dup: Option<i64> = conn
+            .query_row(
+                "SELECT sku_id FROM sku WHERE instore_code=?1 AND sku_id<>?2",
+                params![c, sku_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if dup.is_some() {
+            return Err(CoreError::Validation(format!("店内码 {c} 已存在")));
+        }
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE spu SET category_id=?1, spu_name=?2, unit=?3 WHERE spu_id=?4",
+        params![category_id, name, unit.trim(), spu_id],
+    )?;
+    tx.execute(
+        "UPDATE sku SET barcode=?1, instore_code=?2, sale_price_cents=?3, cost_price_cents=?4, \
+         member_price_cents=?5, is_weighed=?6, alert_qty=?7 WHERE sku_id=?8",
+        params![
+            barcode,
+            instore_code,
+            sale_price_cents,
+            cost_price_cents,
+            member_price_cents,
+            is_weighed as i64,
+            alert_qty,
+            sku_id
+        ],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 /// 服务标记切换：服务类不计库存，转服务前必须清零账面库存。
 pub fn set_product_service(conn: &Connection, sku_id: i64, is_service: bool) -> Result<()> {
     let (weighed, current, qty): (i64, i64, i64) = conn

@@ -194,9 +194,10 @@ const selectReport = (id: string) => ops.selectReport(id)
 const openTool = (t: Parameters<typeof ops.openTool>[0]) => ops.openTool(t)
 const exportActiveReport = () => ops.exportActiveReport()
 const goReport = () => ops.goReport()
-/** 顶部交班入口：进入报表页并直接打开班次管理工具 */
+/** 顶部交班入口：收银员动作，进入独立班次管理视图（不依赖 report.view 权限） */
 const goShift = () => {
-  ops.goReport()
+  const app = useAppStore()
+  app.view = 'shift'
   ops.openTool('shift')
 }
 const configLabel = (k: string) => ops.configLabel(k)

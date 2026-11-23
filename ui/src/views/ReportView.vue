@@ -36,9 +36,9 @@ const {
 </script>
 
 <template>
-      <main v-if="view === 'report'" class="admin-shell">
-        <!-- 报表中心：后台管理式布局，左栏贴左全高（34 报表 + 工具），右侧内容独立滚动 -->
-        <aside class="admin-side">
+      <main v-if="view === 'report' || view === 'shift'" :class="['admin-shell', { 'shift-only': view === 'shift' }]">
+        <!-- 交班视图（收银员）：不展示报表目录，避免触及 report.view 权限；仅班次管理内容 -->
+        <aside v-if="view === 'report'" class="admin-side report-side">
           <div class="admin-side-title">报表中心</div>
           <div v-for="g in reportGroups" :key="g.name" class="report-nav-group">
             <div class="report-nav-title">{{ g.name }}</div>
