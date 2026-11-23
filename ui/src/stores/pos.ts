@@ -23,7 +23,7 @@ import { useAppStore } from './app'
 
 type PayChannel = 'CASH' | 'STORED_VALUE' | 'WECHAT' | 'ALIPAY'
 interface PaySplit { channel: string; amountYuan: string; authCode: string }
-type PayMethod = { id: PayChannel; label: string; icon: 'cash' | 'chat' | 'phone' | 'wallet' }
+type PayMethod = { id: PayChannel; label: string; icon: 'cash' | 'wechat' | 'alipay' | 'wallet' }
 
 /** 行成交价：识别会员后按会员价显示（结算时与促销取优由后端裁决）。 */
 function effectivePriceOf(l: { unit_price_cents: number; member_price_cents?: number | null }): number {
@@ -34,8 +34,8 @@ function effectivePriceOf(l: { unit_price_cents: number; member_price_cents?: nu
 
 const PAY_METHODS: PayMethod[] = [
   { id: 'CASH', label: '现金', icon: 'cash' },
-  { id: 'WECHAT', label: '微信', icon: 'chat' },
-  { id: 'ALIPAY', label: '支付宝', icon: 'phone' },
+  { id: 'WECHAT', label: '微信', icon: 'wechat' },
+  { id: 'ALIPAY', label: '支付宝', icon: 'alipay' },
   { id: 'STORED_VALUE', label: '储值', icon: 'wallet' },
 ]
 

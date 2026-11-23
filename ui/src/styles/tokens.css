@@ -226,6 +226,10 @@
   --brand-subtle: var(--p-brand-50);
   --brand-border: var(--p-brand-300);
 
+  /* 支付渠道品牌色：第三方品牌固定色，明暗主题均不翻转 */
+  --brand-wechat: #07C160;
+  --brand-alipay: #1677FF;
+
   /* 主体色（石墨）：顶栏、导航、品牌标识 */
   --chrome: var(--p-slate-800);
   --chrome-hover: var(--p-slate-700);
