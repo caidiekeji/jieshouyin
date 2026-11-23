@@ -142,7 +142,7 @@ onUnmounted(() => {
     <div v-else class="shell">
       <header class="topbar">
         <div class="logo">
-          <Icon name="scan" :size="ICON_SIZE.xl" />
+          <img src="/logo.png" class="logo-img" alt="logo" />
           <span>{{ storeProfile?.store_name || 'Checkout-R' }}</span>
           <span v-if="storeProfile?.industry_name" class="badge">{{ storeProfile.industry_name }}</span>
         </div>
