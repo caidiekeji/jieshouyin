@@ -11,14 +11,13 @@ const ctx = useAppContext()
 const {
   ICON_SIZE, activateError, activateInSettings, activateToken, addUser, applyTheme, atLeast,
   channelDraft, clearLockCode, configDraft, configLabel,
-  configOptions, confirmIndustry, credBusy, credChannel, credDraft,
-  credSaved, currentCredFields, doRetryPrint, formatMoney,
+  configOptions, confirmIndustry, doRetryPrint, formatMoney,
   gatewayModes, importBill, industries, industry,
   license, licenseStatusLabel, loadReconDiffs, loadTechnicians,
-  lockCode, lockCodeDraft, openOfficialSite, pendingIndustry, pointsConfigs,
+  lockCode, lockCodeDraft, openCredDialog, openOfficialSite, pendingIndustry, pointsConfigs,
   previewReceipt, printQueue, receiptPaperWidth, receiptPreview,
   receiptTemplateJson, reconDate, reconDiffs, reconSummary, trialDaysLeft,
-  reconText, refreshLicense, removeCredential, saveAllCredentials,
+  reconText, refreshLicense,
   configGroupChanged, saveConfigGroup, savePointsConfigs,
   saveLockCode, saveReceiptTemplate, saveStoreName, search,
   settingsTab, storeNameDraft, storeProfile, systemConfigGroups,
@@ -47,13 +46,6 @@ watch(configGroupTabs, (tabs) => {
     activeConfigGroup.value = tabs[0] ?? ''
   }
 }, { immediate: true })
-
-/** 商户凭据弹窗：点击渠道按钮弹出，避免设置页被密钥字段铺满 */
-const credDialogOpen = ref(false)
-function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
-  credChannel.value = channel
-  credDialogOpen.value = true
-}
 </script>
 
 <template>
@@ -382,34 +374,6 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
               <TechnicianPanel :can-manage="atLeast('MANAGER')" @changed="loadTechnicians" />
             </div>
           </template>
-        </div>
-
-        <!-- 商户凭据弹窗：密钥类字段不回显；统一底部保存，已配置字段可单独删除 -->
-        <div v-if="credDialogOpen" class="modal-mask" @click.self="credDialogOpen = false">
-          <div class="modal cred-modal" role="dialog" aria-label="商户支付凭据">
-            <div class="cred-modal-head">
-              <h3>商户凭据 · {{ credChannel === 'WECHAT' ? '微信支付' : '支付宝' }}</h3>
-              <button class="btn btn-sm ghost" aria-label="关闭" @click="credDialogOpen = false"><Icon name="close" :size="ICON_SIZE.md" /></button>
-            </div>
-            <p class="muted small">凭据存 Windows 凭据库，不落库、不回显。留空表示不修改该项；保存后需重启应用生效。</p>
-            <label v-for="f in currentCredFields" :key="f.key" class="field-label cred-field">
-              <span class="cred-field-head">
-                {{ f.label }}
-                <span v-if="credSaved[f.key]" class="cred-configured">
-                  已配置
-                  <button class="link danger" :aria-label="`删除${f.label}凭据`" @click.prevent="removeCredential(f.key)">删除</button>
-                </span>
-              </span>
-              <textarea v-if="f.multiline" v-model="credDraft[f.key]" class="input mono" rows="3" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"></textarea>
-              <input v-else v-model="credDraft[f.key]" class="input" type="password" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后统一保存'" />
-            </label>
-            <div class="cred-modal-actions">
-              <button class="btn" @click="credDialogOpen = false">关闭</button>
-              <button class="btn primary" :disabled="credBusy" @click="saveAllCredentials">
-                <Icon name="check" :size="ICON_SIZE.sm" />{{ credBusy ? '保存中…' : '保存修改' }}
-              </button>
-            </div>
-          </div>
         </div>
       </main>
 </template>

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { api, formatMoney, type ProductRow, type Category } from '../api'
 import Icon from './Icon.vue'
+import Checkbox from './Checkbox.vue'
 import {
   CENTS_PER_YUAN,
   CURRENCY_DECIMALS,
@@ -359,9 +360,7 @@ onMounted(reload)
             </select>
           </label>
           <label>会员价（元）<input v-model="form.memberPrice" class="input" placeholder="可选" /></label>
-          <label class="checkbox-label">
-            <input type="checkbox" checked disabled /> 计时/服务项目（不计库存）
-          </label>
+          <Checkbox :model-value="true" disabled label="计时/服务项目（不计库存）" />
         </div>
       </template>
       <!-- 零售行业：完整商品档案 -->
@@ -380,12 +379,13 @@ onMounted(reload)
         <label>成本（元）<input v-model="form.costPrice" class="input" placeholder="如 2.10" /></label>
         <label>期初库存<input v-model.number="form.initialQty" class="input" type="number" min="0" :disabled="form.isService || editSku != null" /></label>
         <label>库存预警值<input v-model.number="form.alertQty" class="input" type="number" min="0" :disabled="form.isService" /></label>
-        <label class="checkbox-label">
-          <input v-model="form.isService" type="checkbox" :disabled="editSku != null" @change="onServiceToggle" /> 服务项目（不计库存）
-        </label>
-        <label class="checkbox-label">
-          <input v-model="form.isWeighed" type="checkbox" :disabled="form.isService" /> 称重商品（按克计价）
-        </label>
+        <Checkbox
+          v-model="form.isService"
+          :disabled="editSku != null"
+          label="服务项目（不计库存）"
+          @change="onServiceToggle"
+        />
+        <Checkbox v-model="form.isWeighed" :disabled="form.isService" label="称重商品（按克计价）" />
       </div>
       <div class="form-grid">
         <label>商品图片（本地文件）

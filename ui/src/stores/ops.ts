@@ -54,6 +54,8 @@ export const useOpsStore = defineStore('ops', {
     credDraft: {} as Record<string, string>,
     credSaved: {} as Record<string, boolean>,
     credBusy: false,
+    /** 商户凭据弹窗开闭：状态收在 store，弹窗由 DialogLayer 统一渲染 */
+    credDialogOpen: false,
     channelDraft: {} as Record<string, string>,
     // 对账
     reconDate: today(),
@@ -350,6 +352,15 @@ export const useOpsStore = defineStore('ops', {
       } catch (e) {
         this.showToast(String(e), true)
       }
+    },
+    /** 打开凭据弹窗：切渠道后打开，弹窗本体在 DialogLayer */
+    openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
+      this.credChannel = channel
+      this.credDraft = {}
+      this.credDialogOpen = true
+    },
+    closeCredDialog() {
+      this.credDialogOpen = false
     },
     async saveCredential(field: string) {
       const value = this.credDraft[field]

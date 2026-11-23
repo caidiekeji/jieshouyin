@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, type CartLine, type ServiceTable, type TableCreateSpec } from '../api'
+import SceneBoard from './SceneBoard.vue'
 import TableCreateDialog from './TableCreateDialog.vue'
 
 const props = defineProps<{
@@ -153,157 +154,57 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="dining-board scene-dining">
-    <div class="board-head">
-      <div>
-        <strong>餐饮桌台</strong>
-        <span class="muted">点击空闲桌台进入点菜，加入菜品后自动开台；结算成功自动清台</span>
-      </div>
+  <SceneBoard
+    class="scene-dining"
+    title="餐饮桌台"
+    hint="点击空闲桌台进入点菜，加入菜品后自动开台；结算成功自动清台"
+    :min-card="140"
+    :empty-text="tables.length ? '' : '还没有桌台。先批量新增 A01 等桌号，再进入点菜。'"
+    :notice="actionMode === 'transfer'
+      ? '转台：点击空闲桌台作为目标'
+      : actionMode === 'merge' ? `并台：点击另一张已开台桌台，当前 ${actionSource?.code} 并入目标` : ''"
+    @cancel="cancelAction"
+  >
+    <template #action>
       <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = true">
         ＋ 批量新增桌台
       </button>
-    </div>
-    <div v-if="actionMode" class="action-hint">
-      <span v-if="actionMode === 'transfer'">转台：点击空闲桌台作为目标</span>
-      <span v-else>并台：点击另一张已开台桌台，当前 {{ actionSource?.code }} 并入目标</span>
-      <button class="link" @click="cancelAction">取消</button>
-    </div>
-    <div class="table-grid">
-      <article
-        v-for="t in tables"
-        :key="t.table_id"
-        :class="['table-card', t.status.toLowerCase(), { active: t.table_id === activeTableId }]"
-        @click="pick(t)"
-      >
-        <header>
-          <strong>{{ t.code }}</strong>
-          <span>{{ t.zone || '未分区' }} · {{ t.seats }}座</span>
-        </header>
-        <p>{{ t.name }}<span v-if="t.member_phone" class="member-tag">会员 {{ t.member_phone }}</span></p>
-        <div class="card-foot">
-          <span v-if="t.status === 'OCCUPIED'" class="occupied">用餐中 · {{ elapsed(t) }}</span>
-          <span v-else class="free">空闲</span>
-          <span class="count">{{ itemCount(t) }} 件</span>
-        </div>
-        <div v-if="t.status === 'OCCUPIED'" class="card-actions" @click.stop>
-          <button class="link" @click="startAction('transfer', t)">转台</button>
-          <button class="link" @click="startAction('merge', t)">并台</button>
-          <button class="link danger" @click="clear(t)">清台</button>
-        </div>
-      </article>
-      <div v-if="!tables.length" class="empty-board">
-        还没有桌台。先批量新增 A01 等桌号，再进入点菜。
+    </template>
+    <article
+      v-for="t in tables"
+      :key="t.table_id"
+      :class="['scene-card', t.status.toLowerCase(), { active: t.table_id === activeTableId }]"
+      @click="pick(t)"
+    >
+      <header>
+        <strong>{{ t.code }}</strong>
+        <span>{{ t.zone || '未分区' }} · {{ t.seats }}座</span>
+      </header>
+      <p>{{ t.name }}<span v-if="t.member_phone" class="scene-member-tag">会员 {{ t.member_phone }}</span></p>
+      <div class="scene-foot">
+        <span v-if="t.status === 'OCCUPIED'" class="occupied-state">用餐中 · {{ elapsed(t) }}</span>
+        <span v-else class="free-state">空闲</span>
+        <span>{{ itemCount(t) }} 件</span>
       </div>
-    </div>
-    <TableCreateDialog
-      :open="showCreate"
-      title="餐饮桌台"
-      :show-fee="false"
-      :fee-products="[]"
-      default-prefix="A"
-      @close="showCreate = false"
-      @create="createBatch"
-    />
-  </section>
+      <div v-if="t.status === 'OCCUPIED'" class="scene-actions" @click.stop>
+        <button class="link" @click="startAction('transfer', t)">转台</button>
+        <button class="link" @click="startAction('merge', t)">并台</button>
+        <button class="link danger" @click="clear(t)">清台</button>
+      </div>
+    </article>
+  </SceneBoard>
+  <TableCreateDialog
+    :open="showCreate"
+    title="餐饮桌台"
+    :show-fee="false"
+    :fee-products="[]"
+    default-prefix="A"
+    @close="showCreate = false"
+    @create="createBatch"
+  />
 </template>
 
 <style scoped>
-/* 配色来自场景语义层（tokens.css .scene-dining），暗色只翻语义层。 */
-.dining-board {
-  border-bottom: var(--border-width) solid var(--scene-line);
-  padding: var(--space-2) var(--space-3) var(--space-3);
-  background: var(--scene-surface);
-  color: var(--scene-title);
-}
-.board-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-.board-head strong { color: var(--scene-title); margin-right: var(--space-2); }
-.table-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-2);
-  max-height: var(--scene-board-max-height);
-  overflow: auto;
-}
-.table-card {
-  border: var(--border-width) solid var(--scene-card-line);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-  background: var(--scene-card);
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background var(--duration-fast) var(--ease-out);
-}
-.table-card:hover { background: var(--scene-card-hover); }
-.table-card:focus-visible { outline: 2px solid var(--scene-card-active-line); outline-offset: 2px; }
-.table-card.active {
-  border-color: var(--scene-card-active-line);
-  box-shadow: 0 0 0 2px var(--scene-card-active-ring) inset;
-}
-.table-card.occupied { background: var(--scene-card-occupied); }
-.table-card header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: var(--font-sm);
-}
-.table-card header strong { font-size: var(--font-lg); color: var(--scene-heading); }
-.table-card header span,
-.table-card p { color: var(--scene-sub); font-size: var(--font-xs); }
-.table-card p { margin: var(--space-0_5) 0 var(--space-1); }
-.card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--font-xs);
-}
-.occupied { color: var(--scene-state-warn); font-weight: 600; }
-.free { color: var(--scene-state-ok); }
-.count { color: var(--scene-sub); }
-.card-actions {
-  margin-top: var(--space-1);
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.action-hint {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-2);
-  background: var(--scene-hint-bg);
-  border: var(--border-width) solid var(--scene-hint-line);
-  border-radius: var(--radius-xs);
-  padding: var(--space-1) var(--space-3);
-  margin-bottom: var(--space-2);
-  font-size: var(--font-xs);
-  color: var(--scene-hint-text);
-}
-.member-tag {
-  color: var(--scene-tag-text);
-  background: var(--scene-tag-bg);
-  border-radius: var(--radius-xs);
-  padding: 0 var(--space-2);
-  margin-left: var(--space-1);
-  font-size: var(--font-2xs);
-}
-.link {
-  display: inline-flex; align-items: center; gap: 2px;
-  border: 0; background: none; padding: 0;
-  font-size: var(--font-2xs); color: var(--scene-link); cursor: pointer;
-}
-.link:hover { text-decoration: underline; }
-.link.danger { color: var(--scene-danger); }
-.empty-board {
-  grid-column: 1 / -1;
-  color: var(--scene-sub);
-  padding: var(--space-4);
-  border: var(--border-width) dashed var(--scene-empty-line);
-  border-radius: var(--radius-sm);
-}
+/* 卡片内部排版差异：桌号放大 + 用餐时长计时，行业色全部来自 --scene-* 语义层 */
+.scene-card header strong { font-size: var(--font-lg); }
 </style>

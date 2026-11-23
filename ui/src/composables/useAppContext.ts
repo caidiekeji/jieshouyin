@@ -213,6 +213,9 @@ const toggleChannel = (k: string, cur: string) => ops.toggleChannel(k, cur)
 const saveCredential = (f: string) => ops.saveCredential(f)
 const removeCredential = (f: string) => ops.removeCredential(f)
 const saveAllCredentials = () => ops.saveAllCredentials()
+/** 商户凭据弹窗开闭：状态在 ops store，弹窗统一由 DialogLayer 渲染 */
+const openCredDialog = (channel: 'WECHAT' | 'ALIPAY') => ops.openCredDialog(channel)
+const closeCredDialog = () => ops.closeCredDialog()
 const importBill = (c: 'WECHAT' | 'ALIPAY') => ops.importBill(c)
 const loadReconDiffs = () => ops.loadReconDiffs()
 const loadPrintQueue = () => ops.loadPrintQueue()
@@ -306,6 +309,7 @@ const goProducts = () => app.goProducts()
     credDraft,
     credSaved,
     credBusy,
+    credDialogOpen,
     currentCredFields,
     currentRole,
     currentShiftId,
@@ -453,6 +457,8 @@ const goProducts = () => app.goProducts()
     renewMode,
     reportGroups,
     reportLoading,
+    openCredDialog,
+    closeCredDialog,
     saveAllCredentials,
     reportMetas,
     reportTool,

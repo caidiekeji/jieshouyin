@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, formatMoney, type CartLine, type ProductHit, type ServiceTable, type TableCreateSpec } from '../api'
+import SceneBoard from './SceneBoard.vue'
 import TableCreateDialog from './TableCreateDialog.vue'
 
 /**
@@ -183,130 +184,54 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="room-board" :class="theme === 'chess' ? 'scene-chess' : 'scene-wellness-room'">
-    <div class="board-head">
-      <div><strong>{{ title }}</strong><span>{{ hint }}</span></div>
+  <SceneBoard
+    :class="theme === 'chess' ? 'scene-chess' : 'scene-wellness-room'"
+    :title="title"
+    :hint="hint"
+    :min-card="150"
+    :empty-text="rooms.length ? '' : '还没有包间。先在商品里建“房费”分类和房费商品，再批量新增包间并绑定。'"
+    :notice="transferSource ? `转台：点击空闲包间，当前 ${transferSource.code} 的计时与消费会迁过去` : ''"
+    @cancel="transferSource = null"
+  >
+    <template #action>
       <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = true">
         ＋ 批量新增包间
       </button>
-    </div>
-    <div v-if="transferSource" class="transfer-hint">
-      <span>转台：点击空闲包间，当前 {{ transferSource.code }} 的计时与消费会迁过去</span>
-      <button class="link" @click="transferSource = null">取消</button>
-    </div>
-    <div class="room-grid">
-      <article
-        v-for="r in rooms"
-        :key="r.table_id"
-        :class="['room-card', r.status.toLowerCase(), { active: r.table_id === activeTableId }]"
-        @click="pick(r)"
-      >
-        <header><strong>{{ r.code }}</strong><span>{{ r.zone || '未分区' }} · {{ r.seats }}人</span></header>
-        <p>{{ r.name }}<span v-if="r.member_phone" class="member-tag">会员 {{ r.member_phone }}</span></p>
-        <div class="clock">{{ r.status === 'OCCUPIED' ? elapsed(r) : '待开台' }}</div>
-        <div class="card-foot">
-          <span v-if="feeOf(r)" class="fee">{{ feeOf(r)?.spu_name }} ¥{{ formatMoney(feeOf(r)!.price_cents) }}{{ r.fee_unit === 'HOUR' ? '/小时' : r.fee_unit === 'MINUTE' ? '/分钟' : '（单位按门店配置）' }}</span>
-          <span v-else class="fee muted">未绑定房费</span>
-          <span class="count">{{ itemCount(r) }} 件</span>
-        </div>
-        <div v-if="r.status === 'OCCUPIED'" class="card-actions" @click.stop>
-          <button class="link" @click="startTransfer(r)">转台</button>
-          <button class="link danger" @click="clear(r)">清台</button>
-        </div>
-      </article>
-      <div v-if="!rooms.length" class="empty-board">
-        还没有包间。先在商品里建“房费”分类和房费商品，再批量新增包间并绑定。
+    </template>
+    <article
+      v-for="r in rooms"
+      :key="r.table_id"
+      :class="['scene-card', r.status.toLowerCase(), { active: r.table_id === activeTableId }]"
+      @click="pick(r)"
+    >
+      <header><strong>{{ r.code }}</strong><span>{{ r.zone || '未分区' }} · {{ r.seats }}人</span></header>
+      <p>{{ r.name }}<span v-if="r.member_phone" class="scene-member-tag">会员 {{ r.member_phone }}</span></p>
+      <div class="clock">{{ r.status === 'OCCUPIED' ? elapsed(r) : '待开台' }}</div>
+      <div class="scene-foot">
+        <span v-if="feeOf(r)" class="fee">{{ feeOf(r)?.spu_name }} ¥{{ formatMoney(feeOf(r)!.price_cents) }}{{ r.fee_unit === 'HOUR' ? '/小时' : r.fee_unit === 'MINUTE' ? '/分钟' : '（单位按门店配置）' }}</span>
+        <span v-else class="fee muted">未绑定房费</span>
+        <span>{{ itemCount(r) }} 件</span>
       </div>
-    </div>
-    <TableCreateDialog
-      :open="showCreate"
-      :title="title"
-      :show-fee="true"
-      :fee-products="feeProducts"
-      :default-prefix="defaultPrefix"
-      @close="showCreate = false"
-      @create="createBatch"
-    />
-  </section>
+      <div v-if="r.status === 'OCCUPIED'" class="scene-actions" @click.stop>
+        <button class="link" @click="startTransfer(r)">转台</button>
+        <button class="link danger" @click="clear(r)">清台</button>
+      </div>
+    </article>
+  </SceneBoard>
+  <TableCreateDialog
+    :open="showCreate"
+    :title="title"
+    :show-fee="true"
+    :fee-products="feeProducts"
+    :default-prefix="defaultPrefix"
+    @close="showCreate = false"
+    @create="createBatch"
+  />
 </template>
 
 <style scoped>
-/* 配色全部来自场景语义层（tokens.css），宿主 class 决定行业色，暗色只翻语义层。 */
-.room-board {
-  border-bottom: var(--border-width) solid var(--scene-line);
-  padding: var(--space-2) var(--space-3) var(--space-3);
-  background: var(--scene-surface);
-  color: var(--scene-title);
-}
-.board-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-2);
-}
-.board-head strong {
-  color: var(--scene-title);
-  margin-right: var(--space-2);
-}
-.board-head span { color: var(--scene-sub); font-size: var(--font-xs); }
-.board-head .btn.ghost {
-  color: var(--scene-btn);
-  border-color: var(--scene-btn-line);
-}
-.board-head .btn.ghost:hover { background: var(--scene-card-hover); }
-.transfer-hint {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-2);
-  border: var(--border-width) solid var(--scene-soft-line);
-  background: var(--scene-soft-bg);
-  color: var(--scene-soft-text);
-  border-radius: var(--radius-xs);
-  padding: var(--space-1) var(--space-3);
-  margin-bottom: var(--space-2);
-  font-size: var(--font-xs);
-}
-.transfer-hint .link { color: var(--scene-link); }
-.member-tag {
-  color: var(--scene-tag-text);
-  background: var(--scene-tag-bg);
-  border-radius: var(--radius-xs);
-  padding: 0 var(--space-2);
-  margin-left: var(--space-1);
-  font-size: var(--font-2xs);
-}
-.room-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--space-2);
-  max-height: var(--scene-board-max-height);
-  overflow: auto;
-}
-.room-card {
-  border: var(--border-width) solid var(--scene-card-line);
-  border-radius: var(--radius-sm);
-  background: var(--scene-card);
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background var(--duration-fast) var(--ease-out);
-}
-.room-card:hover { background: var(--scene-card-hover); }
-.room-card:focus-visible { outline: 2px solid var(--scene-card-active-line); outline-offset: 2px; }
-.room-card.active {
-  border-color: var(--scene-card-active-line);
-  box-shadow: 0 0 0 2px var(--scene-card-active-ring) inset;
-}
-.room-card.occupied { background: var(--scene-card-occupied); }
-.room-card header {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-xs);
-  color: var(--scene-sub);
-}
-.room-card header strong { color: var(--scene-title); font-size: var(--font-md); }
-.room-card p { margin: var(--space-0_5) 0; font-size: var(--font-xs); color: var(--scene-sub); }
+/* 包间卡片内部排版差异：计时钟 + 房费行；行业色全部来自 --scene-* 语义层 */
+.scene-card header strong { font-size: var(--font-md); }
 .clock {
   font-family: var(--font-family-mono);
   font-size: var(--font-xl);
@@ -314,27 +239,11 @@ onUnmounted(() => {
   color: var(--scene-clock, var(--scene-title));
   font-variant-numeric: tabular-nums;
 }
-.card-foot {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-2xs);
-  color: var(--scene-sub);
-  gap: var(--space-2);
-}
 .fee { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-actions { display: flex; gap: var(--space-3); margin-top: var(--space-1); }
-.link {
-  display: inline-flex; align-items: center; gap: 2px;
-  border: 0; background: none; padding: 0;
-  color: var(--scene-link); font-size: var(--font-2xs); cursor: pointer;
+/* 包间看板的幽灵按钮用行业描边色（chess 深底上保持可读） */
+.scene-board-head .btn.ghost {
+  color: var(--scene-btn);
+  border-color: var(--scene-btn-line);
 }
-.link:hover { text-decoration: underline; }
-.link.danger { color: var(--scene-danger); }
-.empty-board {
-  grid-column: 1 / -1;
-  color: var(--scene-sub);
-  border: var(--border-width) dashed var(--scene-empty-line);
-  border-radius: var(--radius-sm);
-  padding: var(--space-4);
-}
+.scene-board-head .btn.ghost:hover { background: var(--scene-card-hover); }
 </style>

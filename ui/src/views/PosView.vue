@@ -4,6 +4,7 @@ import RoomBoard from '../components/RoomBoard.vue'
 import BabyScene from '../components/BabyScene.vue'
 import WellnessScene from '../components/WellnessScene.vue'
 import Icon from '../components/Icon.vue'
+import Checkbox from '../components/Checkbox.vue'
 import { useAppContext } from '../composables/useAppContext'
 
 const ctx = useAppContext()
@@ -380,10 +381,7 @@ const {
               </div>
               <div class="pay-split-tools">
                 <button class="link add-split" @click="addPaySplit">+ 添加支付方式</button>
-                <label class="checkbox-label">
-                  <input v-model="nativeMode" type="checkbox" />
-                  顾客扫屏幕二维码支付
-                </label>
+                <Checkbox v-model="nativeMode" label="顾客扫屏幕二维码支付" />
               </div>
               <input
                 v-if="paySplits.some((s) => s.channel === 'CASH')"

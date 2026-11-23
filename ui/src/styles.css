@@ -230,6 +230,61 @@ h2 { font-size: var(--font-lg); }
   background: var(--brand-subtle);
 }
 .scene-active-bar strong { margin-right: var(--space-2); }
+
+/* ---------- 场景看板卡片：通用骨架（餐饮/包间/母婴/养生共用，行业色由宿主 .scene-* 提供） ---------- */
+/* 卡片本体：article/button 通用；内部排版差异留在各看板 scoped */
+.scene-card {
+  display: block; width: 100%; text-align: left;
+  border: var(--border-width) solid var(--scene-card-line);
+  border-radius: var(--radius-sm);
+  background: var(--scene-card);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font: inherit; color: inherit;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+.scene-card:hover { background: var(--scene-card-hover); }
+.scene-card:focus-visible { outline: 2px solid var(--scene-card-active-line); outline-offset: 2px; }
+.scene-card.active {
+  border-color: var(--scene-card-active-line);
+  box-shadow: 0 0 0 2px var(--scene-card-active-ring) inset;
+}
+.scene-card.occupied { background: var(--scene-card-occupied); }
+/* 状态与内容文字 */
+.scene-card header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: var(--space-2); font-size: var(--font-xs); color: var(--scene-sub);
+}
+.scene-card header strong { color: var(--scene-title); }
+.scene-card p { margin: var(--space-0_5) 0; font-size: var(--font-xs); color: var(--scene-sub); }
+.scene-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-2); font-size: var(--font-xs); color: var(--scene-sub);
+}
+.occupied-state { color: var(--scene-state-warn); font-weight: 600; }
+.free-state { color: var(--scene-state-ok); }
+.scene-member-tag {
+  color: var(--scene-tag-text);
+  background: var(--scene-tag-bg);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+  margin-left: var(--space-1);
+  font-size: var(--font-2xs);
+}
+/* 卡内行内操作（转台/并台/清台） */
+.scene-actions {
+  margin-top: var(--space-1);
+  display: flex; gap: var(--space-2); flex-wrap: wrap;
+}
+.scene-card .link {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: 0; background: none; padding: 0;
+  font-size: var(--font-2xs); color: var(--scene-link); cursor: pointer;
+}
+.scene-card .link:hover { text-decoration: underline; }
+.scene-card .link.danger { color: var(--scene-danger); }
+
 .panel {
   background: var(--panel);
   border: var(--border-width) solid var(--border);
@@ -603,9 +658,7 @@ h2 { font-size: var(--font-lg); }
   display: flex; flex-direction: column; gap: var(--space-1);
   font-size: var(--font-xs); color: var(--muted);
 }
-/* 勾选项横排：与 .form-grid label 同权重覆盖列布局 */
-.form-grid label.checkbox-label { flex-direction: row; align-items: center; gap: var(--space-2); }
-.checkbox-label { flex-direction: row; align-items: center; gap: var(--space-2); }
+/* 勾选/开关控件已组件化（Checkbox.vue / Switch.vue），不再保留 .checkbox-label 工具类 */
 .chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
 .chip {
   background: var(--border); border-radius: var(--radius-pill);
@@ -750,7 +803,6 @@ h2 { font-size: var(--font-lg); }
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--space-2); flex-wrap: wrap;
 }
-.pay-split-tools .checkbox-label { font-size: var(--font-xs); }
 .add-split { font-size: var(--font-xs); padding: 0; white-space: nowrap; }
 .pay-mixed-status {
   display: flex; align-items: center; justify-content: space-between;
