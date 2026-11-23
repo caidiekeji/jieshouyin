@@ -159,7 +159,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; icon: SettingsIcon; 
   { id: 'payment', label: '支付设置', icon: 'wallet', minRole: 'MANAGER' },
   { id: 'points', label: '积分配置', icon: 'star', minRole: 'MANAGER' },
   { id: 'recon', label: '渠道对账', icon: 'report', minRole: 'MANAGER' },
-  { id: 'print', label: '打印队列', icon: 'print', minRole: 'MANAGER' },
+  { id: 'print', label: '打印设置', icon: 'print', minRole: 'MANAGER' },
 ]
 const visibleSettingsTabs = computed(() => settingsTabs.filter((t) => atLeast(t.minRole)))
 
@@ -184,6 +184,8 @@ const storeNameDraft = ref('')
 const industry = computed(() => storeProfile.value?.industry ?? '')
 /** 当前选中的桌台/包间；结算成功后清台 */
 const activeTable = ref<ServiceTable | null>(null)
+/** 餐饮行业：未选中桌台时处于「桌台首页」，首屏只显示桌台看板；点进桌台后才点菜/收银。 */
+const diningTableStage = computed(() => industry.value === 'RESTAURANT' && !activeTable.value)
 let tableSaveTimer: ReturnType<typeof setTimeout> | null = null
 /** 棋牌计时刷新：每 30 秒按后端计算结果更新房费行，最低 60 分钟。 */
 let chessFeeTimer: ReturnType<typeof setInterval> | null = null
@@ -335,6 +337,15 @@ async function clearActiveTable() {
   activeTable.value = null
   cart.value = []
   clearMember()
+}
+
+/** 餐饮：从桌台点菜/收银页返回桌台看板，先保存当前桌台购物车再退出选中态。 */
+async function backToDiningTables() {
+  if (!(await flushTableCart())) {
+    showToast('当前桌台购物车未保存，已取消返回', true)
+    return
+  }
+  await clearActiveTable()
 }
 
 /** 结算成功释放桌台；清台失败不回滚已收款的订单，返回需提示的警告。 */
@@ -2542,48 +2553,62 @@ async function doLogout() {
       <div v-if="banner" class="banner">{{ banner }}</div>
 
       <!-- 收银 -->
-      <main v-if="view === 'pos'" class="pos-layout">
-        <section class="panel product-panel">
+      <main
+        v-if="view === 'pos'"
+        class="pos-layout"
+        :class="{ 'dining-table-stage': diningTableStage }"
+      >
+        <!-- 餐饮桌台首页：未选中桌台时首屏只显示桌台看板，新建/进入桌台后再点菜或收银 -->
+        <section v-if="diningTableStage" class="panel dining-home-panel">
           <RestaurantScene
-            v-if="industry === 'RESTAURANT'"
-            :active-table-id="activeTable?.table_id ?? null"
-            :cart="cart"
+            :active-table-id="null"
+            :cart="[]"
             :member-id="memberId"
             :can-manage="atLeast('MANAGER')"
             @select="selectSceneTable"
             @cleared="clearActiveTable"
             @error="showSceneError"
           />
-          <KitchenRoutePanel
-            v-if="industry === 'RESTAURANT'"
-            :can-manage="atLeast('MANAGER')"
-          />
-          <ChessScene
-            v-else-if="industry === 'BOARD_GAME'"
-            :active-table-id="activeTable?.table_id ?? null"
-            :cart="cart"
-            :member-id="memberId"
-            :can-manage="atLeast('MANAGER')"
-            @select="selectSceneTable"
-            @cleared="clearActiveTable"
-            @error="showSceneError"
-          />
-          <BabyScene
-            v-else-if="industry === 'BABY'"
-            @add="addToCart"
-            @error="showSceneError"
-          />
-          <WellnessScene
-            v-else-if="industry === 'WELLNESS'"
-            @add="addToCart"
-            @error="showSceneError"
-          />
-          <TechnicianPanel
-            v-if="industry === 'WELLNESS'"
-            :can-manage="atLeast('MANAGER')"
-            @changed="loadTechnicians"
-          />
-          <div class="search-row scan-search">
+        </section>
+
+        <!-- 点菜/收银阶段：餐饮已选桌台，或其他行业 -->
+        <template v-else>
+          <section class="panel product-panel">
+            <!-- 餐饮进入桌台后：显示当前桌台与返回桌台入口 -->
+            <div v-if="industry === 'RESTAURANT' && activeTable" class="dining-active-bar">
+              <div>
+                <strong>{{ activeTable.code }}</strong>
+                <span class="muted small">{{ activeTable.name }} · 用餐中</span>
+              </div>
+              <button class="btn btn-sm ghost" @click="backToDiningTables">← 返回桌台</button>
+            </div>
+
+            <ChessScene
+              v-if="industry === 'BOARD_GAME'"
+              :active-table-id="activeTable?.table_id ?? null"
+              :cart="cart"
+              :member-id="memberId"
+              :can-manage="atLeast('MANAGER')"
+              @select="selectSceneTable"
+              @cleared="clearActiveTable"
+              @error="showSceneError"
+            />
+            <BabyScene
+              v-if="industry === 'BABY'"
+              @add="addToCart"
+              @error="showSceneError"
+            />
+            <WellnessScene
+              v-if="industry === 'WELLNESS'"
+              @add="addToCart"
+              @error="showSceneError"
+            />
+            <TechnicianPanel
+              v-if="industry === 'WELLNESS'"
+              :can-manage="atLeast('MANAGER')"
+              @changed="loadTechnicians"
+            />
+            <div class="search-row scan-search">
             <input
               ref="scanCapture"
               v-model="keyword"
@@ -2858,6 +2883,7 @@ async function doLogout() {
             <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
           </div>
         </section>
+        </template>
       </main>
 
       <!-- 商品与分类：页签与内容同处统一管理骨架，左对齐 -->
@@ -3263,17 +3289,24 @@ async function doLogout() {
             </table>
           </div>
 
-          <!-- 打印队列 -->
-          <div v-else-if="settingsTab === 'print'" class="card wide">
-            <h3>打印重试队列</h3>
-            <div v-if="printQueue.length" class="print-queue">
-              <div v-for="no in printQueue" :key="no" class="print-queue-row">
-                <span>{{ no }}</span>
-                <button class="btn btn-sm" @click="doRetryPrint(no)">重打</button>
-              </div>
+          <!-- 打印设置：厨打档口路由 + 重试队列；不占收银首屏 -->
+          <template v-else-if="settingsTab === 'print'">
+            <div v-if="industry === 'RESTAURANT'" class="card wide">
+              <h3>厨打档口路由</h3>
+              <p class="muted small">按菜品分类把厨房小票分发到指定档口打印机；未配置的分类走系统配置里的主打印机。仅店长及以上可修改。</p>
+              <KitchenRoutePanel :can-manage="atLeast('MANAGER')" />
             </div>
-            <p v-else class="muted small">无待重打订单</p>
-          </div>
+            <div class="card wide">
+              <h3>打印重试队列</h3>
+              <div v-if="printQueue.length" class="print-queue">
+                <div v-for="no in printQueue" :key="no" class="print-queue-row">
+                  <span>{{ no }}</span>
+                  <button class="btn btn-sm" @click="doRetryPrint(no)">重打</button>
+                </div>
+              </div>
+              <p v-else class="muted small">无待重打订单</p>
+            </div>
+          </template>
         </div>
       </main>
 
