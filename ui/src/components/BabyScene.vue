@@ -90,7 +90,7 @@ onMounted(load)
   border: 1px solid #efd6de;
   background: #fff;
   color: #8a6572;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 3px 11px;
   font-size: 12px;
   cursor: pointer;
