@@ -2395,7 +2395,10 @@ pub fn preview_receipt(content_json: String, state: State<'_, AppState>) -> Resu
     vars.insert("pay_channel_lines".into(), "WECHAT 10.00".into());
     vars.insert("items".into(), "示例商品 x1 10.00".into());
     vars.insert("change".into(), "0.00".into());
-    vars.insert("qrcode_pay_url".into(), "https://example.com/order/STOREPOS0000000000000001".into());
+    vars.insert(
+        "qrcode_pay_url".into(),
+        "https://example.com/order/STOREPOS0000000000000001".into(),
+    );
     let chars_per_line = if paper_width_mm >= 80 { 48 } else { 32 };
     let mut lines = Vec::new();
     for block in template.iter_blocks()? {
@@ -2405,8 +2408,12 @@ pub fn preview_receipt(content_json: String, state: State<'_, AppState>) -> Resu
                 let c = char.chars().next().unwrap_or('-');
                 lines.push(std::iter::repeat_n(c, chars_per_line).collect());
             }
-            Block::Barcode { content, .. } => lines.push(format!("[条码] {}", render_vars(&content, &vars)?)),
-            Block::Qrcode { content, .. } => lines.push(format!("[二维码] {}", render_vars(&content, &vars)?)),
+            Block::Barcode { content, .. } => {
+                lines.push(format!("[条码] {}", render_vars(&content, &vars)?))
+            }
+            Block::Qrcode { content, .. } => {
+                lines.push(format!("[二维码] {}", render_vars(&content, &vars)?))
+            }
             Block::Feed { lines: n } => {
                 for _ in 0..n {
                     lines.push(String::new());
