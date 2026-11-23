@@ -549,6 +549,7 @@ pub fn update_product(
 
 /// 商品档案全量编辑（与新增同字段范围）：名称/条码/店内码/分类/单位/售价/成本/会员价/称重/预警。
 /// 期初库存与项目类型不在此改：库存走 adjust_stock，类型走 set_product_service，避免绕过台账校验。
+#[allow(clippy::too_many_arguments)]
 pub fn update_product_profile(
     conn: &Connection,
     sku_id: i64,
