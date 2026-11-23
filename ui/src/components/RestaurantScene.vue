@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { api, type CartLine, type ServiceTable } from '../api'
+import { api, type CartLine, type ServiceTable, type TableCreateSpec } from '../api'
+import TableCreateDialog from './TableCreateDialog.vue'
 
 const props = defineProps<{
   activeTableId: number | null
@@ -19,7 +20,6 @@ const emit = defineEmits<{
 const tables = ref<ServiceTable[]>([])
 const busy = ref(false)
 const showCreate = ref(false)
-const form = ref({ code: '', name: '', zone: '大厅', seats: 4 })
 /** 转台/并台的待选目标模式；设置后下一次点桌台即执行迁移。 */
 const actionMode = ref<'transfer' | 'merge' | null>(null)
 const actionSource = ref<ServiceTable | null>(null)
@@ -62,20 +62,8 @@ async function pick(t: ServiceTable) {
     await runAction(t)
     return
   }
-  busy.value = true
-  try {
-    if (t.status === 'FREE') {
-      const opened = await api.openServiceTable(t.table_id, '[]', props.memberId)
-      emit('select', opened, [])
-    } else {
-      emit('select', t, linesOf(t))
-    }
-    await load()
-  } catch (e) {
-    emit('error', String(e))
-  } finally {
-    busy.value = false
-  }
+  // 空闲桌台只进入点菜界面，不立即开台；加入第一道菜时才真正占用（见 pos.addToCart）
+  emit('select', t, linesOf(t))
 }
 
 function startAction(mode: 'transfer' | 'merge', t: ServiceTable) {
@@ -119,16 +107,23 @@ async function runAction(target: ServiceTable) {
   }
 }
 
-async function create() {
+/** 批量创建桌台：逐个写入，遇到重名等错误即停止并保留已创建的部分 */
+async function createBatch(items: TableCreateSpec[]) {
   if (busy.value) return
   busy.value = true
   try {
-    await api.createServiceTable('DINING', form.value.code, form.value.name, form.value.zone, form.value.seats, null)
-    form.value = { code: '', name: '', zone: form.value.zone, seats: 4 }
+    let done = 0
+    for (const it of items) {
+      try {
+        await api.createServiceTable('DINING', it.code, it.name, it.zone, it.seats, null)
+        done++
+      } catch (e) {
+        emit('error', done ? `已创建 ${done}/${items.length}，${it.code} 失败：${String(e)}` : String(e))
+        break
+      }
+    }
     showCreate.value = false
     await load()
-  } catch (e) {
-    emit('error', String(e))
   } finally {
     busy.value = false
   }
@@ -175,23 +170,16 @@ onUnmounted(() => {
     <div class="board-head">
       <div>
         <strong>餐饮桌台</strong>
-        <span class="muted">选中桌台后点菜，结算成功自动清台</span>
+        <span class="muted">点击空闲桌台进入点菜，加入菜品后自动开台；结算成功自动清台</span>
       </div>
-      <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = !showCreate">
-        {{ showCreate ? '收起' : '＋ 新增桌台' }}
+      <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = true">
+        ＋ 批量新增桌台
       </button>
     </div>
     <div v-if="actionMode" class="action-hint">
       <span v-if="actionMode === 'transfer'">转台：点击空闲桌台作为目标</span>
       <span v-else>并台：点击另一张已开台桌台，当前 {{ actionSource?.code }} 并入目标</span>
       <button class="link" @click="cancelAction">取消</button>
-    </div>
-    <div v-if="showCreate" class="create-row">
-      <input v-model="form.code" class="input input-sm" placeholder="桌号 A01" maxlength="12" />
-      <input v-model="form.name" class="input input-sm" placeholder="名称 大厅1号桌" maxlength="20" />
-      <input v-model="form.zone" class="input input-sm" placeholder="区域 大厅" maxlength="12" />
-      <input v-model.number="form.seats" class="input input-sm" type="number" min="1" max="50" />
-      <button class="btn btn-sm primary" :disabled="busy" @click="create">创建</button>
     </div>
     <div class="table-grid">
       <article
@@ -220,9 +208,18 @@ onUnmounted(() => {
         </div>
       </article>
       <div v-if="!tables.length" class="empty-board">
-        还没有桌台。先新增 A01 等桌号，再开台点菜。
+        还没有桌台。先批量新增 A01 等桌号，再进入点菜。
       </div>
     </div>
+    <TableCreateDialog
+      :open="showCreate"
+      title="餐饮桌台"
+      :show-fee="false"
+      :fee-products="[]"
+      default-prefix="A"
+      @close="showCreate = false"
+      @create="createBatch"
+    />
   </section>
 </template>
 
@@ -242,12 +239,6 @@ onUnmounted(() => {
 .board-head strong {
   color: #8a4b12;
   margin-right: 8px;
-}
-.create-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
-  gap: 6px;
-  margin-bottom: 8px;
 }
 .table-grid {
   display: grid;

@@ -51,8 +51,19 @@ export interface ServiceTable {
   sent_json: string
 }
 
-/** 厨打返回的本次新增出品行 */
-export interface KitchenItem {
+/** 批量创建台位规格：一次弹窗可生成前缀+序号区间的一批桌台/包间 */
+export interface TableCreateSpec {
+  code: string
+  name: string
+  zone: string
+  seats: number
+  feeSkuId: number | null
+  feeUnit: 'MINUTE' | 'HOUR' | null
+  minMinutes: number | null
+  roundMinutes: number | null
+}
+
+/** 厨打返回的本次新增出品行 */export interface KitchenItem {
   sku_id: number
   category_id: number
   name: string

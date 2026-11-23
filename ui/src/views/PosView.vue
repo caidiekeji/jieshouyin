@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import RestaurantScene from '../components/RestaurantScene.vue'
-import ChessScene from '../components/ChessScene.vue'
+import RoomBoard from '../components/RoomBoard.vue'
 import BabyScene from '../components/BabyScene.vue'
 import WellnessScene from '../components/WellnessScene.vue'
 import Icon from '../components/Icon.vue'
@@ -86,7 +86,7 @@ const {
         class="pos-layout"
         :class="{ 'scene-board-stage': sceneBoardStage }"
       >
-        <!-- 台位看板首页：餐饮桌台 / 棋牌包间。未选中台位时首屏只显示看板，进入台位后再点单收银 -->
+        <!-- 台位看板首页：餐饮桌台 / 棋牌·养生包间。未选中台位时首屏只显示看板，进入台位后再点单收银 -->
         <section v-if="sceneBoardStage" class="panel scene-home-panel">
           <RestaurantScene
             v-if="industry === 'RESTAURANT'"
@@ -98,8 +98,13 @@ const {
             @cleared="clearActiveTable"
             @error="showSceneError"
           />
-          <ChessScene
-            v-else-if="industry === 'BOARD_GAME'"
+          <RoomBoard
+            v-else-if="industry === 'BOARD_GAME' || industry === 'WELLNESS'"
+            :scene="industry === 'BOARD_GAME' ? 'CHESS' : 'WELLNESS'"
+            :title="industry === 'BOARD_GAME' ? '棋牌包间' : '养生包间'"
+            :hint="industry === 'BOARD_GAME' ? '按分钟计时，最低 60 分钟；开台不再预收整小时房费' : '按分钟计时，进入包间即开台；房费由收银台按时长自动生成'"
+            :theme="industry === 'BOARD_GAME' ? 'chess' : 'wellness'"
+            :default-prefix="industry === 'BOARD_GAME' ? 'B' : 'W'"
             :active-table-id="null"
             :cart="[]"
             :member-id="memberId"
@@ -117,7 +122,10 @@ const {
             <div v-if="activeTable" class="scene-active-bar">
               <div>
                 <strong>{{ activeTable.code }}</strong>
-                <span class="muted small">{{ activeTable.name }} · {{ industry === 'RESTAURANT' ? '用餐中' : '使用中' }}</span>
+                <span class="muted small">
+                  {{ activeTable.name }}
+                  · {{ activeTable.status === 'OCCUPIED' ? (industry === 'RESTAURANT' ? '用餐中' : '使用中') : '未开台 · 点菜后自动开台' }}
+                </span>
               </div>
               <button class="btn btn-sm ghost" @click="backToDiningTables">← 返回{{ industry === 'RESTAURANT' ? '桌台' : '包间' }}</button>
             </div>

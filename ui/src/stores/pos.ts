@@ -96,10 +96,13 @@ export const usePosStore = defineStore('pos', {
     // 弹窗聚焦
   }),
   getters: {
-    /** 台位看板阶段：餐饮/棋牌未选中台位时，首屏只显示看板（新建/进入后再点单收银） */
+    /** 台位看板阶段：餐饮/棋牌/养生未选中台位时，首屏只显示看板（新建/进入后再点单收银） */
     sceneBoardStage(state): boolean {
       const app = useAppStore()
-      return (app.industry === 'RESTAURANT' || app.industry === 'BOARD_GAME') && !state.activeTable
+      return (
+        (app.industry === 'RESTAURANT' || app.industry === 'BOARD_GAME' || app.industry === 'WELLNESS') &&
+        !state.activeTable
+      )
     },
     /** 养生/母婴以场景看板为唯一浏览入口，隐藏通用商品分类（避免双份点单 UI） */
     sceneCatalogOnly(state): boolean {
@@ -205,7 +208,8 @@ export const usePosStore = defineStore('pos', {
       }, 400)
     },
     async flushTableCart(): Promise<boolean> {
-      if (!this.activeTable) return true
+      // 未开台桌台（餐饮进入未点菜）没有会话，不保存
+      if (!this.activeTable || this.activeTable.status !== 'OCCUPIED') return true
       try {
         await api.saveServiceTableCart(this.activeTable.table_id, JSON.stringify(this.cart))
         return true
@@ -230,12 +234,12 @@ export const usePosStore = defineStore('pos', {
         this.memberPhone = table.member_phone
         await this.findMember()
       }
-      if (table.scene === 'CHESS') await this.refreshChessFee()
+      if (table.scene === 'CHESS' || table.scene === 'WELLNESS') await this.refreshChessFee()
       this.showToast(`已选中 ${table.code}${lines.length ? '，继续点单' : '，可以点单'}`)
     },
     async refreshChessFee() {
       const table = this.activeTable
-      if (!table || table.scene !== 'CHESS' || !table.fee_sku_id) {
+      if (!table || (table.scene !== 'CHESS' && table.scene !== 'WELLNESS') || !table.fee_sku_id) {
         this.stopChessFeeTimer()
         return
       }
@@ -490,7 +494,16 @@ export const usePosStore = defineStore('pos', {
       }
       this.addToCart(p)
     },
-    addToCart(p: ProductHit) {
+    async addToCart(p: ProductHit) {
+      // 餐饮：进入未开台桌台只浏览，加入第一道菜时才真正开台占用
+      if (this.activeTable && this.activeTable.scene === 'DINING' && this.activeTable.status === 'FREE') {
+        try {
+          this.activeTable = await api.openServiceTable(this.activeTable.table_id, '[]', this.memberId)
+        } catch (e) {
+          this.showToast(`开台失败：${String(e)}`, true)
+          return
+        }
+      }
       const existing = this.cart.find((l) => l.sku_id === p.sku_id)
       if (existing) existing.qty += 1
       else this.cart.push({
@@ -533,8 +546,8 @@ export const usePosStore = defineStore('pos', {
     },
     clearCart() {
       if (!this.cart.length) return
-      if (this.activeTable?.scene === 'CHESS') {
-        this.showToast('棋牌房费按计时自动生成，不能清空购物车', true)
+      if (this.activeTable?.scene === 'CHESS' || this.activeTable?.scene === 'WELLNESS') {
+        this.showToast('包间房费按计时自动生成，不能清空购物车', true)
         return
       }
       if (Object.keys(this.tableSentQty).length) {

@@ -9,9 +9,10 @@ use crate::time::format_utc;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
-/// 桌台场景：餐饮用 DINING，棋牌用 CHESS。两套桌位互不混用。
+/// 桌台场景：餐饮用 DINING，棋牌/养生包间用 CHESS/WELLNESS。三套桌位互不混用。
 pub const SCENE_DINING: &str = "DINING";
 pub const SCENE_CHESS: &str = "CHESS";
+pub const SCENE_WELLNESS: &str = "WELLNESS";
 
 pub const TABLE_FREE: &str = "FREE";
 pub const TABLE_OCCUPIED: &str = "OCCUPIED";
@@ -101,7 +102,7 @@ fn cfg_i64(conn: &Connection, key: &str, default: i64) -> i64 {
 }
 
 fn validate_scene(scene: &str) -> Result<()> {
-    if scene != SCENE_DINING && scene != SCENE_CHESS {
+    if scene != SCENE_DINING && scene != SCENE_CHESS && scene != SCENE_WELLNESS {
         return Err(CoreError::Validation(format!("未知桌台场景: {scene}")));
     }
     Ok(())
@@ -580,7 +581,7 @@ pub fn transfer_table(conn: &Connection, table_id: i64, target_id: i64) -> Resul
     table_view(conn, target_id)
 }
 
-/// 棋牌计时：最低 60 分钟，之后按实际分钟按房费 SKU 的分钟单价计费。
+/// 棋牌/养生包间计时：最低 60 分钟，之后按实际分钟按房费 SKU 的分钟单价计费。
 pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
     let (scene, status, fee_sku, opened, fee_unit, min_minutes, round_minutes): ChessFeeRow = conn
         .query_row(
@@ -604,7 +605,7 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
         )
         .optional()?
         .ok_or_else(|| CoreError::Validation("桌台不存在".into()))?;
-    if scene != SCENE_CHESS || status != TABLE_OCCUPIED {
+    if (scene != SCENE_CHESS && scene != SCENE_WELLNESS) || status != TABLE_OCCUPIED {
         return Err(CoreError::Validation("包间未开台".into()));
     }
     let fee_sku = fee_sku.ok_or_else(|| CoreError::Validation("包间未配置房费商品".into()))?;
