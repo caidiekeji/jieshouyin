@@ -27,6 +27,8 @@ const {
 
 /** 小票模板 JSON 高级编辑区默认折叠，默认展示所见即所得预览 */
 const showTemplateJson = ref(false)
+/** 模板变量说明（含双花括号，放脚本里避免被 Vue 当作插值解析） */
+const templateVarHint = '模板 sections：header / items / summary / footer。可用变量：{{store_name}}、{{created_at}}、{{items}}、{{pay_total}}、{{table_code}} 等。修改后点「保存模板」，再点「刷新预览」查看渲染结果。'
 /** 商户凭据弹窗：点击渠道按钮弹出，避免设置页被密钥字段铺满 */
 const credDialogOpen = ref(false)
 function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
@@ -307,7 +309,7 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
               </div>
               <ReceiptPreview :store-name="storeProfile?.store_name || ''" :paper-width-mm="receiptPaperWidth" />
               <div v-if="showTemplateJson" class="receipt-advanced">
-                <p class="muted small">模板 sections：header / items / summary / footer。变量如 {{ '{{store_name}}' }}、{{ '{{items}}' }}、{{ '{{pay_total}}' }}。修改后点「保存模板」，再点「刷新预览」查看文本渲染结果。</p>
+                <p class="muted small">{{ templateVarHint }}</p>
                 <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12"></textarea>
                 <div class="op-form">
                   <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="previewReceipt">刷新预览</button>
