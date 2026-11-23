@@ -91,6 +91,42 @@
   --p-warning-900: #3a2f10;
   --p-warning-950: #5a4a18;
 
+  /* 行业强调色原料：每个行业一组，供场景语义层引用。
+     只在各自行业的看板/面板内出现，不进入全局 chrome，避免冲垮朱橙主体。 */
+  /* 母婴玫瑰 rose */
+  --p-rose-50: #fff5f8;
+  --p-rose-100: #fde8ef;
+  --p-rose-200: #f7c9d9;
+  --p-rose-600: #b35472;
+  --p-rose-700: #8e3e5d;
+  --p-rose-900: #4a2635;
+  /* 养生鼠尾草 sage */
+  --p-sage-50: #f4f8f4;
+  --p-sage-100: #e5efe6;
+  --p-sage-200: #cfe0d1;
+  --p-sage-300: #9ab79c;
+  --p-sage-600: #4f7357;
+  --p-sage-700: #3f6148;
+  --p-sage-900: #22372a;
+  /* 技师天青 sky */
+  --p-sky-50: #f3f8fc;
+  --p-sky-100: #e3eef7;
+  --p-sky-200: #c9def0;
+  --p-sky-600: #1c5f9e;
+  --p-sky-700: #1a5489;
+  --p-sky-900: #17324d;
+  /* 棋牌松绿 pine + 金 gold：深色底自带氛围，亮/暗主题下都保持深底浅字 */
+  --p-pine-900: #0d2a21;
+  --p-pine-800: #123c2f;
+  --p-pine-700: #1d5741;
+  --p-pine-600: #2c5f4b;
+  --p-pine-300: #a9c9b8;
+  --p-pine-100: #edf7f1;
+  --p-gold-100: #fff3cf;
+  --p-gold-300: #f1d38b;
+  --p-gold-500: #c9a227;
+  --p-gold-700: #7d6a3a;
+
   /* 暗色表面： 墨炭深底带暖调，相邻层靠提亮区分而非描边 */
   --p-surface-dark-1: #15110e;
   --p-surface-dark-2: #211c17;
@@ -103,6 +139,9 @@
   --p-space-0: 0;
   --p-space-0_5: 2px;
   --p-space-1: 4px;
+  /* 极细尺度：装饰标记条(3px)与时钟字距(1px)，非间距节奏，独立命名避免误用 */
+  --p-hairline: 3px;
+  --p-tracking-wide: 1px;
   --p-space-2: 8px;
   --p-space-3: 12px;
   --p-space-4: 16px;
@@ -288,6 +327,8 @@
   --control-search-min-width: 200px;
 
   --control-input-sm-width: 80px;
+  /* 超窄数字输入（技师提成/厨打端口）：比 small 再窄，容纳百分比与端口号 */
+  --control-input-xs-width: 68px;
   --control-qty-size: 24px;
   --control-spinner-size: 36px;
   --control-brandmark-size: 42px;
@@ -309,6 +350,8 @@
   /* 组件唯一可用入口：语义化的刻度别名。
    * 组件只引用下面这些名字，绝不直接碰 --p-* 原料层。 */
   --space-0: var(--p-space-0);
+  --hairline: var(--p-hairline);
+  --tracking-wide: var(--p-tracking-wide);
   --space-0_5: var(--p-space-0_5);
   --space-1: var(--p-space-1);
   --space-2: var(--p-space-2);
@@ -356,4 +399,236 @@
 
   /* 兼容旧组件中使用的短名 */
   --muted: var(--text-muted);
+}
+
+/* 行业看板卡片网格统一最大高度：四个看板此前各写 205/210/215px，收成一个刻度 */
+--scene-board-max-height: 210px;
+
+/* ============================================================
+ * 场景语义层：行业看板/面板共用一组 --scene-* 语义名。
+ * 组件只引用语义名，不碰原料层；行业个性由宿主 class 覆写语义值，
+ * 暗色模式只在 .scene-* 上翻一次，组件代码无需任何主题分支。
+ *
+ * 每个场景提供：surface 看板底 / line 分隔线 / title 主标题 /
+ * sub 次要字 / card 卡片底 / card-line 卡片描边 / card-hover 悬停底 /
+ * accent 强调字 / tag 标签 / state-ok 正向态 / state-warn 占用态 /
+ * danger 破坏操作 / hint-bg 提示底 / hint-line 提示描边 / hint-text 提示字。
+ * ============================================================ */
+
+/* ---------- 餐饮桌台：暖米底 + 朱棕强调（默认场景） ---------- */
+.scene-dining {
+  --scene-surface: var(--p-ink-0);
+  --scene-line: var(--border);
+  --scene-title: var(--p-brand-800);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  --scene-card-line: var(--p-ink-200);
+  --scene-card-hover: var(--p-brand-50);
+  --scene-card-active-line: var(--p-brand-600);
+  --scene-card-active-ring: var(--p-brand-100);
+  --scene-card-occupied: var(--p-brand-50);
+  --scene-accent: var(--p-brand-700);
+  --scene-heading: var(--p-brand-900);
+  --scene-state-ok: var(--success-text);
+  --scene-state-warn: var(--p-brand-700);
+  --scene-soft-bg: var(--p-warning-50);
+  --scene-soft-line: var(--p-warning-100);
+  --scene-soft-text: var(--p-brand-800);
+  --scene-tag-bg: var(--success-subtle);
+  --scene-tag-text: var(--success-text);
+  --scene-link: var(--p-ink-500);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-ink-200);
+}
+/* 餐饮提示条专用：淡黄底、描边、字 */
+.scene-dining { --scene-hint-bg: var(--p-warning-50); --scene-hint-line: var(--p-warning-100); --scene-hint-text: var(--p-brand-800); }
+
+/* ---------- 母婴选购：玫瑰粉 ---------- */
+.scene-baby {
+  --scene-surface: var(--p-rose-50);
+  --scene-line: var(--p-rose-100);
+  --scene-title: var(--p-rose-600);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  --scene-card-line: var(--p-rose-100);
+  --scene-card-hover: var(--p-rose-600);
+  --scene-accent: var(--p-rose-600);
+  --scene-heading: var(--p-ink-800);
+  --scene-tag-bg: var(--p-sage-50);
+  --scene-tag-text: var(--p-sage-700);
+  --scene-empty-line: var(--p-rose-100);
+}
+
+/* ---------- 养生项目：鼠尾草绿 ---------- */
+.scene-wellness {
+  --scene-surface: var(--p-sage-50);
+  --scene-line: var(--p-sage-200);
+  --scene-title: var(--p-sage-700);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  --scene-card-line: var(--p-sage-100);
+  --scene-card-hover: var(--p-sage-600);
+  --scene-card-active-line: var(--p-sage-600);
+  --scene-accent: var(--p-sage-700);
+  --scene-heading: var(--p-sage-900);
+  --scene-soft-line: var(--p-sage-600);
+  --scene-state-ok: var(--p-sage-600);
+  --scene-empty-line: var(--p-sage-100);
+}
+
+/* ---------- 棋牌包间：松绿金深底（亮/暗主题下都保持深底浅字） ---------- */
+.scene-chess {
+  --scene-surface: var(--p-pine-900);
+  --scene-line: var(--p-pine-800);
+  --scene-title: var(--p-gold-300);
+  --scene-sub: var(--p-pine-300);
+  --scene-card: rgba(255, 255, 255, 0.05);
+  --scene-card-line: var(--p-pine-600);
+  --scene-card-hover: rgba(255, 255, 255, 0.09);
+  --scene-card-active-line: var(--p-gold-300);
+  --scene-card-active-ring: rgba(241, 211, 139, 0.35);
+  --scene-card-occupied: rgba(241, 211, 139, 0.08);
+  --scene-accent: var(--p-gold-300);
+  --scene-heading: var(--p-gold-300);
+  --scene-clock: var(--p-gold-100);
+  --scene-state-ok: var(--p-pine-300);
+  --scene-state-warn: var(--p-gold-300);
+  --scene-soft-bg: rgba(241, 211, 139, 0.12);
+  --scene-soft-line: var(--p-gold-700);
+  --scene-soft-text: var(--p-gold-300);
+  --scene-tag-bg: var(--scene-soft-bg);
+  --scene-tag-text: var(--scene-title);
+  --scene-link: var(--p-gold-300);
+  --scene-danger: #ffb4a8;
+  --scene-empty-line: var(--p-pine-600);
+  --scene-btn: var(--p-gold-300);
+  --scene-btn-line: var(--p-pine-600);
+}
+/* ---------- 养生包间：浅绿（与养生项目同色系，卡片语义独立） ---------- */
+.scene-wellness-room {
+  --scene-surface: var(--p-sage-50);
+  --scene-line: var(--p-sage-100);
+  --scene-title: var(--p-sage-700);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  --scene-card-line: var(--p-sage-100);
+  --scene-card-hover: var(--p-sage-50);
+  --scene-card-active-line: var(--p-sage-600);
+  --scene-card-active-ring: rgba(109, 155, 118, 0.35);
+  --scene-card-occupied: var(--p-sage-50);
+  --scene-accent: var(--p-sage-700);
+  --scene-heading: var(--p-sage-700);
+  --scene-clock: var(--p-sage-700);
+  --scene-state-ok: var(--p-sage-600);
+  --scene-state-warn: var(--p-sage-700);
+  --scene-soft-bg: var(--p-sage-50);
+  --scene-soft-line: var(--p-sage-200);
+  --scene-soft-text: var(--p-sage-700);
+  --scene-tag-bg: var(--p-sage-50);
+  --scene-tag-text: var(--p-sage-700);
+  --scene-link: var(--p-sage-700);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-sage-200);
+  --scene-btn: var(--p-sage-700);
+  --scene-btn-line: var(--p-sage-200);
+}
+
+/* ---------- 技师面板：天青蓝 ---------- */
+.scene-tech {
+  --scene-surface: var(--p-sky-50);
+  --scene-line: var(--p-sky-200);
+  --scene-title: var(--p-sky-600);
+  --scene-state-ok: var(--success-text);
+}
+
+/* ---------- 厨打路由：暖棕 ---------- */
+.scene-kitchen {
+  --scene-surface: var(--p-warning-50);
+  --scene-line: var(--border);
+  --scene-title: var(--p-brand-700);
+}
+
+/* ============================================================
+ * 暗色翻转：只翻语义层的场景色，组件与原料层不动。
+ * 棋牌深底场景刻意不翻（它本就是深底，亮暗主题下观感一致）。
+ * ============================================================ */
+:root[data-theme='dark'] .scene-dining {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-border-dark);
+  --scene-title: var(--p-brand-300);
+  --scene-sub: var(--p-ink-400);
+  --scene-card: var(--p-surface-dark-3);
+  --scene-card-line: var(--p-border-dark);
+  --scene-card-hover: var(--p-surface-dark-1);
+  --scene-card-active-line: var(--p-brand-400);
+  --scene-card-active-ring: var(--p-brand-900);
+  --scene-card-occupied: var(--p-brand-900);
+  --scene-accent: var(--p-brand-400);
+  --scene-heading: var(--p-brand-200);
+  --scene-state-ok: var(--success-text);
+  --scene-state-warn: var(--p-brand-400);
+  --scene-soft-bg: var(--p-warning-900);
+  --scene-soft-line: var(--p-warning-950);
+  --scene-soft-text: var(--p-warning-100);
+  --scene-tag-bg: var(--success-subtle);
+  --scene-tag-text: var(--success-text);
+  --scene-link: var(--p-ink-400);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-border-dark);
+  --scene-hint-bg: var(--p-warning-900);
+  --scene-hint-line: var(--p-warning-950);
+  --scene-hint-text: var(--p-warning-100);
+}
+:root[data-theme='dark'] .scene-baby {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-rose-900);
+  --scene-title: var(--p-rose-200);
+  --scene-sub: var(--p-ink-400);
+  --scene-card: var(--p-surface-dark-3);
+  --scene-card-line: var(--p-rose-900);
+  --scene-card-hover: var(--p-rose-900);
+  --scene-accent: var(--p-rose-200);
+  --scene-heading: var(--p-ink-100);
+  --scene-tag-bg: var(--p-sage-900);
+  --scene-tag-text: var(--p-sage-100);
+  --scene-empty-line: var(--p-rose-900);
+}
+:root[data-theme='dark'] .scene-wellness,
+:root[data-theme='dark'] .scene-wellness-room {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-sage-900);
+  --scene-title: var(--p-sage-200);
+  --scene-sub: var(--p-ink-400);
+  --scene-card: var(--p-surface-dark-3);
+  --scene-card-line: var(--p-sage-900);
+  --scene-card-hover: var(--p-sage-900);
+  --scene-card-active-line: var(--p-sage-300);
+  --scene-card-active-ring: rgba(109, 155, 118, 0.35);
+  --scene-card-occupied: var(--p-sage-900);
+  --scene-accent: var(--p-sage-200);
+  --scene-heading: var(--p-sage-100);
+  --scene-clock: var(--p-sage-200);
+  --scene-state-ok: var(--p-sage-200);
+  --scene-state-warn: var(--p-sage-200);
+  --scene-soft-bg: var(--p-sage-900);
+  --scene-soft-line: var(--p-sage-700);
+  --scene-soft-text: var(--p-sage-100);
+  --scene-tag-bg: var(--p-sage-900);
+  --scene-tag-text: var(--p-sage-100);
+  --scene-link: var(--p-sage-200);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-sage-900);
+  --scene-btn: var(--p-sage-200);
+  --scene-btn-line: var(--p-sage-700);
+}
+:root[data-theme='dark'] .scene-tech {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-sky-900);
+  --scene-title: var(--p-sky-200);
+  --scene-state-ok: var(--success-text);
+}
+:root[data-theme='dark'] .scene-kitchen {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-border-dark);
+  --scene-title: var(--p-warning-100);
 }

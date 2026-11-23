@@ -196,7 +196,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="room-board" :class="`room-board--${theme}`">
+  <section class="room-board" :class="theme === 'chess' ? 'scene-chess' : 'scene-wellness-room'">
     <div class="board-head">
       <div><strong>{{ title }}</strong><span>{{ hint }}</span></div>
       <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = true">
@@ -245,177 +245,109 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 配色全部来自场景语义层（tokens.css），宿主 class 决定行业色，暗色只翻语义层。 */
 .room-board {
-  border-bottom: 1px solid var(--room-border, #123c2f);
-  padding: 10px 12px 12px;
-  background: var(--room-bg, radial-gradient(circle at 20% 0%, #1d5741, #0d2a21 70%));
-  color: var(--room-text, #edf7f1);
-}
-/* 养生主题：浅绿底深字 */
-.room-board--wellness {
-  --room-border: #dfe7dc;
-  --room-bg: linear-gradient(180deg, #f6f9f3, #fcfbf7);
-  --room-text: #33503c;
-  --room-strong: #3f6148;
-  --room-sub: #849083;
-  --room-card-bg: #fff;
-  --room-card-border: #e3e9df;
-  --room-card-hover: #fbfdf9;
-  --room-active: #6d9b76;
-  --room-active-ring: rgba(109, 155, 118, 0.35);
-  --room-occupied-bg: #f2f7ef;
-  --room-head-sub: #849083;
-  --room-clock: #3f6148;
-  --room-fee: #4f7357;
-  --room-link: #4f7357;
-  --room-link-danger: #b42318;
-  --room-hint-bg: #eef5ea;
-  --room-hint-border: #c9dcc4;
-  --room-hint-text: #3f6148;
-  --room-empty-border: #c9dcc4;
-  --room-empty-text: #849083;
-  --room-btn: #3f6148;
-  --room-btn-border: #a9c0a8;
-}
-.room-board--chess {
-  --room-strong: #f1d38b;
-  --room-sub: #a9c9b8;
-  --room-head-sub: #a9c9b8;
-  --room-card-bg: rgba(255, 255, 255, 0.05);
-  --room-card-border: #2c5f4b;
-  --room-card-hover: rgba(255, 255, 255, 0.09);
-  --room-active: #f1d38b;
-  --room-active-ring: rgba(241, 211, 139, 0.35);
-  --room-occupied-bg: rgba(241, 211, 139, 0.08);
-  --room-clock: #fff3cf;
-  --room-fee: #a9c9b8;
-  --room-link: #f1d38b;
-  --room-link-danger: #ffb4a8;
-  --room-hint-bg: rgba(241, 211, 139, 0.12);
-  --room-hint-border: #7d6a3a;
-  --room-hint-text: #f1d38b;
-  --room-empty-border: #3a6f59;
-  --room-empty-text: #a9c9b8;
-  --room-btn: #dfeee5;
-  --room-btn-border: #3a6f59;
+  border-bottom: var(--border-width) solid var(--scene-line);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  background: var(--scene-surface);
+  color: var(--scene-title);
 }
 .board-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .board-head strong {
-  color: var(--room-strong);
-  margin-right: 8px;
+  color: var(--scene-title);
+  margin-right: var(--space-2);
 }
-.board-head span {
-  color: var(--room-head-sub);
-  font-size: 12px;
-}
+.board-head span { color: var(--scene-sub); font-size: var(--font-xs); }
 .board-head .btn.ghost {
-  color: var(--room-btn);
-  border-color: var(--room-btn-border);
+  color: var(--scene-btn);
+  border-color: var(--scene-btn-line);
 }
+.board-head .btn.ghost:hover { background: var(--scene-card-hover); }
 .transfer-hint {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  border: 1px solid var(--room-hint-border);
-  background: var(--room-hint-bg);
-  color: var(--room-hint-text);
-  border-radius: 8px;
-  padding: 6px 10px;
-  margin-bottom: 8px;
-  font-size: 12px;
+  gap: var(--space-2);
+  border: var(--border-width) solid var(--scene-soft-line);
+  background: var(--scene-soft-bg);
+  color: var(--scene-soft-text);
+  border-radius: var(--radius-xs);
+  padding: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-xs);
 }
+.transfer-hint .link { color: var(--scene-link); }
 .member-tag {
-  color: var(--room-strong);
-  background: var(--room-hint-bg);
-  border-radius: 999px;
-  padding: 1px 6px;
-  margin-left: 6px;
-  font-size: 11px;
+  color: var(--scene-tag-text);
+  background: var(--scene-tag-bg);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+  margin-left: var(--space-1);
+  font-size: var(--font-2xs);
 }
 .room-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
-  max-height: 215px;
+  gap: var(--space-2);
+  max-height: var(--scene-board-max-height);
   overflow: auto;
 }
 .room-card {
-  border: 1px solid var(--room-card-border);
-  border-radius: 10px;
-  background: var(--room-card-bg);
-  padding: 9px 10px;
+  border: var(--border-width) solid var(--scene-card-line);
+  border-radius: var(--radius-sm);
+  background: var(--scene-card);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
-.room-card:hover {
-  background: var(--room-card-hover);
-}
+.room-card:hover { background: var(--scene-card-hover); }
+.room-card:focus-visible { outline: 2px solid var(--scene-card-active-line); outline-offset: 2px; }
 .room-card.active {
-  border-color: var(--room-active);
-  box-shadow: 0 0 0 2px var(--room-active-ring) inset;
+  border-color: var(--scene-card-active-line);
+  box-shadow: 0 0 0 2px var(--scene-card-active-ring) inset;
 }
-.room-card.occupied {
-  background: var(--room-occupied-bg);
-}
+.room-card.occupied { background: var(--scene-card-occupied); }
 .room-card header {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  color: var(--room-sub);
+  font-size: var(--font-xs);
+  color: var(--scene-sub);
 }
-.room-card header strong {
-  color: var(--room-strong);
-  font-size: 16px;
-}
-.room-card p {
-  margin: 2px 0;
-  font-size: 12px;
-  color: var(--room-sub);
-}
+.room-card header strong { color: var(--scene-title); font-size: var(--font-md); }
+.room-card p { margin: var(--space-0_5) 0; font-size: var(--font-xs); color: var(--scene-sub); }
 .clock {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 20px;
-  letter-spacing: 1px;
-  color: var(--room-clock);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-xl);
+  letter-spacing: var(--tracking-wide);
+  color: var(--scene-clock, var(--scene-title));
+  font-variant-numeric: tabular-nums;
 }
 .card-foot {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
-  color: var(--room-fee);
-  gap: 6px;
+  font-size: var(--font-2xs);
+  color: var(--scene-sub);
+  gap: var(--space-2);
 }
-.fee {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.card-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 4px;
-}
+.fee { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-actions { display: flex; gap: var(--space-3); margin-top: var(--space-1); }
 .link {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--room-link);
-  font-size: 11px;
-  cursor: pointer;
+  border: 0; background: none; padding: 0;
+  color: var(--scene-link); font-size: var(--font-2xs); cursor: pointer;
 }
-.link.danger {
-  color: var(--room-link-danger);
-}
+.link:hover { text-decoration: underline; }
+.link.danger { color: var(--scene-danger); }
 .empty-board {
   grid-column: 1 / -1;
-  color: var(--room-empty-text);
-  border: 1px dashed var(--room-empty-border);
-  border-radius: 10px;
-  padding: 14px;
+  color: var(--scene-sub);
+  border: var(--border-width) dashed var(--scene-empty-line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
 }
 </style>

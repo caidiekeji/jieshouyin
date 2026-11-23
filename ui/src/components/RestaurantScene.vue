@@ -166,7 +166,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="dining-board">
+  <section class="dining-board scene-dining">
     <div class="board-head">
       <div>
         <strong>餐饮桌台</strong>
@@ -224,124 +224,101 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 配色来自场景语义层（tokens.css .scene-dining），暗色只翻语义层。 */
 .dining-board {
-  border-bottom: 1px solid var(--border, #e5e0d8);
-  padding: 10px 12px 12px;
-  background: linear-gradient(180deg, #fffaf0, #fff);
+  border-bottom: var(--border-width) solid var(--scene-line);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  background: var(--scene-surface);
+  color: var(--scene-title);
 }
 .board-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
-.board-head strong {
-  color: #8a4b12;
-  margin-right: 8px;
-}
+.board-head strong { color: var(--scene-title); margin-right: var(--space-2); }
 .table-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-  max-height: 210px;
+  gap: var(--space-2);
+  max-height: var(--scene-board-max-height);
   overflow: auto;
 }
 .table-card {
-  border: 1px solid #eadfce;
-  border-radius: 12px;
-  padding: 9px 10px;
+  border: var(--border-width) solid var(--scene-card-line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
-  background: #fff;
-  transition: border-color 0.15s, transform 0.15s;
+  background: var(--scene-card);
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
-.table-card:hover {
-  transform: translateY(-1px);
-}
+.table-card:hover { background: var(--scene-card-hover); }
+.table-card:focus-visible { outline: 2px solid var(--scene-card-active-line); outline-offset: 2px; }
 .table-card.active {
-  border-color: #c2701d;
-  box-shadow: 0 0 0 2px #f5dcc0 inset;
+  border-color: var(--scene-card-active-line);
+  box-shadow: 0 0 0 2px var(--scene-card-active-ring) inset;
 }
-.table-card.occupied {
-  background: #fff7ea;
-}
+.table-card.occupied { background: var(--scene-card-occupied); }
 .table-card header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 13px;
+  font-size: var(--font-sm);
 }
-.table-card header strong {
-  font-size: 17px;
-  color: #7a3f0c;
-}
+.table-card header strong { font-size: var(--font-lg); color: var(--scene-heading); }
 .table-card header span,
-.table-card p {
-  color: #9a8a76;
-  font-size: 12px;
-}
-.table-card p {
-  margin: 3px 0 5px;
-}
+.table-card p { color: var(--scene-sub); font-size: var(--font-xs); }
+.table-card p { margin: var(--space-0_5) 0 var(--space-1); }
 .card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--font-xs);
 }
-.occupied {
-  color: #b45309;
-  font-weight: 600;
-}
-.free {
-  color: #4b7a4b;
-}
-.count {
-  color: #6b6258;
-}
+.occupied { color: var(--scene-state-warn); font-weight: 600; }
+.free { color: var(--scene-state-ok); }
+.count { color: var(--scene-sub); }
 .card-actions {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .action-hint {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  background: #fff3d8;
-  border: 1px solid #f0d39a;
-  border-radius: 8px;
-  padding: 6px 10px;
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: #8a4b12;
+  gap: var(--space-2);
+  background: var(--scene-hint-bg);
+  border: var(--border-width) solid var(--scene-hint-line);
+  border-radius: var(--radius-xs);
+  padding: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--scene-hint-text);
 }
 .member-tag {
-  color: #2f6b4f;
-  background: #e8f4ec;
-  border-radius: 999px;
-  padding: 1px 6px;
-  margin-left: 6px;
-  font-size: 11px;
+  color: var(--scene-tag-text);
+  background: var(--scene-tag-bg);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+  margin-left: var(--space-1);
+  font-size: var(--font-2xs);
 }
 .link {
-  border: 0;
-  background: none;
-  padding: 0;
-  font-size: 11px;
-  color: #9a8a76;
-  cursor: pointer;
+  border: 0; background: none; padding: 0;
+  font-size: var(--font-2xs); color: var(--scene-link); cursor: pointer;
 }
-.link.danger {
-  color: #b42318;
-}
+.link:hover { text-decoration: underline; }
+.link.danger { color: var(--scene-danger); }
 .empty-board {
   grid-column: 1 / -1;
-  color: #9a8a76;
-  padding: 14px;
-  border: 1px dashed #e2d7c8;
-  border-radius: 10px;
+  color: var(--scene-sub);
+  padding: var(--space-4);
+  border: var(--border-width) dashed var(--scene-empty-line);
+  border-radius: var(--radius-sm);
 }
 </style>

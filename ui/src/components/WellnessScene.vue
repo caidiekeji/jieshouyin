@@ -27,7 +27,7 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="wellness-board">
+  <section class="wellness-board scene-wellness">
     <div class="well-head">
       <div><strong>养生项目</strong><span>按项目分类点单，价格与次数以商品档案为准</span></div>
       <nav>
@@ -56,103 +56,88 @@ onMounted(load)
 </template>
 
 <style scoped>
+/* 配色来自场景语义层（tokens.css .scene-wellness），暗色只翻语义层。 */
 .wellness-board {
-  border-bottom: 1px solid #dfe7dc;
-  padding: 10px 12px 12px;
-  background: linear-gradient(180deg, #f6f9f3, #fcfbf7);
+  border-bottom: var(--border-width) solid var(--scene-line);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  background: var(--scene-surface);
+  color: var(--scene-title);
 }
 .well-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
   flex-wrap: wrap;
 }
-.well-head strong {
-  color: #3f6148;
-  margin-right: 8px;
-}
-.well-head span {
-  color: #849083;
-  font-size: 12px;
-}
+.well-head strong { color: var(--scene-title); margin-right: var(--space-2); }
+.well-head span { color: var(--scene-sub); font-size: var(--font-xs); }
 .well-head nav {
   display: flex;
-  gap: 3px;
+  gap: var(--space-0_5);
   flex-wrap: wrap;
-  border-bottom: 1px solid #dfe7dc;
+  border-bottom: var(--border-width) solid var(--scene-line);
 }
 .well-head nav button {
   border: 0;
   background: none;
-  padding: 5px 9px;
-  color: #6f7d6e;
-  font-size: 12px;
+  padding: var(--space-1) var(--space-3);
+  color: var(--scene-sub);
+  font-size: var(--font-xs);
   cursor: pointer;
   border-bottom: 2px solid transparent;
 }
+.well-head nav button:hover { color: var(--scene-accent); }
+.well-head nav button:focus-visible { outline: 2px solid var(--scene-accent); outline-offset: -2px; }
 .well-head nav button.active {
-  color: #31543b;
-  border-bottom-color: #6d9b76;
+  color: var(--scene-heading);
+  border-bottom-color: var(--scene-soft-line, var(--scene-accent));
   font-weight: 600;
 }
 .service-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 7px;
-  max-height: 205px;
+  gap: var(--space-2);
+  max-height: var(--scene-board-max-height);
   overflow: auto;
 }
 .service-card {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-3);
   text-align: left;
-  border: 1px solid #e3e9df;
-  border-radius: 8px;
-  background: #fff;
-  padding: 9px 10px;
+  border: var(--border-width) solid var(--scene-card-line);
+  border-radius: var(--radius-sm);
+  background: var(--scene-card);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }
-.service-card:hover {
-  border-color: #a9c0a8;
-  background: #fbfdf9;
-}
+.service-card:hover { border-color: var(--scene-card-hover); background: var(--scene-surface); }
+.service-card:focus-visible { outline: 2px solid var(--scene-accent); outline-offset: 2px; }
 .line {
-  width: 3px;
-  height: 26px;
-  border-radius: 2px;
-  background: #9ab79c;
+  width: var(--hairline);
+  height: var(--space-8);
+  border-radius: var(--radius-xs);
+  background: var(--scene-card-hover);
   flex: none;
 }
-.service-card > div {
-  flex: 1;
-  min-width: 0;
-}
+.service-card > div { flex: 1; min-width: 0; }
 .service-card strong {
-  font-size: 13px;
-  color: #374b3a;
+  font-size: var(--font-sm);
+  color: var(--scene-heading);
   display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.service-card p {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: #8b978a;
-}
-.price {
-  color: #4f7357;
-  font-weight: 700;
-  white-space: nowrap;
-}
+.service-card p { margin: var(--space-0_5) 0 0; font-size: var(--font-2xs); color: var(--scene-sub); }
+.price { color: var(--scene-accent); font-weight: 700; white-space: nowrap; }
 .empty-service {
   grid-column: 1 / -1;
-  color: #8b978a;
-  border: 1px dashed #d9e3d7;
-  border-radius: 8px;
-  padding: 14px;
+  color: var(--scene-sub);
+  border: var(--border-width) dashed var(--scene-empty-line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
 }
 </style>

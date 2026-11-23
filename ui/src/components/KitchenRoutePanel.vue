@@ -61,7 +61,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <section v-if="canManage" class="route-panel">
+  <section v-if="canManage" class="route-panel scene-kitchen">
     <div class="route-head">
       <button class="link" @click="open = !open">
         {{ open ? '收起' : '厨打档口路由' }}
@@ -92,41 +92,22 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 配色来自场景语义层（tokens.css .scene-kitchen），暗色只翻语义层。 */
 .route-panel {
-  margin: 0 12px 8px;
-  border: 1px solid #e3d9c8;
-  border-radius: 10px;
-  background: #fbf7f0;
-  padding: 6px 10px;
+  margin: 0 var(--space-3) var(--space-2);
+  border: var(--border-width) solid var(--scene-line);
+  border-radius: var(--radius-sm);
+  background: var(--scene-surface);
+  padding: var(--space-2) var(--space-3);
 }
-.route-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-.route-head .link {
-  font-size: 12px;
-  color: #8a5a12;
-}
-.route-body {
-  margin-top: 6px;
-}
-.route-add {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.input-xs {
-  width: 70px;
-}
+.route-head { display: flex; justify-content: space-between; gap: var(--space-2); }
+.route-head .link { font-size: var(--font-xs); color: var(--scene-title); }
+.route-body { margin-top: var(--space-2); }
+.route-add { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.input-xs { width: var(--control-input-xs-width); }
 .route-list {
-  list-style: none;
-  padding: 0;
-  margin: 6px 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  font-size: 12px;
+  list-style: none; padding: 0; margin: var(--space-2) 0 0;
+  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
+  font-size: var(--font-xs);
 }
 </style>

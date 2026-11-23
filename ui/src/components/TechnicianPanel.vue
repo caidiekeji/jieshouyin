@@ -152,7 +152,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <section v-if="canManage" class="tech-panel">
+  <section v-if="canManage" class="tech-panel scene-tech">
     <div class="tech-head">
       <button class="link tech-toggle" @click="open = !open">
         {{ open ? '收起' : '技师排班 / 提成' }}
@@ -240,74 +240,42 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 配色来自场景语义层（tokens.css .scene-tech），暗色只翻语义层。 */
 .tech-panel {
-  margin: 0 12px 8px;
-  border: 1px solid #d8e0e8;
-  border-radius: 10px;
-  background: #f6f9fc;
-  padding: 6px 10px;
+  margin: 0 var(--space-3) var(--space-2);
+  border: var(--border-width) solid var(--scene-line);
+  border-radius: var(--radius-sm);
+  background: var(--scene-surface);
+  padding: var(--space-2) var(--space-3);
 }
-.tech-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-.tech-toggle {
-  font-size: 12px;
-  color: #1c5f9e;
-}
-.tech-body {
-  margin-top: 6px;
-}
-.tech-add {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.input-xs {
-  width: 62px;
-}
+.tech-head { display: flex; justify-content: space-between; gap: var(--space-2); }
+.tech-toggle { font-size: var(--font-xs); color: var(--scene-title); }
+.tech-body { margin-top: var(--space-2); }
+.tech-add { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.input-xs { width: var(--control-input-xs-width); }
 .tech-list {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
+  list-style: none; padding: 0; margin: var(--space-2) 0;
+  display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
 }
 .tech-list li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-xs);
 }
-.tech-list .on {
-  color: #1f8a55;
-}
+.tech-list .on { color: var(--scene-state-ok); }
 .tech-rules {
-  margin: 8px 0;
-  border-top: 1px dashed #d8e0e8;
-  padding-top: 8px;
+  margin: var(--space-2) 0;
+  border-top: var(--border-width) dashed var(--scene-line);
+  padding-top: var(--space-2);
 }
 .tech-rule-list {
-  list-style: none;
-  padding: 0;
-  margin: 6px 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  font-size: 12px;
+  list-style: none; padding: 0; margin: var(--space-2) 0;
+  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
+  font-size: var(--font-xs);
 }
-.tech-report table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
+.tech-report table { width: 100%; border-collapse: collapse; font-size: var(--font-xs); }
 .tech-report th,
 .tech-report td {
   text-align: left;
-  padding: 3px 6px;
-  border-bottom: 1px solid #e4ebf2;
+  padding: var(--space-0_5) var(--space-2);
+  border-bottom: var(--border-width) solid var(--scene-line);
 }
 </style>
