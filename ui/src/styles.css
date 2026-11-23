@@ -479,6 +479,10 @@ h2 { font-size: var(--font-lg); }
 .report-toolbar { row-gap: var(--space-2); margin-bottom: var(--space-4); }
 .report-toolbar .input { flex: none; min-width: 0; }
 .report-table-wrap { max-height: 60vh; overflow: auto; }
+/* 报表表格按内容收缩列宽，避免文本列撑满后把数字列推到最右、中间留大片空白；
+   数字列仍右对齐，表头与数据逐列对齐，各报表排版一致。 */
+.report-table-wrap .tbl { width: max-content; max-width: 100%; }
+.report-table-wrap .tbl .num-cell { min-width: 88px; }
 /* 数字列右对齐 + 等宽数字：所有后台表格的金额/数量/差异列共用，便于纵向扫读比对。
    表头与数据用同一判断规则，确保逐列对齐。 */
 .tbl .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
@@ -681,6 +685,13 @@ h2 { font-size: var(--font-lg); }
 .pay-mixed-status .link { font-size: var(--font-xs); display: inline-flex; align-items: center; gap: var(--space-1); }
 .pay-shortfall { font-size: var(--font-sm); color: var(--danger); }
 .pay-shortfall.ok { color: var(--success-text); }
+.receipt-template-input { width: 100%; font-family: var(--font-family-mono); font-size: var(--font-xs); resize: vertical; }
+.receipt-preview {
+  margin-top: var(--space-3); padding: var(--space-4);
+  max-width: 320px; white-space: pre; overflow-x: auto;
+  font-family: var(--font-family-mono); font-size: var(--font-xs); line-height: 1.6;
+  background: var(--surface-subtle); border: var(--border-width) solid var(--border);
+}
 .print-queue { display: flex; flex-direction: column; gap: var(--space-2); }
 .print-queue-row { display: flex; justify-content: space-between; align-items: center; }
 .config-row { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }

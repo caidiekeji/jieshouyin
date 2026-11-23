@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { api, formatMoney, type OrderDetail } from '../api'
 import Icon from './Icon.vue'
+import { useAppStore } from '../stores/app'
 import {
   ERROR_DURATION_MS,
   ICON_SIZE,
@@ -12,6 +13,7 @@ import {
 } from '../constants'
 
 /** 订单详情面板：单号由父级传入；退款与重打小票从面板直接触发。 */
+const app = useAppStore()
 const props = defineProps<{ orderNo: string }>()
 const emit = defineEmits<{
   (e: 'refund', orderNo: string): void
@@ -85,7 +87,7 @@ function search() {
         <button class="btn" :disabled="loading" @click="load">
           <Icon name="refresh" :size="ICON_SIZE.md" />刷新
         </button>
-        <button class="btn" @click="reprint"><Icon name="print" :size="ICON_SIZE.md" />重打小票</button>
+        <button v-if="app.printAuto" class="btn" @click="reprint"><Icon name="print" :size="ICON_SIZE.md" />重打小票</button>
         <button class="btn danger-text" @click="emit('refund', props.orderNo)"><Icon name="undo" :size="ICON_SIZE.md" />发起退款</button>
       </div>
     </div>

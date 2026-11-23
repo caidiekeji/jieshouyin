@@ -24,7 +24,7 @@ const {
   view, goodsTab, bootError, license, needAdmin, onboarding, activationPending,
   adminUser, adminPass, loginUser, loginPass, loginError,
   activateToken, activateError, renewMode, activateMode, activateCustomer,
-  activationServiceReachable, probingService, theme, currentUser, currentRole,
+  activationServiceReachable, probingService, theme, printAuto, currentUser, currentRole,
   lockCode, lockCodeDraft, lockSetupOpen, locked, lockInput, lockError,
   settingsTab, storeProfile, industries, pendingIndustry, storeNameDraft,
   orderNo, refundOrderNo, toast, toastKind,
@@ -47,6 +47,7 @@ const {
   reportMetas, activeReportId, activeReport, reportLoading, centerFrom, centerTo, reportTool,
   configs, configDraft, credChannel, credDraft, credSaved, channelDraft,
   reconDate, reconText, reconSummary, reconDiffs, printQueue,
+  receiptTemplateJson, receiptPaperWidth, receiptPreview,
   opOrderNo, opItems, opQty, opMode, users, uForm,
 } = opsRefs
 
@@ -205,6 +206,8 @@ const importBill = (c: 'WECHAT' | 'ALIPAY') => ops.importBill(c)
 const loadReconDiffs = () => ops.loadReconDiffs()
 const loadPrintQueue = () => ops.loadPrintQueue()
 const doRetryPrint = (no: string) => ops.doRetryPrint(no)
+const previewReceipt = () => ops.previewReceipt()
+const saveReceiptTemplate = () => ops.saveReceiptTemplate()
 const loadOrderItems = () => ops.loadOrderItems()
 const doVoid = () => ops.doVoid()
 const doRefund = () => ops.doRefund()
@@ -405,8 +408,14 @@ const goProducts = () => app.goProducts()
     posProducts,
     posRootCategories,
     pressCashKey,
+    printAuto,
     printQueue,
     printReceipt,
+    previewReceipt,
+    receiptPaperWidth,
+    receiptPreview,
+    receiptTemplateJson,
+    saveReceiptTemplate,
     probeActivationService,
     probingService,
     productImageSrc,

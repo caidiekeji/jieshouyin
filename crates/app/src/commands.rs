@@ -2111,7 +2111,21 @@ pub fn daily_report(date: String, state: State<'_, AppState>) -> Result<DailyRep
 #[tauri::command]
 pub async fn print_receipt(order_no: String, state: State<'_, AppState>) -> Result<String> {
     let (_operator_id, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    // 「结算后自动打印小票」关闭时不打印，含手动重打入口
+    if cfg_get(&conn, CFG_PRINT_AUTO).ok().flatten().as_deref() != Some("1") {
+        return Err(CoreError::Validation("结算后自动打印小票已关闭".into()));
+    }
     print_receipt_inner(&conn, order_no.trim())
+}
+
+/// 读取「结算后自动打印小票」开关，供收银界面决定重打入口是否可见。
+#[tauri::command]
+pub fn get_print_auto(state: State<'_, AppState>) -> Result<bool> {
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    Ok(cfg_get(&conn, CFG_PRINT_AUTO).ok().flatten().as_deref() == Some("1"))
 }
 
 /// 按「结算后自动打印小票」开关打印；失败不阻断收银（内部已入重打队列）。
@@ -2286,6 +2300,122 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
             Ok(format!("打印失败，已入重打队列: {e}"))
         }
     }
+}
+
+/// 小票模板：读取当前模板（纸张宽度 + 原始 JSON），供设置页编辑与预览。
+#[derive(Debug, Serialize)]
+pub struct ReceiptTemplateRow {
+    pub paper_width_mm: i32,
+    pub content_json: String,
+}
+
+#[tauri::command]
+pub fn get_receipt_template(state: State<'_, AppState>) -> Result<ReceiptTemplateRow> {
+    let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
+    let (paper_width_mm, content_json): (i32, String) = conn.query_row(
+        "SELECT paper_width_mm,content_json FROM print_template WHERE template_id='receipt_default'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    Ok(ReceiptTemplateRow {
+        paper_width_mm,
+        content_json,
+    })
+}
+
+/// 小票模板：校验 JSON 结构后保存（仅店长及以上）。
+#[tauri::command]
+pub fn save_receipt_template(
+    content_json: String,
+    paper_width_mm: i32,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    use checkout_core::escpos::Template;
+    let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
+    if !(58..=80).contains(&paper_width_mm) {
+        return Err(CoreError::Validation("纸张宽度只支持 58 或 80 毫米".into()));
+    }
+    // 先解析并展开全部块，确保每个块的 type/字段合法，避免保存后打印才失败
+    let sections: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| CoreError::Validation(format!("模板 JSON 格式错误: {e}")))?;
+    let template = Template {
+        template_id: "receipt_default".into(),
+        paper_width_mm,
+        sections,
+    };
+    template
+        .iter_blocks()
+        .map_err(|e| CoreError::Validation(format!("模板块定义错误: {e}")))?;
+    conn.execute(
+        "UPDATE print_template SET paper_width_mm=?1,content_json=?2,updated_at=?3
+         WHERE template_id='receipt_default'",
+        rusqlite::params![paper_width_mm, content_json, now_str()],
+    )?;
+    Ok("小票模板已保存".into())
+}
+
+/// 小票模板预览：用示例数据渲染成纯文本，不发送打印机、不入重打队列。
+#[tauri::command]
+pub fn preview_receipt(content_json: String, state: State<'_, AppState>) -> Result<String> {
+    use checkout_core::escpos::{render_vars, Block, Template};
+    let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
+    let sections: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| CoreError::Validation(format!("模板 JSON 格式错误: {e}")))?;
+    let paper_width_mm: i32 = conn.query_row(
+        "SELECT paper_width_mm FROM print_template WHERE template_id='receipt_default'",
+        [],
+        |r| r.get(0),
+    )?;
+    let template = Template {
+        template_id: "receipt_default".into(),
+        paper_width_mm,
+        sections,
+    };
+    let mut vars = std::collections::HashMap::new();
+    let name = cfg_get(&conn, CFG_STORE_NAME)?.unwrap_or_default();
+    vars.insert(
+        "store_name".into(),
+        if name.trim().is_empty() {
+            "示例门店".into()
+        } else {
+            name
+        },
+    );
+    vars.insert(
+        "store_phone".into(),
+        cfg_get(&conn, CFG_STORE_PHONE)?.unwrap_or_default(),
+    );
+    vars.insert("order_no".into(), "STOREPOS0000000000000001".into());
+    vars.insert("created_at".into(), now_str());
+    vars.insert("member_phone".into(), "138****8888".into());
+    vars.insert("table_code".into(), "A01".into());
+    vars.insert("subtotal".into(), "12.00".into());
+    vars.insert("discount_total".into(), "2.00".into());
+    vars.insert("pay_total".into(), "10.00".into());
+    vars.insert("pay_channel_lines".into(), "WECHAT 10.00".into());
+    vars.insert("items".into(), "示例商品 x1 10.00".into());
+    vars.insert("change".into(), "0.00".into());
+    vars.insert("qrcode_pay_url".into(), "https://example.com/order/STOREPOS0000000000000001".into());
+    let chars_per_line = if paper_width_mm >= 80 { 48 } else { 32 };
+    let mut lines = Vec::new();
+    for block in template.iter_blocks()? {
+        match block {
+            Block::Text { content, .. } => lines.push(render_vars(&content, &vars)?),
+            Block::Divider { char } => {
+                let c = char.chars().next().unwrap_or('-');
+                lines.push(std::iter::repeat_n(c, chars_per_line).collect());
+            }
+            Block::Barcode { content, .. } => lines.push(format!("[条码] {}", render_vars(&content, &vars)?)),
+            Block::Qrcode { content, .. } => lines.push(format!("[二维码] {}", render_vars(&content, &vars)?)),
+            Block::Feed { lines: n } => {
+                for _ in 0..n {
+                    lines.push(String::new());
+                }
+            }
+            Block::Cut { .. } | Block::Kick { .. } => {}
+        }
+    }
+    Ok(lines.join("\n"))
 }
 
 /// 交班汇总。
@@ -5627,6 +5757,10 @@ pub fn run() {
             generic_report,
             reconcile_csv,
             print_receipt,
+            get_print_auto,
+            get_receipt_template,
+            save_receipt_template,
+            preview_receipt,
             print_retries,
             retry_print,
             shift_report,

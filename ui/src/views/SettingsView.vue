@@ -14,9 +14,10 @@ const {
   gatewayModes, importBill, industries, industry,
   license, licenseStatusLabel, loadReconDiffs, loadTechnicians,
   lockCode, lockCodeDraft, pendingIndustry, pointsConfigs,
-  printQueue, reconDate, reconDiffs, reconSummary,
+  previewReceipt, printQueue, receiptPaperWidth, receiptPreview,
+  receiptTemplateJson, reconDate, reconDiffs, reconSummary,
   reconText, refreshLicense, removeCredential, saveConfig,
-  saveCredential, saveLockCode, saveStoreName, search,
+  saveCredential, saveLockCode, saveReceiptTemplate, saveStoreName, search,
   settingsTab, storeNameDraft, storeProfile, systemConfigGroups,
   theme, toggleChannel, toggleConfigSwitch, toggleUser,
   uForm, users, visibleSettingsTabs
@@ -271,6 +272,25 @@ const {
               <h3>厨打档口路由</h3>
               <p class="muted small">按菜品分类把厨房小票分发到指定档口打印机；未配置的分类走系统配置里的主打印机。仅店长及以上可修改。</p>
               <KitchenRoutePanel :can-manage="atLeast('MANAGER')" />
+            </div>
+            <div class="card wide">
+              <h3>小票设置与预览</h3>
+              <p class="muted small">设置结算后自动打印开关（在「系统配置 → 打印设置」里），并在下方编辑小票模板。预览使用示例数据渲染，不实际打印。</p>
+              <div class="form-grid">
+                <label>纸张宽度
+                  <select v-model.number="receiptPaperWidth" class="input">
+                    <option :value="58">58mm</option>
+                    <option :value="80">80mm</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field-label">模板 JSON（sections: header / items / summary / footer）</label>
+              <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12"></textarea>
+              <div class="op-form">
+                <button class="btn" :disabled="!atLeast('MANAGER')" @click="previewReceipt">预览效果</button>
+                <button class="btn primary" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存模板</button>
+              </div>
+              <div v-if="receiptPreview" class="receipt-preview">{{ receiptPreview }}</div>
             </div>
             <div class="card wide">
               <h3>打印重试队列</h3>

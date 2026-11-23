@@ -57,6 +57,7 @@ const {
   posCategoryId,
   posProducts,
   posRootCategories,
+  printAuto,
   printReceipt,
   productImageSrc,
   products,
@@ -412,7 +413,7 @@ const {
               <Icon name="scan" :size="ICON_SIZE.lg" />
               <span>扫码或选择商品后开始收款</span>
             </div>
-            <button v-if="lastOrder" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
+            <button v-if="lastOrder && printAuto" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="ICON_SIZE.md" />重打小票 {{ lastOrder }}</button>
           </div>
         </section>
         </template>

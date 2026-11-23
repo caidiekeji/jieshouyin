@@ -62,6 +62,10 @@ export const useOpsStore = defineStore('ops', {
     }[],
     // 打印队列
     printQueue: [] as string[],
+    // 小票模板设置
+    receiptTemplateJson: '',
+    receiptPaperWidth: 58,
+    receiptPreview: '',
     // 订单操作
     opOrderNo: '',
     opItems: [] as OrderItemRow[],
@@ -238,6 +242,7 @@ export const useOpsStore = defineStore('ops', {
         await api.setConfig(key, this.configDraft[key] ?? '')
         this.showToast('配置已保存')
         await this.loadConfigs()
+        if (key === 'print_auto') useAppStore().printAuto = this.configDraft[key] === '1'
         return true
       } catch (e) {
         this.showToast(String(e), true)
@@ -435,9 +440,38 @@ export const useOpsStore = defineStore('ops', {
         this.showToast(String(e))
       }
     },
+    async loadReceiptTemplate() {
+      try {
+        const t = await api.getReceiptTemplate()
+        this.receiptTemplateJson = t.content_json
+        this.receiptPaperWidth = t.paper_width_mm
+        await this.previewReceipt()
+      } catch (e) {
+        this.showToast(String(e), true)
+      }
+    },
+    async previewReceipt() {
+      try {
+        this.receiptPreview = await api.previewReceipt(this.receiptTemplateJson)
+      } catch (e) {
+        this.receiptPreview = ''
+        this.showToast(String(e), true)
+      }
+    },
+    async saveReceiptTemplate(): Promise<boolean> {
+      try {
+        this.showToast(await api.saveReceiptTemplate(this.receiptTemplateJson, this.receiptPaperWidth))
+        await this.previewReceipt()
+        return true
+      } catch (e) {
+        this.showToast(String(e), true)
+        return false
+      }
+    },
     goSettings() {
       const app = useAppStore()
       app.view = 'settings'
+      void this.loadReceiptTemplate()
       void this.loadUsers()
       void this.loadConfigs()
       void this.loadPrintQueue()

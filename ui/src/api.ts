@@ -578,6 +578,11 @@ export const api = {
   dailyReport: (date: string) =>
     invoke<{ order_count: number; total_sales_cents: number; refund_cents: number; discount_cents: number }>('daily_report', { date }),
   printReceipt: (orderNo: string) => invoke<string>('print_receipt', { orderNo }),
+  getPrintAuto: () => invoke<boolean>('get_print_auto'),
+  getReceiptTemplate: () => invoke<{ paper_width_mm: number; content_json: string }>('get_receipt_template'),
+  saveReceiptTemplate: (contentJson: string, paperWidthMm: number) =>
+    invoke<string>('save_receipt_template', { contentJson, paperWidthMm }),
+  previewReceipt: (contentJson: string) => invoke<string>('preview_receipt', { contentJson }),
   createProduct: (p: {
     name: string
     barcode: string | null

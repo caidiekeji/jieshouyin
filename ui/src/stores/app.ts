@@ -57,6 +57,8 @@ export const useAppStore = defineStore('app', {
     activationServiceReachable: null as boolean | null,
     probingService: false,
     theme: 'light' as 'light' | 'dark',
+    // 结算后自动打印小票开关：关闭时隐藏收银处重打入口
+    printAuto: true,
     currentUser: '',
     currentRole: 'CASHIER' as Role,
     lockCode: '',
@@ -179,6 +181,11 @@ export const useAppStore = defineStore('app', {
     async bootstrap() {
       try {
         this.license = await api.bootstrap()
+        try {
+          this.printAuto = await api.getPrintAuto()
+        } catch {
+          // 开关读取失败保留默认开，不阻断启动
+        }
         await this.loadStoreProfile()
         await this.loadIndustries()
         this.needAdmin = !(await api.hasUsers())
