@@ -35,7 +35,7 @@ const {
 </script>
 
 <template>
-      <main v-else-if="view === 'report'" class="admin-shell">
+      <main v-if="view === 'report'" class="admin-shell">
         <!-- 报表中心：后台管理式布局，左栏贴左全高（34 报表 + 工具），右侧内容独立滚动 -->
         <aside class="admin-side">
           <div class="admin-side-title">报表中心</div>

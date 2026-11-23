@@ -60,7 +60,7 @@ const {
 </script>
 
 <template>
-      <main v-else class="admin-shell">
+      <main class="admin-shell">
         <nav class="admin-side">
           <div class="admin-side-title">设置中心</div>
           <button
