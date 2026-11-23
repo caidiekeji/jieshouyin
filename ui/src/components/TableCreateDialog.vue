@@ -141,12 +141,19 @@ function submit() {
 .tc-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-3) var(--space-3);
 }
-.tc-grid .input { width: 100%; }
+/* 统一控件高度：输入框/下拉/动作按钮同高，避免比例失衡 */
+.tc-grid .input {
+  width: 100%;
+  height: var(--control-height-form);
+  padding: 0 var(--space-2);
+  font-size: var(--font-sm);
+}
 .tc-wide { grid-column: span 3; }
 .tc-preview { margin: 0; font-size: var(--font-sm); color: var(--muted); }
 .tc-preview strong { color: var(--text); }
 .tc-error { margin: 0; font-size: var(--font-sm); color: var(--danger); }
 .tc-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.tc-actions .btn { height: var(--control-height-form); padding: 0 var(--space-4); }
 </style>

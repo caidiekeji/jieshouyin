@@ -2,10 +2,9 @@
 import { onMounted, ref } from 'vue'
 import { api, type Category, type KitchenRoute } from '../api'
 
+/** 厨打档口路由小节：嵌入设置页「打印机设置」卡片内，按分类绑定档口打印机。 */
 const props = defineProps<{ canManage: boolean }>()
-const emit = defineEmits<{ changed: [] }>()
 
-const open = ref(false)
 const busy = ref(false)
 const routes = ref<KitchenRoute[]>([])
 const categories = ref<Category[]>([])
@@ -29,7 +28,6 @@ async function save(next: KitchenRoute[]) {
   try {
     await api.setKitchenRoutes(next)
     routes.value = next
-    emit('changed')
   } finally {
     busy.value = false
   }
@@ -61,53 +59,40 @@ onMounted(() => {
 </script>
 
 <template>
-  <section v-if="canManage" class="route-panel scene-kitchen">
-    <div class="route-head">
-      <button class="link" @click="open = !open">
-        {{ open ? '收起' : '厨打档口路由' }}
-        <span class="muted">（已配 {{ routes.length }} 个档口）</span>
-      </button>
-      <span v-if="!open" class="muted small">未配置时全部走打印设置里的主打印机</span>
+  <div v-if="canManage" class="route-section">
+    <div class="route-add">
+      <select v-model.number="form.categoryId" class="input input-sm" aria-label="选择分类">
+        <option v-for="c in categories" :key="c.category_id" :value="c.category_id">{{ c.name }}</option>
+      </select>
+      <input v-model="form.label" class="input input-sm route-label" placeholder="档口名，如 热菜" maxlength="20" />
+      <input v-model="form.host" class="input input-sm route-host" placeholder="打印机 IP/主机名" maxlength="64" />
+      <input v-model.number="form.port" class="input input-sm route-port" type="number" min="1" max="65535" aria-label="端口" />
+      <button class="btn btn-sm primary" :disabled="busy" @click="upsert">添加档口</button>
     </div>
-    <div v-if="open" class="route-body">
-      <div class="route-add">
-        <select v-model.number="form.categoryId" class="input input-sm">
-          <option v-for="c in categories" :key="c.category_id" :value="c.category_id">{{ c.name }}</option>
-        </select>
-        <input v-model="form.label" class="input input-sm" placeholder="档口名 热菜" maxlength="20" />
-        <input v-model="form.host" class="input input-sm" placeholder="打印机 IP/主机名" maxlength="64" />
-        <input v-model.number="form.port" class="input input-xs" type="number" min="1" max="65535" />
-        <button class="btn btn-sm primary" :disabled="busy" @click="upsert">保存档口</button>
-      </div>
-      <ul class="route-list">
-        <li v-for="r in routes" :key="r.category_id">
-          <strong>{{ r.label }}</strong>
-          <span class="muted">{{ categoryName(r.category_id) }} → {{ r.host }}:{{ r.port }}</span>
-          <button class="link danger" :disabled="busy" @click="remove(r)">删除</button>
-        </li>
-        <li v-if="!routes.length" class="muted small">还没有档口，未配置的分类会打到主打印机。</li>
-      </ul>
-    </div>
-  </section>
+    <ul class="route-list">
+      <li v-for="r in routes" :key="r.category_id">
+        <strong>{{ r.label }}</strong>
+        <span class="muted">{{ categoryName(r.category_id) }} → {{ r.host }}:{{ r.port }}</span>
+        <button class="link danger" :disabled="busy" @click="remove(r)">删除</button>
+      </li>
+      <li v-if="!routes.length" class="muted small">还没有档口，未配置的分类会打到主打印机。</li>
+    </ul>
+  </div>
+  <p v-else class="muted small">仅店长及以上可修改档口路由。</p>
 </template>
 
 <style scoped>
-/* 配色来自场景语义层（tokens.css .scene-kitchen），暗色只翻语义层。 */
-.route-panel {
-  margin: 0 var(--space-3) var(--space-2);
-  border: var(--border-width) solid var(--scene-line);
-  border-radius: var(--radius-sm);
-  background: var(--scene-surface);
-  padding: var(--space-2) var(--space-3);
-}
-.route-head { display: flex; justify-content: space-between; gap: var(--space-2); }
-.route-head .link { font-size: var(--font-xs); color: var(--scene-title); }
-.route-body { margin-top: var(--space-2); }
+/* 嵌入「打印机设置」卡片内的小节：无独立面板外壳，只用细分隔线分节 */
+.route-section { display: flex; flex-direction: column; gap: var(--space-2); }
 .route-add { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.input-xs { width: var(--control-input-xs-width); }
+.route-label { width: 120px; }
+.route-host { flex: 1; min-width: 160px; }
+.route-port { width: var(--control-input-xs-width); }
 .route-list {
-  list-style: none; padding: 0; margin: var(--space-2) 0 0;
-  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
-  font-size: var(--font-xs);
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: var(--space-1);
+  font-size: var(--font-sm);
 }
+.route-list li { display: flex; align-items: center; gap: var(--space-2); }
+.route-list .link { margin-left: auto; font-size: var(--font-xs); }
 </style>

@@ -51,6 +51,7 @@ export const useOpsStore = defineStore('ops', {
     credChannel: 'WECHAT' as 'WECHAT' | 'ALIPAY',
     credDraft: {} as Record<string, string>,
     credSaved: {} as Record<string, boolean>,
+    credBusy: false,
     channelDraft: {} as Record<string, string>,
     // 对账
     reconDate: today(),
@@ -314,6 +315,28 @@ export const useOpsStore = defineStore('ops', {
         await this.loadPaymentSettings()
       } catch (e) {
         this.showToast(String(e), true)
+      }
+    },
+    /** 凭据弹窗统一保存：一次写入所有已填字段，避免每个字段单独一个保存按钮 */
+    async saveAllCredentials() {
+      const filled = Object.entries(this.credDraft).filter(([, v]) => v && v.trim())
+      if (!filled.length) {
+        this.showToast('没有要保存的修改；留空表示不修改该项', true)
+        return
+      }
+      this.credBusy = true
+      try {
+        for (const [field, value] of filled) {
+          await api.setPaymentCredential(this.credChannel, field, value)
+          this.credSaved[field] = true
+          this.credDraft[field] = ''
+        }
+        this.showToast(`已保存 ${filled.length} 项凭据，重启应用后生效`)
+        await this.loadPaymentSettings()
+      } catch (e) {
+        this.showToast(String(e), true)
+      } finally {
+        this.credBusy = false
       }
     },
 

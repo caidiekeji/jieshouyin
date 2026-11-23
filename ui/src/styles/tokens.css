@@ -329,6 +329,8 @@
   --control-input-sm-width: 80px;
   /* 超窄数字输入（技师提成/厨打端口）：比 small 再窄，容纳百分比与端口号 */
   --control-input-xs-width: 68px;
+  /* 弹窗表单统一控件高度：输入框/下拉/按钮同高，行内比例协调 */
+  --control-height-form: 34px;
   --control-qty-size: 24px;
   --control-spinner-size: 36px;
   --control-brandmark-size: 42px;

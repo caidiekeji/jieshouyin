@@ -97,6 +97,13 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .field { display: flex; flex-direction: column; gap: var(--space-1); }
 .input-lg { padding: var(--space-3) var(--space-4); font-size: var(--font-md); }
 .btn-lg { padding: var(--space-3) var(--space-6); font-size: var(--font-md); }
+/* 认证页主按钮：不做整卡拉伸，居中限宽与表单比例协调 */
+.auth-card > .btn-lg {
+  align-self: center;
+  width: auto;
+  min-width: 220px;
+  max-width: 100%;
+}
 /* 表单错误：淡底 + 图标 + 文案，说清哪错了 */
 .form-error {
   display: flex; align-items: center; gap: var(--space-2);
@@ -429,10 +436,15 @@ h2 { font-size: var(--font-lg); }
 .config-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 /* 凭据渠道按钮行：两个入口并列，不铺满 */
 .cred-channel-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
-.cred-modal { width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto; }
+.cred-modal { width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); }
 .cred-modal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .cred-field { gap: var(--space-1); }
 .cred-field .input { width: 100%; }
+/* 字段标签行：右侧「已配置 + 删除」弱化展示，删除走 link 不抢视觉 */
+.cred-field-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-weight: 600; }
+.cred-configured { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 400; font-size: var(--font-xs); color: var(--muted); }
+.cred-configured .link { font-size: var(--font-xs); }
+.cred-modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); padding-top: var(--space-1); border-top: var(--border-width) solid var(--border); }
 /* 授权卡片操作区 + 试用期内激活入口 */
 .license-actions { margin: var(--space-3) 0; }
 .license-activate {
@@ -442,6 +454,8 @@ h2 { font-size: var(--font-lg); }
 .license-activate .activate-code-row { max-width: 420px; margin-top: var(--space-2); }
 .license-activate .activate-code-row .input { flex: 1; min-width: 0; }
 /* 小票设置工具条 + 高级模板折叠区 */
+.print-subtitle { margin: var(--space-0) 0 var(--space-2); font-size: var(--font-md); }
+.print-section-divider { border-top: var(--border-width) solid var(--border); margin: var(--space-4) 0 var(--space-3); }
 .receipt-toolbar { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
 .receipt-toolbar label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-xs); color: var(--muted); }
 .receipt-advanced { margin-top: var(--space-3); border-top: var(--border-width) solid var(--border); padding-top: var(--space-3); }
@@ -614,6 +628,8 @@ h2 { font-size: var(--font-lg); }
 /* 危险语气：删除/停用等破坏性动作与中性操作拉开，但不滥用实心红 */
 .danger-text { color: var(--danger); }
 .danger-text:hover { background: var(--danger-subtle); }
+.link.danger { color: var(--danger); }
+.link.danger:hover { text-decoration: underline; }
 /* 退款应退金额：整卡焦点，避免用 4 列 stats 只占 1/4 造成视觉失衡 */
 .refund-total {
   display: flex; align-items: baseline; justify-content: space-between;
@@ -882,7 +898,6 @@ h2 { font-size: var(--font-lg); }
   border-radius: var(--radius-md);
 }
 .qr-box svg { width: 100%; height: 100%; display: block; }
-.cred-actions { display: flex; gap: var(--space-2); }
 textarea.input {
   resize: vertical;
   font-size: var(--font-xs);

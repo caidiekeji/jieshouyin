@@ -209,6 +209,7 @@ const loadPaymentSettings = () => ops.loadPaymentSettings()
 const toggleChannel = (k: string, cur: string) => ops.toggleChannel(k, cur)
 const saveCredential = (f: string) => ops.saveCredential(f)
 const removeCredential = (f: string) => ops.removeCredential(f)
+const saveAllCredentials = () => ops.saveAllCredentials()
 const importBill = (c: 'WECHAT' | 'ALIPAY') => ops.importBill(c)
 const loadReconDiffs = () => ops.loadReconDiffs()
 const loadPrintQueue = () => ops.loadPrintQueue()
@@ -301,6 +302,7 @@ const goProducts = () => app.goProducts()
     credChannel,
     credDraft,
     credSaved,
+    credBusy,
     currentCredFields,
     currentRole,
     currentShiftId,
@@ -448,6 +450,7 @@ const goProducts = () => app.goProducts()
     renewMode,
     reportGroups,
     reportLoading,
+    saveAllCredentials,
     reportMetas,
     reportTool,
     requireSensitiveAuth,

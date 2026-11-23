@@ -11,15 +11,15 @@ const ctx = useAppContext()
 const {
   ICON_SIZE, activateError, activateInSettings, activateToken, addUser, applyTheme, atLeast,
   channelDraft, clearLockCode, configDraft, configLabel,
-  configOptions, confirmIndustry, credChannel, credDraft,
+  configOptions, confirmIndustry, credBusy, credChannel, credDraft,
   credSaved, currentCredFields, doRetryPrint, formatMoney,
   gatewayModes, importBill, industries, industry,
   license, licenseStatusLabel, loadReconDiffs, loadTechnicians,
   lockCode, lockCodeDraft, openOfficialSite, pendingIndustry, pointsConfigs,
   previewReceipt, printQueue, receiptPaperWidth, receiptPreview,
   receiptTemplateJson, reconDate, reconDiffs, reconSummary, trialDaysLeft,
-  reconText, refreshLicense, removeCredential, saveConfig,
-  saveCredential, saveLockCode, saveReceiptTemplate, saveStoreName, search,
+  reconText, refreshLicense, removeCredential, saveAllCredentials, saveConfig,
+  saveLockCode, saveReceiptTemplate, saveStoreName, search,
   settingsTab, storeNameDraft, storeProfile, systemConfigGroups,
   theme, toggleChannel, toggleConfigSwitch, toggleUser,
   uForm, users, visibleSettingsTabs
@@ -317,16 +317,12 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
             </table>
           </div>
 
-          <!-- 打印设置：厨打档口路由 + 重试队列；不占收银首屏 -->
+          <!-- 打印设置：小票样式 + 厨打档口路由统一在同一张卡片内分节展示 -->
           <template v-else-if="settingsTab === 'print'">
-            <div v-if="industry === 'RESTAURANT'" class="card wide">
-              <h3>厨打档口路由</h3>
-              <p class="muted small">按菜品分类把厨房小票分发到指定档口打印机；未配置的分类走系统配置里的主打印机。仅店长及以上可修改。</p>
-              <KitchenRoutePanel :can-manage="atLeast('MANAGER')" />
-            </div>
             <div class="card wide">
-              <h3>小票设置与预览</h3>
+              <h3>打印机设置</h3>
               <p class="muted small">结算后自动打印开关在「系统配置 → 打印设置」里。下方为所见即所得预览，使用示例数据，不实际打印。</p>
+              <h4 class="print-subtitle">小票设置与预览</h4>
               <div class="receipt-toolbar">
                 <label>纸张宽度
                   <select v-model.number="receiptPaperWidth" class="input input-sm">
@@ -347,6 +343,13 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
                 </div>
                 <pre v-if="receiptPreview" class="receipt-raw">{{ receiptPreview }}</pre>
               </div>
+              <!-- 餐饮行业：档口路由并入本卡片，不再单独成块 -->
+              <template v-if="industry === 'RESTAURANT'">
+                <div class="print-section-divider"></div>
+                <h4 class="print-subtitle">厨打档口路由</h4>
+                <p class="muted small">按菜品分类把厨房小票分发到指定档口打印机；未配置的分类走主打印机。</p>
+                <KitchenRoutePanel :can-manage="atLeast('MANAGER')" />
+              </template>
             </div>
             <div class="card wide">
               <h3>打印重试队列</h3>
@@ -370,7 +373,7 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
           </template>
         </div>
 
-        <!-- 商户凭据弹窗：密钥类字段不回显，仅在此按渠道填写/删除 -->
+        <!-- 商户凭据弹窗：密钥类字段不回显；统一底部保存，已配置字段可单独删除 -->
         <div v-if="credDialogOpen" class="modal-mask" @click.self="credDialogOpen = false">
           <div class="modal cred-modal" role="dialog" aria-label="商户支付凭据">
             <div class="cred-modal-head">
@@ -379,14 +382,22 @@ function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
             </div>
             <p class="muted small">凭据存 Windows 凭据库，不落库、不回显。留空表示不修改该项；保存后需重启应用生效。</p>
             <label v-for="f in currentCredFields" :key="f.key" class="field-label cred-field">
-              {{ f.label }}
-              <textarea v-if="f.multiline" v-model="credDraft[f.key]" class="input mono" rows="3" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"></textarea>
-              <input v-else v-model="credDraft[f.key]" class="input" type="password" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后保存'" />
-              <span class="cred-actions">
-                <button class="btn btn-sm primary" @click="saveCredential(f.key)">保存</button>
-                <button class="btn btn-sm ghost" :disabled="!credSaved[f.key]" @click="removeCredential(f.key)">删除</button>
+              <span class="cred-field-head">
+                {{ f.label }}
+                <span v-if="credSaved[f.key]" class="cred-configured">
+                  已配置
+                  <button class="link danger" :aria-label="`删除${f.label}凭据`" @click.prevent="removeCredential(f.key)">删除</button>
+                </span>
               </span>
+              <textarea v-if="f.multiline" v-model="credDraft[f.key]" class="input mono" rows="3" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"></textarea>
+              <input v-else v-model="credDraft[f.key]" class="input" type="password" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后统一保存'" />
             </label>
+            <div class="cred-modal-actions">
+              <button class="btn" @click="credDialogOpen = false">关闭</button>
+              <button class="btn primary" :disabled="credBusy" @click="saveAllCredentials">
+                <Icon name="check" :size="ICON_SIZE.sm" />{{ credBusy ? '保存中…' : '保存修改' }}
+              </button>
+            </div>
           </div>
         </div>
       </main>
