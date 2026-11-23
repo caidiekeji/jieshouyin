@@ -23,6 +23,21 @@ import { useAppStore } from './app'
 
 type PayChannel = 'CASH' | 'STORED_VALUE' | 'WECHAT' | 'ALIPAY'
 interface PaySplit { channel: string; amountYuan: string; authCode: string }
+type PayMethod = { id: PayChannel; label: string; icon: 'cash' | 'chat' | 'phone' | 'wallet' }
+
+/** 行成交价：识别会员后按会员价显示（结算时与促销取优由后端裁决）。 */
+function effectivePriceOf(l: { unit_price_cents: number; member_price_cents?: number | null }): number {
+  const mp = l.member_price_cents
+  if (mp != null && mp > 0 && mp < l.unit_price_cents) return mp
+  return l.unit_price_cents
+}
+
+const PAY_METHODS: PayMethod[] = [
+  { id: 'CASH', label: '现金', icon: 'cash' },
+  { id: 'WECHAT', label: '微信', icon: 'chat' },
+  { id: 'ALIPAY', label: '支付宝', icon: 'phone' },
+  { id: 'STORED_VALUE', label: '储值', icon: 'wallet' },
+]
 
 let tableSaveTimer: ReturnType<typeof setTimeout> | null = null
 let chessFeeTimer: ReturnType<typeof setInterval> | null = null
@@ -92,7 +107,7 @@ export const usePosStore = defineStore('pos', {
       return state.technicians.filter((t) => t.on_duty)
     },
     subtotal(state): number {
-      return state.cart.reduce((s, l) => s + l.qty * this.effectivePrice(l), 0)
+      return state.cart.reduce((s, l) => s + l.qty * effectivePriceOf(l), 0)
     },
     payableAmount(state): number {
       return state.quote?.payable_cents ?? this.subtotal
@@ -103,14 +118,9 @@ export const usePosStore = defineStore('pos', {
     payShortfall(): number {
       return this.payableAmount - this.paidPreview
     },
-    payMethods(): Array<{ id: PayChannel; label: string; icon: 'cash' | 'chat' | 'phone' | 'wallet' }> {
+    payMethods(): PayMethod[] {
       const app = useAppStore()
-      return [
-        { id: 'CASH', label: '现金', icon: 'cash' },
-        { id: 'WECHAT', label: '微信', icon: 'chat' },
-        { id: 'ALIPAY', label: '支付宝', icon: 'phone' },
-        { id: 'STORED_VALUE', label: '储值', icon: 'wallet' },
-      ].filter((m) => app.channelEnabled[m.id] !== false)
+      return PAY_METHODS.filter((m) => app.channelEnabled[m.id] !== false)
     },
     isLocalGateway(): boolean {
       const app = useAppStore()
@@ -153,9 +163,7 @@ export const usePosStore = defineStore('pos', {
       return points && points > 0 ? `${base}，积分 +${points}` : base
     },
     effectivePrice(l: { unit_price_cents: number; member_price_cents?: number | null }): number {
-      const mp = l.member_price_cents
-      if (mp != null && mp > 0 && mp < l.unit_price_cents) return mp
-      return l.unit_price_cents
+      return effectivePriceOf(l)
     },
     memberPriceOf(p: ProductHit): number | null {
       if (this.memberId == null) return null

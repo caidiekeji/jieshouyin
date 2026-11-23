@@ -105,7 +105,7 @@ export const useOpsStore = defineStore('ops', {
       if (orphans.length) grouped.push({ title: '其他', hint: '尚未归类的配置项', items: orphans })
       return grouped
     },
-    currentCredFields(state): string[] {
+    currentCredFields(state): Array<{ key: string; label: string; multiline?: boolean }> {
       return PAY_CRED_FIELDS[state.credChannel]
     },
   },
