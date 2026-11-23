@@ -45,7 +45,7 @@ const {
 const {
   shiftRows, openingFloat, actualCash, differenceReason,
   reportMetas, activeReportId, activeReport, reportLoading, centerFrom, centerTo, reportTool,
-  configs, configDraft, credChannel, credDraft, credSaved, credBusy, channelDraft,
+  configs, configDraft, credChannel, credDraft, credSaved, credBusy, credDialogOpen, channelDraft,
   reconDate, reconText, reconSummary, reconDiffs, printQueue,
   receiptTemplateJson, receiptPaperWidth, receiptPreview,
   opOrderNo, opItems, opQty, opMode, users, uForm,
