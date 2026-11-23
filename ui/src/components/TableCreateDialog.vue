@@ -136,13 +136,15 @@ function submit() {
 </template>
 
 <style scoped>
-.table-create-modal { max-width: 92vw; }
+/* 批量创建弹窗：固定宽度避免 select 文案被挤压截断（如「跟随门店配置」） */
+.table-create-modal { width: 660px; max-width: 92vw; }
 .tc-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
 }
-.tc-wide { grid-column: span 2; }
+.tc-grid .input { width: 100%; }
+.tc-wide { grid-column: span 3; }
 .tc-preview { margin: 0; font-size: var(--font-sm); color: var(--muted); }
 .tc-preview strong { color: var(--text); }
 .tc-error { margin: 0; font-size: var(--font-sm); color: var(--danger); }

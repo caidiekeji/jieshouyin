@@ -16,6 +16,7 @@ const {
   doVoid,
   exportActiveReport,
   formatMoney,
+  gotoOrder,
   loadOrderItems,
   loadShift,
   opItems,
@@ -83,7 +84,12 @@ const {
                   </thead>
                   <tbody>
                     <tr v-for="(row, ri) in activeReport.rows" :key="ri">
-                      <td v-for="(cell, ci) in row" :key="ci" :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent' }">{{ cell }}</td>
+                      <td
+                        v-for="(cell, ci) in row"
+                        :key="ci"
+                        :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent', 'cell-link': activeReport.columns[ci]?.key === 'order_no' && !!cell }"
+                        @click="activeReport.columns[ci]?.key === 'order_no' && cell && gotoOrder(String(cell))"
+                      >{{ cell }}</td>
                     </tr>
                   </tbody>
                 </table>

@@ -89,7 +89,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   text-align: center;
   margin-bottom: var(--space-5);
 }
-.auth-brand .brand-mark { width: var(--control-brandmark-lg-size); height: var(--control-brandmark-lg-size); }
+/* 认证页品牌：与顶栏同源的 BC logo（圆角方形，直角克制） */
+.auth-logo { width: var(--control-brandmark-lg-size); height: var(--control-brandmark-lg-size); border-radius: var(--radius-md); flex-shrink: 0; }
+.auth-brand .auth-logo { width: var(--control-brandmark-lg-size); height: var(--control-brandmark-lg-size); }
 .auth-brand h1 { font-size: var(--font-xl); }
 /* 表单字段：标签 + 控件成组，组内紧、组间松（.field-label 定义在通用区） */
 .field { display: flex; flex-direction: column; gap: var(--space-1); }
@@ -111,6 +113,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .activate-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .card.wide { width: 100%; }
 .brand { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-1); }
+.brand .auth-logo { width: var(--control-brandmark-lg-size); height: var(--control-brandmark-lg-size); }
 .brand-mark {
   width: var(--control-brandmark-size);
   height: var(--control-brandmark-size);
@@ -400,15 +403,54 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-5) var(--space-6);
 }
 .settings-content { display: flex; flex-direction: column; gap: var(--space-5); }
-.settings-nav-btn {
-  display: flex; align-items: center; gap: var(--space-2);
+/* 设置中心：顶部页签布局（替代旧左栏），页头固定、内容独立滚动，一屏看全部分组 */
+.settings-shell {
+  flex: 1; min-height: 0; width: 100%;
+  display: flex; flex-direction: column;
+}
+.settings-head {
+  flex: none; padding: var(--space-4) var(--space-6) var(--space-0);
+  border-bottom: var(--border-width) solid var(--border);
+  background: var(--panel);
+}
+.settings-head h2 { margin: 0 0 var(--space-3); }
+.settings-tabs {
+  display: flex; gap: var(--space-1); flex-wrap: wrap;
+}
+.settings-tab {
+  display: inline-flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: none; border-radius: var(--radius-sm);
-  background: transparent; color: var(--text); text-align: left;
+  border: none; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--text-muted);
   cursor: pointer; font-size: var(--font-sm);
 }
-.settings-nav-btn:hover { background: var(--surface-subtle); }
-.settings-nav-btn.active { background: var(--chrome); color: var(--on-chrome); }
+.settings-tab:hover { color: var(--text); background: var(--surface-subtle); }
+.settings-tab.active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+.settings-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.settings-shell > .settings-content {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+  max-width: var(--layout-admin-width); width: 100%;
+}
+/* 凭据渠道按钮行：两个入口并列，不铺满 */
+.cred-channel-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
+.cred-modal { width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto; }
+.cred-modal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.cred-field { gap: var(--space-1); }
+.cred-field .input { width: 100%; }
+/* 授权卡片操作区 + 试用期内激活入口 */
+.license-actions { margin: var(--space-3) 0; }
+.license-activate {
+  margin-top: var(--space-3); padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--border);
+}
+.license-activate .activate-code-row { max-width: 420px; margin-top: var(--space-2); }
+.license-activate .activate-code-row .input { flex: 1; min-width: 0; }
+/* 小票设置工具条 + 高级模板折叠区 */
+.receipt-toolbar { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
+.receipt-toolbar label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-xs); color: var(--muted); }
+.receipt-advanced { margin-top: var(--space-3); border-top: var(--border-width) solid var(--border); padding-top: var(--space-3); }
+.receipt-raw { white-space: pre-wrap; font-family: var(--font-family-mono); font-size: var(--font-xs); color: var(--muted); }
 .main-simple {
   /* 管理页统一骨架：页头 → 工具栏 → 内容卡片流，单列纵向铺开。
      商品/采购/会员/订单/退款等无侧栏页面复用；报表与设置走 .admin-shell */
@@ -486,6 +528,14 @@ h2 { font-size: var(--font-lg); }
 /* 数字列右对齐 + 等宽数字：所有后台表格的金额/数量/差异列共用，便于纵向扫读比对。
    表头与数据用同一判断规则，确保逐列对齐。 */
 .tbl .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
+/* 报表单元格内可跳转的订单号：虚线下划线提示可点击，键盘可达 */
+.tbl .cell-link {
+  color: var(--brand); cursor: pointer;
+  text-decoration: underline; text-decoration-style: dashed;
+  text-underline-offset: 3px;
+}
+.tbl .cell-link:hover { color: var(--brand-strong, var(--brand)); }
+.tbl .cell-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 .page-head { display: flex; align-items: center; gap: var(--space-4); }
 .tab-row { display: flex; gap: var(--space-2); }
 /* 子页面内容流：父级 main-simple 提供骨架，此层只做纵向分组 */
@@ -686,12 +736,6 @@ h2 { font-size: var(--font-lg); }
 .pay-shortfall { font-size: var(--font-sm); color: var(--danger); }
 .pay-shortfall.ok { color: var(--success-text); }
 .receipt-template-input { width: 100%; font-family: var(--font-family-mono); font-size: var(--font-xs); resize: vertical; }
-.receipt-preview {
-  margin-top: var(--space-3); padding: var(--space-4);
-  max-width: 320px; white-space: pre; overflow-x: auto;
-  font-family: var(--font-family-mono); font-size: var(--font-xs); line-height: 1.6;
-  background: var(--surface-subtle); border: var(--border-width) solid var(--border);
-}
 .print-queue { display: flex; flex-direction: column; gap: var(--space-2); }
 .print-queue-row { display: flex; justify-content: space-between; align-items: center; }
 .config-row { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
@@ -704,8 +748,10 @@ h2 { font-size: var(--font-lg); }
 .config-row-stacked:last-of-type { border-bottom: none; }
 .config-label { display: flex; flex-direction: column; gap: var(--space-0_5); }
 .config-label strong { font-size: var(--font-sm); color: var(--text); }
-.config-control { display: flex; gap: var(--space-2); align-items: center; }
-.config-control .input { flex: 1; min-width: 0; }
+.config-control { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+/* 配置项控件按内容收缩，不再通栏铺满：文本框/下拉固定紧凑宽度，保存按钮紧随其右 */
+.config-control .input { flex: none; width: var(--layout-form-col-min); max-width: 100%; }
+.config-control select.input { width: var(--layout-form-col-min); }
 /* 行业选择：卡片式单选，每张卡片自述行业特征 */
 .industry-list {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--layout-form-col-min), 1fr));

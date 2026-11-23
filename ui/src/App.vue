@@ -24,14 +24,14 @@ const {
   banner, bootError, cancelLockSetup, cancelNative,
   cancelSensitiveAuth, cart, cashDialogOpen, clearCart,
   couponDialogOpen, currentRole, currentUser, doLogout,
-  focusScan, goPOS, goProducts, goReport,
+  focusScan, goPOS, goProducts, goReport, goShift,
   goSettings, goodsTab, gotoOrder, gotoRefund,
   industry, keyword, loadLockCode, loadPosCatalog,
   loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
   memberId, nativeDialog, nativeMode, openMemberDialog,
   openParkDialog, orderNo, park, parkDialogOpen,
   parked, payChannel, payMode, posDialogOpen,
-  products, refreshQuote, refundOrderNo, requireSensitiveAuth,
+  products, refreshQuote, refundOrderNo, reportTool, requireSensitiveAuth,
   scheduleTableSave, search, settingsTab, settingsTabs,
   stopChessFeeTimer, stopNativePolling, storeProfile, theme,
   view
@@ -149,6 +149,8 @@ onUnmounted(() => {
         <nav class="nav">
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
           <template v-if="atLeast('MANAGER')">
+            <!-- 交班：班次管理入口，与报表同权限等级，避免收银员进入后被守卫踢回 -->
+            <button :class="['nav-btn', { active: view === 'report' && reportTool === 'shift' }]" @click="goShift"><Icon name="clipboard" :size="ICON_SIZE.lg" />交班</button>
             <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="package" :size="ICON_SIZE.lg" />商品</button>
             <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="clipboard" :size="ICON_SIZE.lg" />采购盘点</button>
             <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="heart" :size="ICON_SIZE.lg" />会员营销</button>

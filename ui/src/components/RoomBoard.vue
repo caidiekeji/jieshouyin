@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, formatMoney, type CartLine, type ProductHit, type ServiceTable, type TableCreateSpec } from '../api'
+import { ICON_SIZE } from '../constants'
+import Icon from './Icon.vue'
 import TableCreateDialog from './TableCreateDialog.vue'
 
 /**
@@ -225,7 +227,7 @@ onUnmounted(() => {
         <div class="card-actions" @click.stop>
           <button v-if="r.status === 'OCCUPIED'" class="link" @click="startTransfer(r)">转台</button>
           <button v-if="r.status === 'OCCUPIED'" class="link danger" @click="clear(r)">清台</button>
-          <button v-else-if="canManage" class="link" @click="remove(r)">删除</button>
+          <button v-else-if="canManage" class="link danger" @click="remove(r)"><Icon name="trash" :size="ICON_SIZE.xs" />删除</button>
         </div>
       </article>
       <div v-if="!rooms.length" class="empty-board">
@@ -338,6 +340,7 @@ onUnmounted(() => {
 .fee { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-actions { display: flex; gap: var(--space-3); margin-top: var(--space-1); }
 .link {
+  display: inline-flex; align-items: center; gap: 2px;
   border: 0; background: none; padding: 0;
   color: var(--scene-link); font-size: var(--font-2xs); cursor: pointer;
 }

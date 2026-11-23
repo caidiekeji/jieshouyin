@@ -104,6 +104,7 @@ const finishIndustrySetup = () => app.finishIndustrySetup()
 const probeActivationService = () => app.probeActivationService()
 const openOfficialSite = () => app.openOfficialSite()
 const submitActivateOnline = () => app.submitActivateOnline()
+const activateInSettings = () => app.activateInSettings()
 const refreshLicense = () => app.refreshLicense()
 const submitActivate = () => app.submitActivate()
 const applyCurrentSession = () => app.applyCurrentSession()
@@ -193,6 +194,11 @@ const selectReport = (id: string) => ops.selectReport(id)
 const openTool = (t: Parameters<typeof ops.openTool>[0]) => ops.openTool(t)
 const exportActiveReport = () => ops.exportActiveReport()
 const goReport = () => ops.goReport()
+/** 顶部交班入口：进入报表页并直接打开班次管理工具 */
+const goShift = () => {
+  ops.goReport()
+  ops.openTool('shift')
+}
 const configLabel = (k: string) => ops.configLabel(k)
 const configOptions = (k: string) => ops.configOptions(k)
 const loadConfigs = () => ops.loadConfigs()
@@ -227,6 +233,7 @@ const goProducts = () => app.goProducts()
     CASH_KEYPAD,
     activateCustomer,
     activateError,
+    activateInSettings,
     activateMode,
     activateToken,
     activationPending,
@@ -319,6 +326,7 @@ const goProducts = () => app.goProducts()
     goPOS,
     goProducts,
     goReport,
+    goShift,
     goSettings,
     goodsTab,
     gotoOrder,

@@ -1,44 +1,59 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import KitchenRoutePanel from '../components/KitchenRoutePanel.vue'
 import TechnicianPanel from '../components/TechnicianPanel.vue'
+import ReceiptPreview from '../components/ReceiptPreview.vue'
 import Switch from '../components/Switch.vue'
 import Icon from '../components/Icon.vue'
 import { useAppContext } from '../composables/useAppContext'
 
 const ctx = useAppContext()
 const {
-  ICON_SIZE, addUser, applyTheme, atLeast,
+  ICON_SIZE, activateError, activateInSettings, activateToken, addUser, applyTheme, atLeast,
   channelDraft, clearLockCode, configDraft, configLabel,
   configOptions, confirmIndustry, credChannel, credDraft,
   credSaved, currentCredFields, doRetryPrint, formatMoney,
   gatewayModes, importBill, industries, industry,
   license, licenseStatusLabel, loadReconDiffs, loadTechnicians,
-  lockCode, lockCodeDraft, pendingIndustry, pointsConfigs,
+  lockCode, lockCodeDraft, openOfficialSite, pendingIndustry, pointsConfigs,
   previewReceipt, printQueue, receiptPaperWidth, receiptPreview,
-  receiptTemplateJson, reconDate, reconDiffs, reconSummary,
+  receiptTemplateJson, reconDate, reconDiffs, reconSummary, trialDaysLeft,
   reconText, refreshLicense, removeCredential, saveConfig,
   saveCredential, saveLockCode, saveReceiptTemplate, saveStoreName, search,
   settingsTab, storeNameDraft, storeProfile, systemConfigGroups,
   theme, toggleChannel, toggleConfigSwitch, toggleUser,
   uForm, users, visibleSettingsTabs
 } = ctx
+
+/** 小票模板 JSON 高级编辑区默认折叠，默认展示所见即所得预览 */
+const showTemplateJson = ref(false)
+/** 商户凭据弹窗：点击渠道按钮弹出，避免设置页被密钥字段铺满 */
+const credDialogOpen = ref(false)
+function openCredDialog(channel: 'WECHAT' | 'ALIPAY') {
+  credChannel.value = channel
+  credDialogOpen.value = true
+}
 </script>
 
 <template>
-      <main class="admin-shell">
-        <nav class="admin-side">
-          <div class="admin-side-title">设置中心</div>
-          <button
-            v-for="t in visibleSettingsTabs"
-            :key="t.id"
-            :class="['settings-nav-btn', { active: settingsTab === t.id }]"
-            @click="settingsTab = t.id"
-          >
-            <Icon :name="t.icon" :size="ICON_SIZE.md" />{{ t.label }}
-          </button>
-        </nav>
+      <main class="settings-shell">
+        <header class="settings-head">
+          <h2>设置中心</h2>
+          <nav class="settings-tabs" role="tablist" aria-label="设置分类">
+            <button
+              v-for="t in visibleSettingsTabs"
+              :key="t.id"
+              role="tab"
+              :aria-selected="settingsTab === t.id"
+              :class="['settings-tab', { active: settingsTab === t.id }]"
+              @click="settingsTab = t.id"
+            >
+              <Icon :name="t.icon" :size="ICON_SIZE.md" />{{ t.label }}
+            </button>
+          </nav>
+        </header>
 
-        <div class="admin-main settings-content">
+        <div class="settings-content">
           <!-- 概览：门店信息 + 授权状态 -->
           <template v-if="settingsTab === 'overview'">
             <div class="card wide">
@@ -66,7 +81,21 @@ const {
                 <p class="muted small">{{ license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可' }}</p>
                 <p v-if="license?.trial_ends_at" class="muted small">试用期至 {{ license.trial_ends_at }}</p>
                 <p class="muted small">授权状态以激活服务为准，可联网刷新。</p>
-                <button class="btn" @click="refreshLicense"><Icon name="refresh" :size="ICON_SIZE.md" />刷新授权状态</button>
+                <div class="license-actions">
+                  <button class="btn" @click="refreshLicense"><Icon name="refresh" :size="ICON_SIZE.md" />刷新授权状态</button>
+                </div>
+                <!-- 试用期内可直接输入激活码激活，无需退出登录 -->
+                <div v-if="license?.status === 'TRIAL_ACTIVE' || license?.status === 'GRACE_PERIOD' || license?.status === 'OFFLINE_DEGRADED'" class="license-activate">
+                  <p class="muted small">
+                    {{ license?.status === 'TRIAL_ACTIVE' ? `试用期剩余 ${trialDaysLeft} 天` : '当前授权已到期或即将到期' }}，输入激活码即可正式激活。
+                    <button class="link" @click="openOfficialSite">免费获取激活码</button>
+                  </p>
+                  <div class="activate-code-row">
+                    <input v-model="activateToken" class="input mono" placeholder="输入激活码" autocapitalize="characters" @keyup.enter="activateInSettings" />
+                    <button class="btn primary" @click="activateInSettings">立即激活</button>
+                  </div>
+                  <p v-if="activateError" class="error">{{ activateError }}</p>
+                </div>
               </div>
             </div>
           </template>
@@ -181,20 +210,10 @@ const {
               <Switch :model-value="v === '1'" :label="configLabel(k)" @update:model-value="toggleChannel(k, v)" />
             </div>
             <h4>商户凭据（存 Windows 凭据库，不落库不回显）</h4>
-            <div class="search-row">
-              <button :class="['btn', { primary: credChannel === 'WECHAT' }]" @click="credChannel = 'WECHAT'">微信支付</button>
-              <button :class="['btn', { primary: credChannel === 'ALIPAY' }]" @click="credChannel = 'ALIPAY'">支付宝</button>
-            </div>
-            <div class="form-grid">
-              <label v-for="f in currentCredFields" :key="f.key">
-                {{ f.label }}
-                <textarea v-if="f.multiline" v-model="credDraft[f.key]" class="input" rows="3" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"></textarea>
-                <input v-else v-model="credDraft[f.key]" class="input" type="password" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后保存'" />
-                <span class="cred-actions">
-                  <button class="btn btn-sm primary" @click="saveCredential(f.key)">保存</button>
-                  <button class="btn btn-sm ghost" @click="removeCredential(f.key)">删除</button>
-                </span>
-              </label>
+            <p class="muted small">点击渠道按钮，在弹窗中填写密钥字段。</p>
+            <div class="cred-channel-row">
+              <button class="btn" @click="openCredDialog('WECHAT')"><Icon name="wallet" :size="ICON_SIZE.md" />微信支付凭据</button>
+              <button class="btn" @click="openCredDialog('ALIPAY')"><Icon name="wallet" :size="ICON_SIZE.md" />支付宝凭据</button>
             </div>
           </div>
 
@@ -275,22 +294,27 @@ const {
             </div>
             <div class="card wide">
               <h3>小票设置与预览</h3>
-              <p class="muted small">设置结算后自动打印开关（在「系统配置 → 打印设置」里），并在下方编辑小票模板。预览使用示例数据渲染，不实际打印。</p>
-              <div class="form-grid">
+              <p class="muted small">结算后自动打印开关在「系统配置 → 打印设置」里。下方为所见即所得预览，使用示例数据，不实际打印。</p>
+              <div class="receipt-toolbar">
                 <label>纸张宽度
-                  <select v-model.number="receiptPaperWidth" class="input">
+                  <select v-model.number="receiptPaperWidth" class="input input-sm">
                     <option :value="58">58mm</option>
                     <option :value="80">80mm</option>
                   </select>
                 </label>
+                <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存纸张设置</button>
+                <button class="link" @click="showTemplateJson = !showTemplateJson">{{ showTemplateJson ? '收起模板源码' : '高级：编辑模板源码' }}</button>
               </div>
-              <label class="field-label">模板 JSON（sections: header / items / summary / footer）</label>
-              <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12"></textarea>
-              <div class="op-form">
-                <button class="btn" :disabled="!atLeast('MANAGER')" @click="previewReceipt">预览效果</button>
-                <button class="btn primary" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存模板</button>
+              <ReceiptPreview :store-name="storeProfile?.store_name || ''" :paper-width-mm="receiptPaperWidth" />
+              <div v-if="showTemplateJson" class="receipt-advanced">
+                <p class="muted small">模板 sections：header / items / summary / footer。变量如 {{ '{{store_name}}' }}、{{ '{{items}}' }}、{{ '{{pay_total}}' }}。修改后点「保存模板」，再点「刷新预览」查看文本渲染结果。</p>
+                <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12"></textarea>
+                <div class="op-form">
+                  <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="previewReceipt">刷新预览</button>
+                  <button class="btn btn-sm primary" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存模板</button>
+                </div>
+                <pre v-if="receiptPreview" class="receipt-raw">{{ receiptPreview }}</pre>
               </div>
-              <div v-if="receiptPreview" class="receipt-preview">{{ receiptPreview }}</div>
             </div>
             <div class="card wide">
               <h3>打印重试队列</h3>
@@ -312,6 +336,26 @@ const {
               <TechnicianPanel :can-manage="atLeast('MANAGER')" @changed="loadTechnicians" />
             </div>
           </template>
+        </div>
+
+        <!-- 商户凭据弹窗：密钥类字段不回显，仅在此按渠道填写/删除 -->
+        <div v-if="credDialogOpen" class="modal-mask" @click.self="credDialogOpen = false">
+          <div class="modal cred-modal" role="dialog" aria-label="商户支付凭据">
+            <div class="cred-modal-head">
+              <h3>商户凭据 · {{ credChannel === 'WECHAT' ? '微信支付' : '支付宝' }}</h3>
+              <button class="btn btn-sm ghost" aria-label="关闭" @click="credDialogOpen = false"><Icon name="close" :size="ICON_SIZE.md" /></button>
+            </div>
+            <p class="muted small">凭据存 Windows 凭据库，不落库、不回显。留空表示不修改该项；保存后需重启应用生效。</p>
+            <label v-for="f in currentCredFields" :key="f.key" class="field-label cred-field">
+              {{ f.label }}
+              <textarea v-if="f.multiline" v-model="credDraft[f.key]" class="input mono" rows="3" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"></textarea>
+              <input v-else v-model="credDraft[f.key]" class="input" type="password" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后保存'" />
+              <span class="cred-actions">
+                <button class="btn btn-sm primary" @click="saveCredential(f.key)">保存</button>
+                <button class="btn btn-sm ghost" :disabled="!credSaved[f.key]" @click="removeCredential(f.key)">删除</button>
+              </span>
+            </label>
+          </div>
         </div>
       </main>
 </template>

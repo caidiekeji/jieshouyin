@@ -316,6 +316,31 @@ export const useAppStore = defineStore('app', {
         this.activateError = String(e)
       }
     },
+    /** 设置页内激活：仅更新授权状态与提示，不切换视图（区别于首次启动的 submitActivateOnline）。 */
+    async activateInSettings() {
+      this.activateError = ''
+      if (!this.activateToken.trim()) {
+        this.activateError = '请输入激活码'
+        return false
+      }
+      try {
+        this.license = await api.activateOnline(
+          this.activateToken.trim(),
+          this.activateCustomer.trim() || null
+        )
+        if (this.license.status === 'UNACTIVATED') {
+          this.activateError = '激活码无效或已过期'
+          return false
+        }
+        this.setActivationPending(false)
+        this.activateToken = ''
+        this.showToast('设备已激活')
+        return true
+      } catch (e) {
+        this.activateError = String(e)
+        return false
+      }
+    },
     async refreshLicense() {
       this.activateError = ''
       try {

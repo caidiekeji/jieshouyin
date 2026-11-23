@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api, type CartLine, type ServiceTable, type TableCreateSpec } from '../api'
+import { ICON_SIZE } from '../constants'
+import Icon from './Icon.vue'
 import TableCreateDialog from './TableCreateDialog.vue'
 
 const props = defineProps<{
@@ -204,7 +206,7 @@ onUnmounted(() => {
             <button class="link" @click="startAction('merge', t)">并台</button>
             <button class="link danger" @click="clear(t)">清台</button>
           </template>
-          <button v-else-if="canManage" class="link" @click="remove(t)">删除</button>
+          <button v-else-if="canManage" class="link danger" @click="remove(t)"><Icon name="trash" :size="ICON_SIZE.xs" />删除</button>
         </div>
       </article>
       <div v-if="!tables.length" class="empty-board">
@@ -309,6 +311,7 @@ onUnmounted(() => {
   font-size: var(--font-2xs);
 }
 .link {
+  display: inline-flex; align-items: center; gap: 2px;
   border: 0; background: none; padding: 0;
   font-size: var(--font-2xs); color: var(--scene-link); cursor: pointer;
 }

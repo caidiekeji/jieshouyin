@@ -223,6 +223,9 @@ function startEdit(p: ProductRow) {
   editInstore.value = p.instore_code ?? ''
 }
 
+/** 当前正在编辑的商品（弹窗标题用） */
+const editingProduct = computed(() => products.value.find((p) => p.sku_id === editSku.value) ?? null)
+
 async function saveEdit() {
   if (editSku.value == null) return
   try {
@@ -358,16 +361,7 @@ onMounted(reload)
             <td>{{ p.name }}<span v-if="p.is_weighed" class="muted small">（称重/{{ p.unit }}）</span><span v-else-if="p.is_service" class="muted small">（服务/{{ p.unit }}）</span></td>
             <td class="mono">{{ p.barcode || '—' }}</td>
             <td>{{ p.category_name }}</td>
-            <td class="num-cell">
-              <span v-if="editSku !== p.sku_id">{{ formatMoney(p.sale_price_cents) }}</span>
-              <span v-else class="edit-row">
-                <input v-model="editPrice" class="input input-sm" aria-label="售价（元）" />
-                <input v-model="editMemberPrice" class="input input-sm" placeholder="会员价" aria-label="会员价（元）" />
-                <input v-model="editInstore" class="input input-sm" placeholder="店内码" aria-label="店内码" />
-                <input v-model="editAlert" class="input input-sm" placeholder="预警" aria-label="库存预警值" />
-                <button class="btn btn-sm" aria-label="保存修改" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" /></button>
-              </span>
-            </td>
+            <td class="num-cell">{{ formatMoney(p.sale_price_cents) }}</td>
             <td class="num-cell" :class="{ 'warning-text': !p.is_service && p.qty <= p.alert_qty }">
               <span v-if="p.is_service">—</span>
               <template v-else>
@@ -377,7 +371,7 @@ onMounted(reload)
             <td>{{ p.status === 1 ? '在售' : '停用' }}</td>
             <td class="row-actions-cell">
               <div class="row-actions">
-                <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />改价</button>
+                <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />编辑</button>
                 <button v-if="!p.is_service" class="btn btn-sm" @click="startAdjust(p)"><Icon name="package" :size="ICON_SIZE.sm" />库存</button>
                 <button class="btn btn-sm ghost" @click="toggleService(p)">{{ p.is_service ? '转实体' : '设为服务' }}</button>
                 <button class="btn btn-sm" @click="startImage(p)"><Icon name="image" :size="ICON_SIZE.sm" />图片</button>
@@ -415,6 +409,30 @@ onMounted(reload)
         <button class="btn ghost" @click="adjustSku = null">取消</button>
       </div>
     </div>
+
+    <!-- 编辑商品弹窗：后端支持的价格/会员价/店内码/预警字段集中填写 -->
+    <div v-if="editSku != null" class="modal-mask" @click.self="editSku = null">
+      <div class="modal edit-product-modal" role="dialog" aria-label="编辑商品">
+        <div class="modal-head">
+          <div>
+            <h3>编辑商品</h3>
+            <p class="muted small">{{ editingProduct?.name }} · {{ editingProduct?.category_name }} · {{ editingProduct?.unit }}</p>
+          </div>
+          <button class="btn btn-sm ghost" aria-label="关闭" @click="editSku = null"><Icon name="close" :size="ICON_SIZE.md" /></button>
+        </div>
+        <div class="form-grid">
+          <label>售价（元）<input v-model="editPrice" class="input" inputmode="decimal" aria-label="售价（元）" /></label>
+          <label>会员价（元，可空）<input v-model="editMemberPrice" class="input" inputmode="decimal" placeholder="留空表示无会员价" aria-label="会员价（元）" /></label>
+          <label>店内码（称重商品必填）<input v-model="editInstore" class="input" placeholder="5 位店内代码" aria-label="店内码" /></label>
+          <label>库存预警值<input v-model="editAlert" class="input" type="number" min="0" aria-label="库存预警值" /></label>
+        </div>
+        <p class="muted small">名称、条码、分类、单位、成本等档案字段如需修改，请新建商品后停用旧商品。类型切换、启停、图片请用列表中的对应按钮。</p>
+        <div class="modal-actions">
+          <button class="btn ghost" @click="editSku = null">取消</button>
+          <button class="btn primary" @click="saveEdit"><Icon name="check" :size="ICON_SIZE.sm" />保存修改</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -424,7 +442,11 @@ onMounted(reload)
    不复用全局 .actions（那是 POS 支付区双列 grid），避免覆盖导致表头与内容错位。 */
 .row-actions-cell { white-space: nowrap; }
 .row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.edit-row { display: inline-flex; gap: var(--space-1); align-items: center; flex-wrap: wrap; }
+/* 编辑商品弹窗：紧凑表单 + 头部信息 + 底部操作 */
+.edit-product-modal { width: 560px; max-width: 92vw; }
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.modal-head h3 { margin: 0; }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 /* 商品缩略图：固定方形，缺图不撑表格 */
 .thumb {
   width: var(--control-thumb-size); height: var(--control-thumb-size);

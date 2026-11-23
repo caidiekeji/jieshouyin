@@ -24,7 +24,7 @@ const {
       <div class="card auth-card industry-card">
         <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="brand">
-          <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
+          <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <div>
             <h1>Checkout-R</h1>
             <p class="muted">选择经营行业，收银台和商品分类会按行业切换</p>
@@ -60,7 +60,7 @@ const {
       <div class="card auth-card">
         <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="brand">
-          <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
+          <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <div>
             <h1>Checkout-R</h1>
             <p class="muted">收银系统授权</p>
@@ -97,7 +97,7 @@ const {
       <div class="card auth-card">
         <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="auth-brand">
-          <div class="brand-mark"><Icon name="scan" :size="ICON_SIZE.xxl" /></div>
+          <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <h1>{{ needAdmin ? '设置管理员账号' : onboarding ? '登录' : '欢迎回来' }}</h1>
           <p class="muted">
             {{ needAdmin ? '首次使用，先创建管理员账号，再登录完成初始化' : onboarding ? '使用刚创建的管理员账号登录，继续选择行业' : '输入账号密码开始收银' }}
