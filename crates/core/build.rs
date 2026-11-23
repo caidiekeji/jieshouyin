@@ -11,8 +11,8 @@ const DEV_KEY: &str = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f
 // 无保密要求；内嵌进源码让构建零外部配置，发行流水线不再因漏配变量而失败。
 // 指纹 = SHA256(公钥 32 字节) 前 8 字节 hex，构建时自检，防止公钥被改错。
 // 密钥轮换流程见 jihuo/README.md：更新 1 号常量与指纹，或按编号填入 2/3… 号旧公钥。
-const PROD_KEY_1: &str = "a8bd22de955a03bb983d40818087518d85501cd1fdba49cf941766a97bcb16ed";
-const PROD_KEY_1_FP: &str = "d70a96379b9afeed";
+const PROD_KEY_1: &str = "5816ec0d92381c7a05949604de60e32b13e9555933281957ebbb84345023d0e7";
+const PROD_KEY_1_FP: &str = "31fe55eb95dbb5fe";
 // 轮换期旧公钥与指纹；当前无旧钥，留空。轮换时填入并保留整个重叠窗口。
 const PROD_KEY_2: &str = "";
 const PROD_KEY_2_FP: &str = "";
