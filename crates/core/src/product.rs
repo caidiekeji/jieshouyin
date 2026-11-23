@@ -593,11 +593,9 @@ pub fn update_product_profile(
         return Err(CoreError::Validation("称重商品必须填写店内码".into()));
     }
     let spu_id: i64 = conn
-        .query_row(
-            "SELECT spu_id FROM sku WHERE sku_id=?1",
-            [sku_id],
-            |r| r.get(0),
-        )
+        .query_row("SELECT spu_id FROM sku WHERE sku_id=?1", [sku_id], |r| {
+            r.get(0)
+        })
         .optional()?
         .ok_or_else(|| CoreError::Validation(format!("SKU {sku_id} 不存在")))?;
     let cat_exists: Option<i64> = conn
