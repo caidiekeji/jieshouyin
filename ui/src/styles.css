@@ -155,15 +155,15 @@ h2 { font-size: var(--font-lg); }
 .link { background: none; border: none; color: var(--brand); cursor: pointer; }
 .user .link {
   display: inline-flex; align-items: center; gap: 4px;
-  color: var(--on-chrome); text-decoration: none;
+  color: var(--text-muted); text-decoration: none;
 }
 .user .link:hover { text-decoration: underline; }
 .role-tag {
   font-size: var(--font-xs);
   padding: 2px var(--space-2);
   border-radius: var(--radius-sm);
-  background: var(--chrome-hover);
-  color: var(--on-chrome);
+  background: var(--surface-subtle);
+  color: var(--text-muted);
   opacity: 0.85;
 }
 .error { color: var(--danger); margin: var(--space-0); font-size: var(--font-xs); }
@@ -171,23 +171,24 @@ h2 { font-size: var(--font-lg); }
 .shell { height: 100%; display: flex; flex-direction: column; }
 .topbar {
   height: var(--layout-topbar-height);
-  background: var(--chrome);
-  color: var(--on-chrome);
+  background: var(--panel);
+  color: var(--text);
+  border-bottom: var(--border-width) solid var(--border);
   display: flex; align-items: center;
   padding: var(--space-0) var(--space-4); gap: var(--space-6);
 }
-.logo { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--on-chrome); }
+.logo { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--text); }
 .logo-img { width: var(--space-6); height: var(--space-6); border-radius: var(--radius-md); flex-shrink: 0; }
 .nav { display: flex; gap: var(--space-1); flex: 1; }
 .nav-btn {
   display: inline-flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border: none; border-radius: var(--radius-sm);
-  background: transparent; color: var(--on-chrome); opacity: 0.78; cursor: pointer;
+  background: transparent; color: var(--text-muted); cursor: pointer;
 }
-.nav-btn:hover { background: var(--chrome-hover); opacity: 1; }
-.nav-btn.active { background: var(--chrome-active); opacity: 1; color: var(--on-chrome); }
-.user { display: flex; align-items: center; gap: var(--space-2); color: var(--on-chrome); opacity: 0.9; }
+.nav-btn:hover { background: var(--surface-subtle); color: var(--text); }
+.nav-btn.active { background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
+.user { display: flex; align-items: center; gap: var(--space-2); color: var(--text); }
 
 .banner {
   background: var(--warning-subtle);
