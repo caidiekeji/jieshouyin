@@ -136,8 +136,8 @@ function submit() {
 </template>
 
 <style scoped>
-/* 批量创建弹窗：固定宽度避免 select 文案被挤压截断（如「跟随门店配置」） */
-.table-create-modal { width: 660px; max-width: 92vw; }
+/* 批量创建弹窗：lg 档宽度避免 select 文案被挤压截断（如「跟随门店配置」） */
+.table-create-modal { width: var(--layout-modal-lg); max-width: 92vw; }
 .tc-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

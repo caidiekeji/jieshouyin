@@ -315,8 +315,10 @@
 :root {
   --layout-topbar-height: 56px;
   --layout-auth-width: 460px;
-  /* 现金收银弹窗宽度：5 个快捷面额 + 「刚好」需一行铺开，比认证弹窗宽一档 */
-  --layout-cash-modal-width: 440px;
+  /* 弹窗宽度三档：sm=现金/确认、md=凭据/单列表单、lg=批量创建/多列表单 */
+  --layout-modal-sm: 440px;
+  --layout-modal-md: 560px;
+  --layout-modal-lg: 680px;
   --layout-content-width: 900px;
   --layout-cart-width: 400px;
   /* 管理页内容上限：1280 收银屏减两侧 24px 页边距可用 1232px，取 1200 留呼吸边；

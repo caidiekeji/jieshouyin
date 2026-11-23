@@ -82,11 +82,18 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 嵌入「打印机设置」卡片内的小节：无独立面板外壳，只用细分隔线分节 */
-.route-section { display: flex; flex-direction: column; gap: var(--space-2); }
+/* 组件局部布局变量：档口路由行的列宽基准（色彩一律走全局 token，这里只管尺寸） */
+.route-section {
+  /* 标签列：容纳「打印分类」四字标签不换行 */
+  --route-label-w: 120px;
+  /* 主机列：IP/主机名可伸展的最小可用宽 */
+  --route-host-min-w: 160px;
+
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
 .route-add { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.route-label { width: 120px; }
-.route-host { flex: 1; min-width: 160px; }
+.route-label { width: var(--route-label-w); }
+.route-host { flex: 1; min-width: var(--route-host-min-w); }
 .route-port { width: var(--control-input-xs-width); }
 .route-list {
   list-style: none; padding: 0; margin: 0;

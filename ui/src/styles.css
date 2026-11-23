@@ -36,7 +36,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .card {
   background: var(--panel);
   border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-lg);
+  /* 直角优先：卡片取小圆角 radius-md，不用大圆角的“通用 AI 卡片”质感 */
+  border-radius: var(--radius-md);
   padding: var(--space-6);
   box-shadow: var(--shadow);
 }
@@ -232,7 +233,7 @@ h2 { font-size: var(--font-lg); }
 .panel {
   background: var(--panel);
   border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: var(--space-4);
   display: flex; flex-direction: column;
   min-height: 0;
@@ -436,7 +437,7 @@ h2 { font-size: var(--font-lg); }
 .config-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 /* 凭据渠道按钮行：两个入口并列，不铺满 */
 .cred-channel-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
-.cred-modal { width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); }
+.cred-modal { width: var(--layout-modal-md); max-width: 92vw; max-height: 86vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); }
 .cred-modal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .cred-field { gap: var(--space-1); }
 .cred-field .input { width: 100%; }
@@ -581,8 +582,9 @@ h2 { font-size: var(--font-lg); }
 .toolbar .input { flex: 1; min-width: var(--control-search-min-width); }
 /* 交班视图（班次管理）：单栏全宽下内容限宽居中，避免卡片被拉成通栏长条 */
 .admin-shell.shift-only .admin-main { max-width: var(--layout-admin-width); margin: 0 auto; width: 100%; }
-/* 班次管理：分节卡片 + 限宽字段；短字段定宽，仅差异原因可伸展 */
-.shift-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+/* 班次管理：分节卡片 + 限宽字段；短字段定宽，仅差异原因可伸展。
+   admin-main 是块布局，卡片间距用 margin-bottom，节奏与报表工具条一致（space-4） */
+.shift-card { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); }
 .shift-card h4 { margin: 0; font-size: var(--font-sm); }
 .shift-fields { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
 .shift-fields .btn { height: var(--control-height-form); }
@@ -817,13 +819,13 @@ h2 { font-size: var(--font-lg); }
 .modal {
   background: var(--panel); color: var(--text);
   border: var(--border-width) solid var(--border-strong);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-float);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-float);
   padding: var(--space-5); min-width: var(--layout-auth-width);
   display: flex; flex-direction: column; gap: var(--space-3);
 }
 .modal h3 { margin: 0; }
 /* 现金收银弹窗：应收 / 实收 / 找零三栏，下面接快捷面额与数字键盘 */
-.cash-modal { width: var(--layout-cash-modal-width); max-width: 92vw; }
+.cash-modal { width: var(--layout-modal-sm); max-width: 92vw; }
 .cash-summary {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-1);
@@ -900,7 +902,7 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-6); text-align: center;
   background: var(--panel); color: var(--text);
   border: var(--border-width) solid var(--border-strong);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-float);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-float);
 }
 .lock-input { width: 100%; text-align: center; letter-spacing: 0.2em; }
 .err-text { color: var(--danger); font-size: var(--font-sm); margin: 0; }
