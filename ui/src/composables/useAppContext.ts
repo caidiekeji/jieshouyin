@@ -46,6 +46,7 @@ const {
   shiftRows, openingFloat, actualCash, differenceReason,
   reportMetas, activeReportId, activeReport, reportLoading, centerFrom, centerTo, reportTool,
   configs, configDraft, credChannel, credDraft, credSaved, credBusy, credDialogOpen, channelDraft,
+  pwdDialogOpen, pwdDraft, pwdError, pwdBusy,
   reconDate, reconText, reconSummary, reconDiffs, printQueue,
   receiptTemplateJson, receiptPaperWidth, receiptPreview,
   opOrderNo, opItems, opQty, opMode, users, uForm,
@@ -216,6 +217,10 @@ const saveAllCredentials = () => ops.saveAllCredentials()
 /** 商户凭据弹窗开闭：状态在 ops store，弹窗统一由 DialogLayer 渲染 */
 const openCredDialog = (channel: 'WECHAT' | 'ALIPAY') => ops.openCredDialog(channel)
 const closeCredDialog = () => ops.closeCredDialog()
+/** 修改密码弹窗（用户下拉菜单唤起）：状态在 ops store，弹窗由 DialogLayer 渲染 */
+const openPwdDialog = () => ops.openPwdDialog()
+const closePwdDialog = () => ops.closePwdDialog()
+const submitChangePassword = () => ops.submitChangePassword()
 const importBill = (c: 'WECHAT' | 'ALIPAY') => ops.importBill(c)
 const loadReconDiffs = () => ops.loadReconDiffs()
 const loadPrintQueue = () => ops.loadPrintQueue()
@@ -460,6 +465,13 @@ const goProducts = () => app.goProducts()
     openCredDialog,
     closeCredDialog,
     saveAllCredentials,
+    openPwdDialog,
+    closePwdDialog,
+    submitChangePassword,
+    pwdDialogOpen,
+    pwdDraft,
+    pwdError,
+    pwdBusy,
     reportMetas,
     reportTool,
     requireSensitiveAuth,

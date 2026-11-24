@@ -429,6 +429,9 @@ export const api = {
   login: (username: string, password: string) =>
     invoke<{ user_id: number; role_name: string }>('login', { username, password }),
   logout: () => invoke<void>('logout'),
+  /** 当前登录用户修改自己的密码：后端校验原密码与新密码策略。 */
+  changePassword: (oldPassword: string, newPassword: string) =>
+    invoke<void>('change_password', { oldPassword, newPassword }),
   /** 恢复界面角色：未登录或会话过期返回 null。 */
   currentSession: () => invoke<{ user_id: number; role_name: string } | null>('current_session'),
   lookup: (keyword: string, limit?: number, categoryGroup?: string) =>

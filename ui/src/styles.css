@@ -199,7 +199,39 @@ h2 { font-size: var(--font-lg); }
 }
 .nav-btn:hover { background: var(--surface-subtle); color: var(--text); }
 .nav-btn.active { background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
-.user { display: flex; align-items: center; gap: var(--space-2); color: var(--text); }
+/* 用户区：账户下拉菜单容器，定位锚点 */
+.user { position: relative; display: flex; align-items: center; color: var(--text); }
+.user-chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border: var(--border-width) solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); cursor: pointer;
+}
+.user-chip:hover { background: var(--surface-subtle); }
+.user-chip[aria-expanded='true'] { background: var(--surface-subtle); border-color: var(--border); }
+.user-name { font-weight: 600; }
+.user-caret { color: var(--text-muted); transition: transform var(--duration-fast) var(--ease-out); }
+.user-caret.open { transform: rotate(180deg); }
+.user-menu {
+  position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: var(--z-overlay);
+  min-width: 160px;
+  background: var(--panel); color: var(--text);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-float);
+  padding: var(--space-1);
+  display: flex; flex-direction: column;
+}
+.user-menu-item {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); cursor: pointer;
+  text-align: left; white-space: nowrap;
+}
+.user-menu-item:hover { background: var(--surface-subtle); }
+.user-menu-item.danger { color: var(--danger); }
+.user-menu-item.danger:hover { background: var(--danger-subtle); }
+.user-menu-sep { height: var(--border-width); background: var(--border); margin: var(--space-1) var(--space-2); }
 
 .banner {
   background: var(--warning-subtle);
@@ -878,6 +910,8 @@ h2 { font-size: var(--font-lg); }
 .modal h3 { margin: 0; }
 /* 现金收银弹窗：应收 / 实收 / 找零三栏，下面接快捷面额与数字键盘 */
 .cash-modal { width: var(--layout-modal-sm); max-width: 92vw; }
+/* 修改密码弹窗：三行密码输入，窄弹窗即可 */
+.pwd-modal { width: var(--layout-modal-sm); max-width: 92vw; }
 .cash-summary {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-1);

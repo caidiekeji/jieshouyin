@@ -57,6 +57,11 @@ export const useOpsStore = defineStore('ops', {
     /** 商户凭据弹窗开闭：状态收在 store，弹窗由 DialogLayer 统一渲染 */
     credDialogOpen: false,
     channelDraft: {} as Record<string, string>,
+    // 修改密码弹窗（用户下拉菜单唤起）
+    pwdDialogOpen: false,
+    pwdDraft: { old: '', next: '', confirm: '' },
+    pwdError: '',
+    pwdBusy: false,
     // 对账
     reconDate: today(),
     reconText: '',
@@ -361,6 +366,37 @@ export const useOpsStore = defineStore('ops', {
     },
     closeCredDialog() {
       this.credDialogOpen = false
+    },
+    // ===== 修改密码 =====
+    openPwdDialog() {
+      this.pwdDraft = { old: '', next: '', confirm: '' }
+      this.pwdError = ''
+      this.pwdDialogOpen = true
+    },
+    closePwdDialog() {
+      this.pwdDialogOpen = false
+    },
+    async submitChangePassword() {
+      const { old, next, confirm } = this.pwdDraft
+      if (!old || !next) {
+        this.pwdError = '请填写原密码与新密码'
+        return
+      }
+      if (next !== confirm) {
+        this.pwdError = '两次输入的新密码不一致'
+        return
+      }
+      this.pwdBusy = true
+      this.pwdError = ''
+      try {
+        await api.changePassword(old, next)
+        this.pwdDialogOpen = false
+        this.showToast('密码已修改')
+      } catch (e) {
+        this.pwdError = String(e)
+      } finally {
+        this.pwdBusy = false
+      }
     },
     async saveCredential(field: string) {
       const value = this.credDraft[field]

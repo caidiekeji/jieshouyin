@@ -827,6 +827,30 @@ pub fn logout(state: State<'_, AppState>) -> Result<()> {
     Ok(())
 }
 
+/// 当前登录用户修改自己的密码：user_id 取自会话，不允许改他人密码。
+#[tauri::command]
+pub fn change_password(
+    old_password: String,
+    new_password: String,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let user_id = {
+        let session = state
+            .session
+            .lock()
+            .map_err(|e| CoreError::Other(e.to_string()))?;
+        session
+            .as_ref()
+            .map(|s| s.user_id)
+            .ok_or_else(|| CoreError::PermissionDenied("未登录".into()))?
+    };
+    let conn = state
+        .conn
+        .lock()
+        .map_err(|e| CoreError::Other(e.to_string()))?;
+    rbac::change_password(&conn, user_id, &old_password, &new_password)
+}
+
 /// 当前会话：仅用于界面按角色显示菜单，未登录或已过期返回 null。
 /// 真正的权限判定仍在各业务命令中完成，这里不构成安全边界。
 #[tauri::command]
@@ -5754,6 +5778,7 @@ pub fn run() {
             renew_license,
             login,
             logout,
+            change_password,
             current_session,
             lookup_product,
             list_pos_products,

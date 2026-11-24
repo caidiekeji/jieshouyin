@@ -140,6 +140,31 @@ pub fn login(
     })
 }
 
+/// 修改当前登录用户密码：先验原密码，再按策略写入新哈希。
+pub fn change_password(
+    conn: &Connection,
+    user_id: i64,
+    old_password: &str,
+    new_password: &str,
+) -> Result<()> {
+    let hash: String = conn
+        .query_row(
+            "SELECT password_hash FROM user_account WHERE user_id=?1 AND status=1",
+            [user_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| CoreError::PermissionDenied("账号不存在或已停用".into()))?;
+    if !verify_password(old_password, &hash) {
+        return Err(CoreError::PermissionDenied("原密码错误".into()));
+    }
+    validate_password_policy(new_password)?;
+    conn.execute(
+        "UPDATE user_account SET password_hash=?1 WHERE user_id=?2",
+        params![hash_password(new_password)?, user_id],
+    )?;
+    Ok(())
+}
+
 /// 二次授权凭据：60 秒 TTL、一次性 nonce。
 #[derive(Debug, Clone)]
 pub struct SensitiveAuth {
@@ -377,6 +402,29 @@ mod tests {
         let s = login(&c, "admin", "Admin123", now).unwrap();
         assert_eq!(s.role_name, "ADMIN");
         assert!(login(&c, "admin", "bad", now).is_err());
+    }
+
+    #[test]
+    fn change_password_flow() {
+        let c = setup();
+        let now = parse_rfc3339("2026-11-17T00:00:00Z").unwrap();
+        let admin_id: i64 = c
+            .query_row(
+                "SELECT user_id FROM user_account WHERE username='admin'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        // 原密码错误被拒绝
+        assert!(change_password(&c, admin_id, "bad", "NewPass123").is_err());
+        // 新密码不满足策略被拒绝
+        assert!(change_password(&c, admin_id, "Admin123", "short1").is_err());
+        // 正确修改后新密码可登录、旧密码失效
+        change_password(&c, admin_id, "Admin123", "NewPass123").unwrap();
+        assert!(login(&c, "admin", "NewPass123", now).is_ok());
+        assert!(login(&c, "admin", "Admin123", now).is_err());
+        // 不存在的账号被拒绝
+        assert!(change_password(&c, 9999, "x", "NewPass123").is_err());
     }
 
     #[test]

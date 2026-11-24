@@ -27,6 +27,7 @@ const {
   confirmMemberDialog,
   confirmNativeLocal,
   confirmSensitiveAuth,
+  closePwdDialog,
   couponCode,
   couponDialogInput,
   couponDialogOpen,
@@ -59,11 +60,16 @@ const {
   payableAmount,
   paying,
   pressCashKey,
+  pwdBusy,
+  pwdDialogOpen,
+  pwdDraft,
+  pwdError,
   removeCredential,
   resume,
   saveAllCredentials,
   saveLockCode,
   submitCheckout,
+  submitChangePassword,
   toast,
   toastKind,
   unlock,
@@ -284,6 +290,24 @@ const {
             <button class="btn" @click="closeCredDialog">关闭</button>
             <button class="btn primary" :disabled="credBusy" @click="saveAllCredentials">
               <Icon name="check" :size="ICON_SIZE.sm" />{{ credBusy ? '保存中…' : '保存修改' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 修改密码弹窗：用户下拉菜单唤起，当前登录用户改自己的密码 -->
+      <div v-if="pwdDialogOpen" class="modal-mask" @click.self="closePwdDialog">
+        <div class="modal pwd-modal" role="dialog" aria-modal="true" aria-label="修改密码">
+          <h3>修改密码</h3>
+          <p class="muted small">新密码须 ≥8 位且同时包含字母和数字，修改后立即生效。</p>
+          <input v-model="pwdDraft.old" class="input" type="password" autocomplete="current-password" placeholder="原密码" />
+          <input v-model="pwdDraft.next" class="input" type="password" autocomplete="new-password" placeholder="新密码" />
+          <input v-model="pwdDraft.confirm" class="input" type="password" autocomplete="new-password" placeholder="确认新密码" @keyup.enter="submitChangePassword" />
+          <p v-if="pwdError" class="form-error" role="alert"><Icon name="alert" :size="ICON_SIZE.sm" />{{ pwdError }}</p>
+          <div class="actions">
+            <button class="btn" @click="closePwdDialog">取消</button>
+            <button class="btn primary" :disabled="pwdBusy" @click="submitChangePassword">
+              <Icon name="check" :size="ICON_SIZE.sm" />{{ pwdBusy ? '保存中…' : '确认修改' }}
             </button>
           </div>
         </div>

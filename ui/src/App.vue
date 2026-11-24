@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import Icon from './components/Icon.vue'
 import ProductAdmin from './components/ProductAdmin.vue'
@@ -26,10 +26,10 @@ const {
   cancelSensitiveAuth, cart, cashDialogOpen, clearCart,
   couponDialogOpen, currentRole, currentUser, doLogout,
   focusScan, goPOS, goProducts, goReport, goShift,
-  goSettings, goodsTab, gotoOrder, gotoRefund,
-  industry, keyword, loadLockCode, loadPosCatalog,  loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
-  memberId, nativeDialog, nativeMode, openMemberDialog,
-  openParkDialog, orderNo, park, parkDialogOpen,
+  goSettings, goodsTab, gotoOrder, gotoRefund, industry, keyword,
+  loadLockCode, loadPosCatalog, loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
+  memberId, nativeDialog, nativeMode, openMemberDialog, openPwdDialog,
+  openParkDialog, orderNo, park, parkDialogOpen, pwdDialogOpen, closePwdDialog,
   parked, payChannel, payMode, posDialogOpen,
   products, refreshQuote, refundOrderNo, requireSensitiveAuth,
   scheduleTableSave, search, settingsTab, settingsTabs,
@@ -107,7 +107,9 @@ function handlePosShortcut(e: KeyboardEvent): boolean {
 function onGlobalKeydown(e: KeyboardEvent) {
   if (handlePosShortcut(e)) return
   if (e.key !== 'Escape') return
+  if (userMenuOpen.value) { userMenuOpen.value = false; return }
   if (lockSetupOpen.value) { cancelLockSetup(); return }
+  if (pwdDialogOpen.value) { closePwdDialog(); return }
   if (memberDialogOpen.value) { memberDialogOpen.value = false; return }
   if (couponDialogOpen.value) { couponDialogOpen.value = false; return }
   if (cashDialogOpen.value) { cashDialogOpen.value = false; return }
@@ -116,16 +118,29 @@ function onGlobalKeydown(e: KeyboardEvent) {
   if (nativeDialog.value) { cancelNative(); return }
 }
 
+// 用户下拉菜单：交班/锁机/修改密码/退出统一收进账户菜单，顶部导航只留业务视图
+const userMenuOpen = ref(false)
+function pickMenu(fn: () => void) {
+  userMenuOpen.value = false
+  fn()
+}
+function onDocClick(e: MouseEvent) {
+  if (!userMenuOpen.value) return
+  if (!(e.target as HTMLElement | null)?.closest('.user')) userMenuOpen.value = false
+}
+
 onMounted(async () => {
   loadLockCode()
   void listen('lock-request', () => { lockScreen() }).catch(() => {})
   const saved = localStorage.getItem('checkoutr-theme') as 'light' | 'dark' | null
   if (saved) applyTheme(saved)
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('click', onDocClick)
   await app.bootstrap()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('click', onDocClick)
   pos.stopNativePolling()
   pos.stopChessFeeTimer()
 })
@@ -148,8 +163,6 @@ onUnmounted(() => {
         </div>
         <nav class="nav">
           <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
-          <!-- 交班：收银员日常动作，接班收银员或店长二次授权确认；不依赖报表权限 -->
-          <button :class="['nav-btn', { active: view === 'shift' }]" @click="goShift"><Icon name="clipboard" :size="ICON_SIZE.lg" />交班</button>
           <template v-if="atLeast('MANAGER')">
             <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="package" :size="ICON_SIZE.lg" />商品</button>
             <!-- 桌台/包间管理：台位的批量创建与删除集中在此，收银看板保持纯净 -->
@@ -167,11 +180,25 @@ onUnmounted(() => {
           </template>
         </nav>
         <div class="user">
-          <Icon name="user" :size="ICON_SIZE.md" />
-          <span>{{ currentUser }}</span>
-          <span class="role-tag">{{ currentRole === 'ADMIN' ? '管理员' : currentRole === 'MANAGER' ? '店长' : '店员' }}</span>
-          <button class="link" @click="lockScreen"><Icon name="lock" :size="ICON_SIZE.sm" />锁机</button>
-          <button class="link" @click="doLogout"><Icon name="logout" :size="ICON_SIZE.sm" />退出</button>
+          <button
+            class="user-chip"
+            :aria-expanded="userMenuOpen"
+            aria-haspopup="menu"
+            @click.stop="userMenuOpen = !userMenuOpen"
+          >
+            <Icon name="user" :size="ICON_SIZE.md" />
+            <span class="user-name">{{ currentUser }}</span>
+            <span class="role-tag">{{ currentRole === 'ADMIN' ? '管理员' : currentRole === 'MANAGER' ? '店长' : '店员' }}</span>
+            <Icon name="chevron-down" :size="ICON_SIZE.sm" class="user-caret" :class="{ open: userMenuOpen }" />
+          </button>
+          <!-- 账户菜单：交班为收银员日常动作（接班收银员或店长二次授权），锁机/改密/退出为个人操作 -->
+          <div v-if="userMenuOpen" class="user-menu" role="menu">
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(goShift)"><Icon name="clipboard" :size="ICON_SIZE.md" />交班</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(lockScreen)"><Icon name="lock" :size="ICON_SIZE.md" />锁机</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(openPwdDialog)"><Icon name="key" :size="ICON_SIZE.md" />修改密码</button>
+            <div class="user-menu-sep" role="separator"></div>
+            <button class="user-menu-item danger" role="menuitem" @click="pickMenu(doLogout)"><Icon name="logout" :size="ICON_SIZE.md" />退出登录</button>
+          </div>
         </div>
       </header>
 
