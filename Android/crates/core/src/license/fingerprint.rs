@@ -48,7 +48,7 @@ pub(crate) fn android_device_id() -> Option<String> {
     let ctx = ndk_context::android_context();
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
     let mut env = vm.attach_current_thread().ok()?;
-    let context = unsafe { JObject::from_raw(ctx.context()) };
+    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
     let resolver = env
         .call_method(

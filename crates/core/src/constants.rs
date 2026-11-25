@@ -201,7 +201,7 @@ pub const CONFIG_KIND_SELECT: &str = "select";
 
 /// 配置项元数据：键、中文名、说明、控件类型。系统配置页全中文显示的唯一来源。
 /// 顺序即界面展示顺序（按「门店 → 收银 → 支付 → 打印」分组语义排列）。
-pub const CONFIG_META: [(&str, &str, &str, &str); 34] = [
+pub const CONFIG_META: [(&str, &str, &str, &str); 37] = [
     (
         CFG_STORE_NAME,
         "门店名称",

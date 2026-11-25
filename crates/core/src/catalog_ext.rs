@@ -207,7 +207,9 @@ pub fn create_sku_variants(
         }
         let mut sorted = v.spec_value_ids.clone();
         sorted.sort_unstable();
-        if sorted.dedup().len() != sorted.len() {
+        let len_before_dedup = sorted.len();
+        sorted.dedup();
+        if sorted.len() != len_before_dedup {
             return Err(CoreError::Validation("同一规格组不能重复选择".into()));
         }
         if seen.contains(&sorted) {
