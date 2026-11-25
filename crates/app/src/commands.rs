@@ -3946,7 +3946,7 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
                 if s.from_minute < 0
                     || s.rate_cents < 0
                     || (s.unit != "MINUTE" && s.unit != "HOUR")
-                    || s.to_minute.map_or(false, |to| to <= s.from_minute)
+                    || s.to_minute.is_some_and(|to| to <= s.from_minute)
                 {
                     return Err(CoreError::Validation(
                         "分时段费率格式错误：分钟与费率不得为负、单位须为 MINUTE/HOUR、结束分钟须大于起始分钟".into(),
