@@ -31,7 +31,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["apk"],
+    "targets": [],
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "publisher": "Checkout-R",
     "copyright": "© 2026 Checkout-R",
