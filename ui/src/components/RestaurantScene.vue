@@ -196,6 +196,8 @@ onUnmounted(() => {
   <TableCreateDialog
     :open="showCreate"
     title="餐饮桌台"
+    capacity-label="座位"
+    :capacity-default="4"
     :show-fee="false"
     :fee-products="[]"
     default-prefix="A"

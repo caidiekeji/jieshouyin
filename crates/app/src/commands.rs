@@ -866,8 +866,11 @@ pub fn current_session(state: State<'_, AppState>) -> Result<Option<Session>> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProductHit {
     pub sku_id: i64,
+    pub spu_id: i64,
     pub spu_name: String,
     pub barcode: String,
+    /// 由规格快照生成的展示串（如 颜色:黑 / 尺码:M），非规格商品为空。
+    pub spec_text: String,
     pub price_cents: i64,
     /// 会员价：识别会员后按此价展示（结算时由后端与促销取优）。
     pub member_price_cents: Option<i64>,
@@ -892,10 +895,10 @@ fn query_products(
 ) -> Result<Vec<ProductHit>> {
     let pattern = format!("%{keyword}%");
     let mut stmt = conn.prepare(
-        "SELECT s.sku_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents, s.is_weighed,
-                s.member_price_cents, s.image_path, s.image_url,
+        "SELECT s.sku_id, p.spu_id, p.spu_name, COALESCE(s.barcode,''), s.sale_price_cents,
+                s.is_weighed, s.member_price_cents, s.image_path, s.image_url,
                 COALESCE(c.name,'未分类'), p.unit,
-                COALESCE(pc.name, c.name, '未分类')
+                COALESCE(pc.name, c.name, '未分类'), COALESCE(s.spec_json,'')
          FROM sku s JOIN spu p ON p.spu_id=s.spu_id
          LEFT JOIN category c ON c.category_id=p.category_id
          LEFT JOIN category pc ON pc.category_id=c.parent_id
@@ -909,18 +912,21 @@ fn query_products(
     let rows = stmt.query_map(
         params![pattern, keyword, limit, category_group, category_id],
         |r| {
+            let spec_json: String = r.get(12)?;
             Ok(ProductHit {
                 sku_id: r.get(0)?,
-                spu_name: r.get(1)?,
-                barcode: r.get(2)?,
-                price_cents: r.get(3)?,
-                is_weighed: r.get::<_, i64>(4)? != 0,
-                member_price_cents: r.get(5)?,
-                category_name: r.get(8)?,
-                category_group: r.get(10)?,
-                unit: r.get(9)?,
-                image_path: r.get(6)?,
-                image_url: r.get(7)?,
+                spu_id: r.get(1)?,
+                spu_name: r.get(2)?,
+                barcode: r.get(3)?,
+                spec_text: checkout_core::catalog_ext::spec_text_from_json(&spec_json),
+                price_cents: r.get(4)?,
+                is_weighed: r.get::<_, i64>(5)? != 0,
+                member_price_cents: r.get(6)?,
+                category_name: r.get(9)?,
+                category_group: r.get(11)?,
+                unit: r.get(10)?,
+                image_path: r.get(7)?,
+                image_url: r.get(8)?,
             })
         },
     )?;
@@ -1190,6 +1196,8 @@ struct AmountPlan {
     total: i64,
     discount: i64,
     payable: i64,
+    /// 抹零额（分），已并入 discount；单独返回仅用于界面明示。
+    round_off_cents: i64,
     /// 券不可用等提示（不参与金额试算，界面据此提示）。
     coupon_note: Option<String>,
     /// 券不可用原因码（机器可判）：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / MEMBER_MISMATCH / BELOW_THRESHOLD。
@@ -1338,13 +1346,28 @@ fn plan_amounts(
         }
     }
     let total: i64 = cart_lines.iter().map(|l| l.line_total_cents).sum();
-    let discount: i64 = promo_result.total_discount_cents + coupon_discount;
+    let mut discount: i64 = promo_result.total_discount_cents + coupon_discount;
+    // 抹零在促销与券之后作用于最终应收，并计入 discount，
+    // 保证 order::begin_order 的 `pay = total - discount` 恒等式不变。
+    let round_mode: String = conn
+        .query_row(
+            "SELECT config_value FROM system_config WHERE config_key=?1",
+            [checkout_core::constants::CFG_ROUND_OFF_MODE],
+            |r| r.get(0),
+        )
+        .unwrap_or_else(|_| "OFF".to_string());
+    let round_off = checkout_core::money::round_off_cents(
+        (total - discount).max(0),
+        &round_mode,
+    );
+    discount += round_off;
     Ok(AmountPlan {
         applied: promo_result.applied,
         cart_lines,
         total,
         discount,
         payable: total - discount,
+        round_off_cents: round_off,
         coupon_note,
         coupon_reason,
         coupon_shortfall_cents,
@@ -1357,6 +1380,8 @@ pub struct OrderQuote {
     pub total_cents: i64,
     pub discount_cents: i64,
     pub payable_cents: i64,
+    /// 抹零额（分），已包含在 discount_cents 中。
+    pub round_off_cents: i64,
     /// 券不可用等提示（不阻断报价）。
     pub coupon_note: Option<String>,
     /// 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / MEMBER_MISMATCH / BELOW_THRESHOLD；券生效或未用券为 None。
@@ -1420,6 +1445,7 @@ pub fn quote_order(
         total_cents: plan.total,
         discount_cents: plan.discount,
         payable_cents: plan.payable,
+        round_off_cents: plan.round_off_cents,
         coupon_note: plan.coupon_note,
         coupon_reason: plan.coupon_reason.map(ToString::to_string),
         coupon_shortfall_cents: plan.coupon_shortfall_cents,
@@ -3908,6 +3934,36 @@ pub fn set_config(key: String, value: String, state: State<'_, AppState>) -> Res
                 return Err(CoreError::Validation("取整分钟须在 0–120".into()));
             }
         }
+        checkout_core::constants::CFG_CHESS_FEE_CAP_CENTS => {
+            let n: i64 = value
+                .parse()
+                .map_err(|_| CoreError::Validation("房费封顶金额必须为整数分".into()))?;
+            if !(0..=100_000_000).contains(&n) {
+                return Err(CoreError::Validation("房费封顶须在 0–1000000 元".into()));
+            }
+        }
+        checkout_core::constants::CFG_CHESS_FEE_SLOTS_JSON => {
+            let slots: Vec<checkout_core::service::TimeSlot> = serde_json::from_str(&value)
+                .map_err(|_| CoreError::Validation("分时段费率必须是 JSON 数组".into()))?;
+            for s in slots {
+                if s.from_minute < 0
+                    || s.rate_cents < 0
+                    || (s.unit != "MINUTE" && s.unit != "HOUR")
+                    || s.to_minute.map_or(false, |to| to <= s.from_minute)
+                {
+                    return Err(CoreError::Validation(
+                        "分时段费率格式错误：分钟与费率不得为负、单位须为 MINUTE/HOUR、结束分钟须大于起始分钟".into(),
+                    ));
+                }
+            }
+        }
+        checkout_core::constants::CFG_ROUND_OFF_MODE => {
+            if value != "OFF" && value != "YUAN" && value != "JIAO" {
+                return Err(CoreError::Validation(
+                    "抹零模式只能是 OFF / YUAN / JIAO".into(),
+                ));
+            }
+        }
         checkout_core::constants::CFG_TABLE_MEMBER_BIND => {
             if value != "OPTIONAL" && value != "REQUIRED" {
                 return Err(CoreError::Validation(
@@ -5608,6 +5664,253 @@ pub fn set_user_status(user_id: i64, status: i64, state: State<'_, AppState>) ->
 }
 
 /// 启动应用（Tauri 2）。
+// ─────────────────── 行业业务模型扩展命令（M0020） ───────────────────
+
+#[tauri::command]
+pub fn create_spec_group(
+    spu_id: i64,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::create_spec_group(&conn, spu_id, name)
+}
+
+#[tauri::command]
+pub fn add_spec_value(
+    spec_group_id: i64,
+    value: String,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::add_spec_value(&conn, spec_group_id, value)
+}
+
+#[tauri::command]
+pub fn list_spec_groups(
+    spu_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::catalog_ext::SpecGroup>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::catalog_ext::list_spec_groups(&conn, spu_id)
+}
+
+#[tauri::command]
+pub fn create_sku_variants(
+    spu_id: i64,
+    variants: Vec<checkout_core::catalog_ext::VariantInput>,
+    state: State<'_, AppState>,
+) -> Result<Vec<i64>> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::create_sku_variants(&conn, spu_id, &variants)
+}
+
+#[tauri::command]
+pub fn list_sku_variants(
+    spu_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::catalog_ext::SkuVariant>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::catalog_ext::list_sku_variants(&conn, spu_id)
+}
+
+#[tauri::command]
+pub fn set_product_age_range(
+    sku_id: i64,
+    month_min: Option<i64>,
+    month_max: Option<i64>,
+    shelf_life_days: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::set_product_age_range(
+        &conn,
+        sku_id,
+        month_min,
+        month_max,
+        shelf_life_days,
+    )
+}
+
+#[tauri::command]
+pub fn create_sku_batch(
+    sku_id: i64,
+    batch_no: String,
+    production_date: Option<String>,
+    expiry_date: Option<String>,
+    qty: i64,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::create_sku_batch(
+        &conn,
+        sku_id,
+        &batch_no,
+        production_date.as_deref(),
+        expiry_date.as_deref(),
+        qty,
+    )
+}
+
+#[tauri::command]
+pub fn list_sku_batches(
+    sku_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::catalog_ext::SkuBatch>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::catalog_ext::list_sku_batches(&conn, sku_id)
+}
+
+#[tauri::command]
+pub fn list_products_by_age(
+    month: i64,
+    limit: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::catalog_ext::AgeProduct>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::catalog_ext::list_products_by_age(&conn, month, limit)
+}
+
+#[tauri::command]
+pub fn create_combo(
+    sku_id: i64,
+    note: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::create_combo(&conn, sku_id, note.as_deref())
+}
+
+#[tauri::command]
+pub fn set_combo_items(
+    combo_id: i64,
+    items: Vec<checkout_core::catalog_ext::ComboItemInput>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::set_combo_items(&conn, combo_id, &items)
+}
+
+#[tauri::command]
+pub fn list_combos(state: State<'_, AppState>) -> Result<Vec<checkout_core::catalog_ext::Combo>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::catalog_ext::list_combos(&conn)
+}
+
+#[tauri::command]
+pub fn combo_items_by_sku(
+    sku_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::catalog_ext::ComboItem>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::catalog_ext::combo_items_by_sku(&conn, sku_id)
+}
+
+#[tauri::command]
+pub fn create_option_group(
+    name: String,
+    scene: String,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::create_option_group(&conn, &name, &scene)
+}
+
+#[tauri::command]
+pub fn set_option_items(
+    group_id: i64,
+    sku_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::catalog_ext::set_option_items(&conn, group_id, &sku_ids)
+}
+
+#[tauri::command]
+pub fn list_option_groups(
+    scene: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::catalog_ext::OptionGroup>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::catalog_ext::list_option_groups(&conn, scene.as_deref())
+}
+
+#[tauri::command]
+pub fn assign_bell(
+    technician_id: i64,
+    table_id: i64,
+    business_date: String,
+    minutes: i64,
+    is_pointed: bool,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::technician::assign_bell(
+        &conn,
+        technician_id,
+        table_id,
+        &business_date,
+        minutes,
+        is_pointed,
+    )
+}
+
+#[tauri::command]
+pub fn auto_assign_bell(
+    table_id: i64,
+    business_date: String,
+    minutes: i64,
+    state: State<'_, AppState>,
+) -> Result<i64> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::technician::auto_assign_bell(&conn, table_id, &business_date, minutes)
+}
+
+#[tauri::command]
+pub fn add_bell_minutes(
+    bell_id: i64,
+    extra_minutes: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::technician::add_bell_minutes(&conn, bell_id, extra_minutes)
+}
+
+#[tauri::command]
+pub fn finish_bell(bell_id: i64, state: State<'_, AppState>) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::technician::finish_bell(&conn, bell_id)
+}
+
+#[tauri::command]
+pub fn list_bells(
+    business_date: String,
+    status: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<checkout_core::technician::TechnicianBell>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::technician::list_bells(&conn, &business_date, status.as_deref())
+}
+
+#[tauri::command]
+pub fn active_bell_for_table(
+    table_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Option<checkout_core::technician::TechnicianBell>> {
+    let (_op, conn) = admin_guard(&state, PERM_POS_CHECKOUT)?;
+    checkout_core::technician::active_bell_for_table(&conn, table_id)
+}
+
+#[tauri::command]
+pub fn set_service_table_fee_cap(
+    table_id: i64,
+    cap_cents: i64,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
+    checkout_core::service::set_table_fee_cap(&conn, table_id, cap_cents)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -5896,6 +6199,29 @@ pub fn run() {
             refresh_license_online,
             probe_activation_service,
             open_activation_site,
+            create_spec_group,
+            add_spec_value,
+            list_spec_groups,
+            create_sku_variants,
+            list_sku_variants,
+            set_product_age_range,
+            create_sku_batch,
+            list_sku_batches,
+            list_products_by_age,
+            create_combo,
+            set_combo_items,
+            list_combos,
+            combo_items_by_sku,
+            create_option_group,
+            set_option_items,
+            list_option_groups,
+            assign_bell,
+            auto_assign_bell,
+            add_bell_minutes,
+            finish_bell,
+            list_bells,
+            active_bell_for_table,
+            set_service_table_fee_cap,
         ])
         .run(tauri::generate_context!())
         .expect("应用启动失败");

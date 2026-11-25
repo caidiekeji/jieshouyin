@@ -13,7 +13,7 @@ type StrokeIconName =
   | 'scan' | 'search' | 'cart' | 'package' | 'box' | 'clipboard' | 'park'
   | 'heart' | 'users' | 'user' | 'undo' | 'receipt' | 'print' | 'report'
   | 'settings' | 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'cash' | 'star'
-  | 'ticket' | 'pause' | 'image' | 'truck' | 'alert' | 'info'
+  | 'ticket' | 'pause' | 'image' | 'truck' | 'alert' | 'info' | 'scale'
   | 'chat' | 'phone' | 'qr'
   | 'plus' | 'minus' | 'check' | 'close' | 'refresh' | 'edit' | 'trash'
   | 'lock' | 'logout' | 'key' | 'chevron-down'
@@ -131,15 +131,8 @@ const ICONS: Record<StrokeIconName, string[]> = {
 
   // ── 设置中心 ──
   settings: [
-    'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z',
-    'M12 2v2',
-    'M12 20v2',
-    'M4.93 4.93l1.42 1.42',
-    'M17.66 17.66l1.41 1.41',
-    'M2 12h2',
-    'M20 12h2',
-    'M4.93 19.07l1.42-1.42',
-    'M17.66 6.34l1.41-1.41',
+    'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z',
+    'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   ],
   store: [
     'M3 10 5.5 4h13L21 10',
@@ -180,6 +173,12 @@ const ICONS: Record<StrokeIconName, string[]> = {
     'M7 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
   ],
   star: ['M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z'],
+  scale: [
+    'M12 4v16',
+    'M5 20h14',
+    'M4 9h16l-3 7H7L4 9Z',
+    'M12 9 9 5h6l-3 4Z',
+  ],
   ticket: [
     'M4 5h16a1 1 0 0 1 1 1v3a3 3 0 0 0 0 6v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-3a3 3 0 0 0 0-6V6a1 1 0 0 1 1-1Z',
     'M13 5v2',

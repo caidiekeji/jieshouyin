@@ -12,8 +12,11 @@ import AuthView from './views/AuthView.vue'
 import PosView from './views/PosView.vue'
 import ReportView from './views/ReportView.vue'
 import SettingsView from './views/SettingsView.vue'
-import TableManageView from './views/TableManageView.vue'
+import RestaurantTablesView from './views/RestaurantTablesView.vue'
+import ChessRoomsView from './views/ChessRoomsView.vue'
+import WellnessRoomsView from './views/WellnessRoomsView.vue'
 import DialogLayer from './views/DialogLayer.vue'
+import { INDUSTRY_UI } from './constants'
 import { useAppStore } from './stores/app'
 import { usePosStore } from './stores/pos'
 import { useOpsStore } from './stores/ops'
@@ -39,6 +42,7 @@ const {
 
 // 认证四屏（boot/industry/activate/login）统一交给 AuthView 渲染
 const isAuthStage = computed(() => ['boot', 'industry', 'activate', 'login'].includes(view.value))
+const industryUi = computed(() => INDUSTRY_UI[industry.value] ?? INDUSTRY_UI.SUPERMARKET)
 
 // store 实例：生命周期 watch / 快捷键直接使用
 const app = useAppStore()
@@ -168,10 +172,10 @@ onUnmounted(() => {
             <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="package" :size="ICON_SIZE.lg" />商品</button>
             <!-- 桌台/包间管理：台位的批量创建与删除集中在此，收银看板保持纯净 -->
             <button
-              v-if="industry === 'RESTAURANT' || industry === 'BOARD_GAME' || industry === 'WELLNESS'"
+              v-if="industryUi.navTables"
               :class="['nav-btn', { active: view === 'tables' }]"
               @click="view = 'tables'"
-            ><Icon name="store" :size="ICON_SIZE.lg" />{{ industry === 'RESTAURANT' ? '桌台管理' : '包间管理' }}</button>
+            ><Icon name="store" :size="ICON_SIZE.lg" />{{ industryUi.navTables }}</button>
             <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="clipboard" :size="ICON_SIZE.lg" />采购盘点</button>
             <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="heart" :size="ICON_SIZE.lg" />会员营销</button>
             <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="undo" :size="ICON_SIZE.lg" />退款</button>
@@ -225,8 +229,10 @@ onUnmounted(() => {
         <CategoryAdmin v-else />
       </main>
 
-      <!-- 桌台/包间管理：餐饮=桌台，棋牌/养生=包间 -->
-      <TableManageView v-else-if="view === 'tables'" />
+      <!-- 台位管理按行业拆成独立页面，互不复用 -->
+      <RestaurantTablesView v-else-if="view === 'tables' && industry === 'RESTAURANT'" />
+      <ChessRoomsView v-else-if="view === 'tables' && industry === 'BOARD_GAME'" />
+      <WellnessRoomsView v-else-if="view === 'tables' && industry === 'WELLNESS'" />
 
       <!-- 采购与盘点 -->
       <SupplyAdmin v-else-if="view === 'supply'" :request-auth="requireSensitiveAuth" />

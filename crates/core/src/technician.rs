@@ -1,7 +1,7 @@
-//! 养生技师：日排班、服务行指定、按折后实收比例提成。
+//! 养生技师：日排班、钟态（排钟/点钟/加钟/收钟）、服务行指定、按折后实收比例提成。
 //!
-//! v1 规则：按营业日排班（在班/休息），不做钟点班次、点钟与轮排；提成在
-//! 结算落单时固化，退货按剩余数量等比冲减，避免月底再按现价重算。
+//! 提成在结算落单时固化，退货按剩余数量等比冲减，避免月底再按现价重算。
+//! 钟态只记录服务时长与技师占用，不改变包间房费；房费仍由 service::chess_fee 按桌台计时。
 
 use crate::error::{CoreError, Result};
 use crate::time::format_utc;
@@ -308,6 +308,221 @@ pub fn line_commission(
     Ok(commission as i64)
 }
 
+// ───────────────────────── 钟态：排钟 / 点钟 / 加钟 / 收钟 ─────────────────────────
+
+/// ACTIVE=正在上钟；DONE=已收钟；CANCELLED=已取消。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TechnicianBell {
+    pub bell_id: i64,
+    pub technician_id: i64,
+    pub technician_name: String,
+    pub table_id: Option<i64>,
+    pub table_code: Option<String>,
+    pub business_date: String,
+    pub start_at: String,
+    pub end_at: Option<String>,
+    /// 计划服务时长（分钟）。加钟增加此值；不改变房费。
+    pub minutes: i64,
+    pub is_pointed: bool,
+    pub status: String,
+    /// 已经过的分钟数；收钟后按 end_at 固化。
+    pub elapsed_minutes: i64,
+}
+
+fn parse_utc(s: &str) -> Option<chrono::DateTime<Utc>> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|d| d.with_timezone(&Utc))
+}
+
+fn bell_elapsed(start_at: &str, end_at: Option<&str>) -> i64 {
+    let Some(start) = parse_utc(start_at) else {
+        return 0;
+    };
+    let end = end_at.and_then(parse_utc).unwrap_or_else(Utc::now);
+    ((end - start).num_seconds().max(0) + 59) / 60
+}
+
+fn bell_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TechnicianBell> {
+    let start_at: String = r.get(6)?;
+    let end_at: Option<String> = r.get(7)?;
+    Ok(TechnicianBell {
+        bell_id: r.get(0)?,
+        technician_id: r.get(1)?,
+        technician_name: r.get(2)?,
+        table_id: r.get(3)?,
+        table_code: r.get(4)?,
+        business_date: r.get(5)?,
+        start_at: start_at.clone(),
+        end_at: end_at.clone(),
+        minutes: r.get(8)?,
+        is_pointed: r.get::<_, i64>(9)? != 0,
+        status: r.get(10)?,
+        elapsed_minutes: bell_elapsed(&start_at, end_at.as_deref()),
+    })
+}
+
+const BELL_SELECT: &str = "SELECT b.bell_id,b.technician_id,t.name,b.table_id,tb.code,
+        b.business_date,b.start_at,b.end_at,b.minutes,b.is_pointed,b.status
+     FROM technician_bell b
+     JOIN technician t ON t.technician_id=b.technician_id
+     LEFT JOIN service_table tb ON tb.table_id=b.table_id";
+
+/// 指派技师上钟。is_pointed=true 为顾客点钟，false 为系统排钟。
+/// 技师必须在册、启用且当日已排班在班；同一技师不能同时挂两个 ACTIVE 钟。
+pub fn assign_bell(
+    conn: &Connection,
+    technician_id: i64,
+    table_id: i64,
+    business_date: &str,
+    minutes: i64,
+    is_pointed: bool,
+) -> Result<i64> {
+    if !(1..=480).contains(&minutes) {
+        return Err(CoreError::Validation("上钟时长须在 1-480 分钟之间".into()));
+    }
+    let on_duty: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM technician t
+         WHERE t.technician_id=?1 AND t.status=1
+           AND EXISTS(SELECT 1 FROM technician_shift s
+                      WHERE s.technician_id=t.technician_id AND s.business_date=?2)",
+        params![technician_id, business_date],
+        |r| r.get(0),
+    )?;
+    if on_duty == 0 {
+        return Err(CoreError::Validation("技师当日未排班或已停用，不能上钟".into()));
+    }
+    let table_ok: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM service_table WHERE table_id=?1",
+        [table_id],
+        |r| r.get(0),
+    )?;
+    if table_ok == 0 {
+        return Err(CoreError::Validation("服务间不存在".into()));
+    }
+    let busy: Option<i64> = conn
+        .query_row(
+            "SELECT bell_id FROM technician_bell WHERE technician_id=?1 AND status='ACTIVE'",
+            [technician_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if busy.is_some() {
+        return Err(CoreError::Validation("该技师正在上钟，请先收钟".into()));
+    }
+
+    let now = format_utc(&Utc::now());
+    let tx = conn.unchecked_transaction()?;
+    // 同一服务间换技师：旧钟自动收钟，避免两个 ACTIVE 钟并存。
+    tx.execute(
+        "UPDATE technician_bell SET status='DONE',end_at=?2
+         WHERE table_id=?1 AND status='ACTIVE'",
+        params![table_id, now],
+    )?;
+    tx.execute(
+        "INSERT INTO technician_bell(technician_id,table_id,business_date,start_at,minutes,
+                                     is_pointed,status,created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,'ACTIVE',?4)",
+        params![technician_id, table_id, business_date, now, minutes, is_pointed as i64],
+    )?;
+    let bell_id = tx.last_insert_rowid();
+    tx.execute(
+        "UPDATE table_session SET current_technician_id=?2
+         WHERE table_id=?1 AND status='OPEN'",
+        params![table_id, technician_id],
+    )?;
+    tx.commit()?;
+    Ok(bell_id)
+}
+
+/// 自动排钟：取当日排班且空闲的第一位技师；无人可排时返回业务错误。
+pub fn auto_assign_bell(
+    conn: &Connection,
+    table_id: i64,
+    business_date: &str,
+    minutes: i64,
+) -> Result<i64> {
+    let candidate: Option<i64> = conn
+        .query_row(
+            "SELECT t.technician_id FROM technician t
+             WHERE t.status=1
+               AND EXISTS(SELECT 1 FROM technician_shift s
+                          WHERE s.technician_id=t.technician_id AND s.business_date=?1)
+               AND NOT EXISTS(SELECT 1 FROM technician_bell b
+                              WHERE b.technician_id=t.technician_id AND b.status='ACTIVE')
+             ORDER BY t.technician_id LIMIT 1",
+            [business_date],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let tid = candidate.ok_or_else(|| CoreError::Validation("当前没有可排的空闲技师".into()))?;
+    assign_bell(conn, tid, table_id, business_date, minutes, false)
+}
+
+/// 加钟：只延长技师服务时长，不动房费与桌台计时。
+pub fn add_bell_minutes(conn: &Connection, bell_id: i64, extra_minutes: i64) -> Result<()> {
+    if !(1..=240).contains(&extra_minutes) {
+        return Err(CoreError::Validation("加钟时长须在 1-240 分钟之间".into()));
+    }
+    let affected = conn.execute(
+        "UPDATE technician_bell SET status='ACTIVE',minutes=minutes+?2
+         WHERE bell_id=?1 AND status='ACTIVE'",
+        params![bell_id, extra_minutes],
+    )?;
+    if affected == 0 {
+        return Err(CoreError::Validation("钟位不存在或已收钟，不能加钟".into()));
+    }
+    Ok(())
+}
+
+/// 收钟：固化实际结束时刻与经过分钟，并解除桌台会话的技师绑定。
+pub fn finish_bell(conn: &Connection, bell_id: i64) -> Result<()> {
+    let (table_id, start_at): (Option<i64>, String) = conn
+        .query_row(
+            "SELECT table_id,start_at FROM technician_bell WHERE bell_id=?1 AND status='ACTIVE'",
+            [bell_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| CoreError::Validation("钟位不存在或已收钟".into()))?;
+    let now = format_utc(&Utc::now());
+    let elapsed = bell_elapsed(&start_at, Some(&now));
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE technician_bell SET status='DONE',end_at=?2,minutes=MAX(minutes,?3)
+         WHERE bell_id=?1",
+        params![bell_id, now, elapsed],
+    )?;
+    if let Some(tid) = table_id {
+        tx.execute(
+            "UPDATE table_session SET current_technician_id=NULL
+             WHERE table_id=?1 AND status='OPEN'",
+            [tid],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn list_bells(
+    conn: &Connection,
+    business_date: &str,
+    status: Option<&str>,
+) -> Result<Vec<TechnicianBell>> {
+    let sql = format!(
+        "{BELL_SELECT} WHERE b.business_date=?1 AND (?2 IS NULL OR b.status=?2)
+         ORDER BY b.bell_id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params![business_date, status], bell_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+}
+
+pub fn active_bell_for_table(conn: &Connection, table_id: i64) -> Result<Option<TechnicianBell>> {
+    let sql = format!("{BELL_SELECT} WHERE b.table_id=?1 AND b.status='ACTIVE' LIMIT 1");
+    conn.query_row(&sql, [table_id], bell_row).optional().map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,5 +579,52 @@ mod tests {
             line_commission(&c, Some(id), 1, 2, 10000, 10000, 9000).unwrap(),
             1000
         );
+    }
+
+    #[test]
+    fn bells_require_duty_and_support_point_add_finish() {
+        let c = setup();
+        let t1 = create_technician(&c, "小雅", None, 1200, "PERCENT", 0).unwrap();
+        let t2 = create_technician(&c, "小美", None, 1200, "PERCENT", 0).unwrap();
+        let date = "2026-11-26";
+        set_shift(&c, t1, date, true).unwrap();
+        set_shift(&c, t2, date, true).unwrap();
+        c.execute(
+            "INSERT INTO service_table(table_id,code,scene,name,created_at)
+             VALUES (1,'W01','WELLNESS','养生1','2026-11-26T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        // 未排班的技师不能点钟
+        assert!(assign_bell(&c, 999, 1, date, 60, true).is_err());
+        let bell = assign_bell(&c, t1, 1, date, 60, true).unwrap();
+        assert_eq!(list_bells(&c, date, Some("ACTIVE")).unwrap().len(), 1);
+        assert!(active_bell_for_table(&c, 1).unwrap().is_some());
+        // 同一技师不能同时挂两个钟
+        assert!(assign_bell(&c, t1, 1, date, 60, false).is_err());
+        // 自动排钟会跳过忙碌的 t1，选中 t2
+        c.execute(
+            "INSERT INTO service_table(table_id,code,scene,name,created_at)
+             VALUES (2,'W02','WELLNESS','养生2','2026-11-26T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let auto = auto_assign_bell(&c, 2, date, 90).unwrap();
+        let rows = list_bells(&c, date, None).unwrap();
+        assert!(rows.iter().any(|b| b.bell_id == auto && !b.is_pointed));
+        add_bell_minutes(&c, bell, 30).unwrap();
+        assert_eq!(
+            list_bells(&c, date, None)
+                .unwrap()
+                .iter()
+                .find(|b| b.bell_id == bell)
+                .unwrap()
+                .minutes,
+            90
+        );
+        finish_bell(&c, bell).unwrap();
+        assert_eq!(list_bells(&c, date, Some("ACTIVE")).unwrap().len(), 1);
+        assert!(add_bell_minutes(&c, bell, 30).is_err());
     }
 }

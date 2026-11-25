@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { api, formatMoney, type CouponRow, type MemberRow, type PromotionRow } from '../api'
 import Icon from './Icon.vue'
 import {
+import HintTip from './HintTip.vue'
   CENTS_PER_YUAN,
   DISCOUNT_ZHE_FACTOR,
   ERROR_DURATION_MS,
@@ -290,7 +291,7 @@ onMounted(() => {
 
       <div v-if="rechargeMemberId != null" class="card">
         <h3>会员充值：{{ rechargeName }}</h3>
-        <p class="muted small">实充金额进入本金，赠送金额进入赠送金账户；赠送金不可提现、不可找零。</p>
+        <HintTip text="实充金额进入本金，赠送金额进入赠送金账户；赠送金不可提现、不可找零。" />
         <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
           <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
@@ -298,7 +299,7 @@ onMounted(() => {
           <button class="btn primary" @click="submitRecharge">确认充值</button>
           <button class="btn ghost" @click="rechargeMemberId = null">取消</button>
         </div>
-        <p class="muted small">扫码充值需要渠道收款回调确认，当前版本仅支持现金充值（微信/支付宝充值待渠道收款接入后开放）。</p>
+        <HintTip text="扫码充值需要渠道收款回调确认，当前版本仅支持现金充值（微信/支付宝充值待渠道收款接入后开放）。" />
       </div>
     </template>
 
@@ -340,7 +341,7 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <p class="muted small">折扣率填 0–1 之间的小数（0.85 即 8.5 折）；指定 SKU 后规则只作用于这些商品。</p>
+        <HintTip text="折扣率填 0–1 之间的小数（0.85 即 8.5 折）；指定 SKU 后规则只作用于这些商品。" />
         <button class="btn primary" @click="addPromo">创建规则</button>
       </div>
 
@@ -400,7 +401,7 @@ onMounted(() => {
             <input v-model="couponForm.validUntil" class="input" type="datetime-local" />
           </label>
         </div>
-        <p class="muted small">专属券仅发放对象识别为会员后可用；通用券任何人可用。有效期留空表示不设截止。</p>
+        <HintTip text="专属券仅发放对象识别为会员后可用；通用券任何人可用。有效期留空表示不设截止。" />
         <button class="btn primary" @click="addCoupon">发券</button>
       </div>
 

@@ -781,6 +781,98 @@ pub const M0019: &str = r#"
 ALTER TABLE payment_record ADD COLUMN request_fingerprint TEXT;
 "#;
 
+/// M0020：按行业补齐真实业务模型。
+/// - 服装：款×色×码规格组/规格值 + SKU 规格关联（sku.spec_json 仍作展示快照）
+/// - 母婴：SKU 月龄区间、保质期天数 + 批次效期
+/// - 餐饮：套餐（套餐本身是 SKU，组合明细单独存）、选项组（选项即 SKU，选中后独立成行）
+/// - 养生：技师钟态（排钟/点钟/加钟/收钟），会话当前技师
+/// - 计时：包间封顶价、门店时段费率配置（默认空，保持原有线性计费）
+/// - 结算：抹零模式配置（默认 OFF，不改变已有金额口径）
+/// 全部新增结构默认空/关闭，老库升级后既有行为完全不变。
+const M0020: &str = r#"
+CREATE TABLE IF NOT EXISTS spu_spec_group (
+    spec_group_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    spu_id         INTEGER NOT NULL REFERENCES spu(spu_id) ON DELETE CASCADE,
+    name           TEXT NOT NULL,
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (spu_id, name)
+);
+CREATE TABLE IF NOT EXISTS spu_spec_value (
+    spec_value_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    spec_group_id INTEGER NOT NULL REFERENCES spu_spec_group(spec_group_id) ON DELETE CASCADE,
+    value         TEXT NOT NULL,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (spec_group_id, value)
+);
+CREATE TABLE IF NOT EXISTS sku_spec (
+    sku_id        INTEGER NOT NULL REFERENCES sku(sku_id) ON DELETE CASCADE,
+    spec_value_id INTEGER NOT NULL REFERENCES spu_spec_value(spec_value_id) ON DELETE CASCADE,
+    PRIMARY KEY (sku_id, spec_value_id)
+);
+
+ALTER TABLE sku ADD COLUMN month_min INTEGER;
+ALTER TABLE sku ADD COLUMN month_max INTEGER;
+ALTER TABLE sku ADD COLUMN shelf_life_days INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS sku_batch (
+    batch_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku_id          INTEGER NOT NULL REFERENCES sku(sku_id) ON DELETE CASCADE,
+    batch_no        TEXT NOT NULL,
+    production_date TEXT,
+    expiry_date     TEXT,
+    qty             INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    UNIQUE (sku_id, batch_no)
+);
+
+CREATE TABLE IF NOT EXISTS combo (
+    combo_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku_id     INTEGER NOT NULL UNIQUE REFERENCES sku(sku_id) ON DELETE CASCADE,
+    note       TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS combo_item (
+    combo_id INTEGER NOT NULL REFERENCES combo(combo_id) ON DELETE CASCADE,
+    sku_id   INTEGER NOT NULL REFERENCES sku(sku_id),
+    qty      INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (combo_id, sku_id)
+);
+CREATE TABLE IF NOT EXISTS option_group (
+    group_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    scene      TEXT NOT NULL DEFAULT 'RESTAURANT',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (name, scene)
+);
+CREATE TABLE IF NOT EXISTS option_item (
+    option_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id       INTEGER NOT NULL REFERENCES option_group(group_id) ON DELETE CASCADE,
+    sku_id         INTEGER NOT NULL REFERENCES sku(sku_id),
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (group_id, sku_id)
+);
+
+CREATE TABLE IF NOT EXISTS technician_bell (
+    bell_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    technician_id  INTEGER NOT NULL REFERENCES technician(technician_id) ON DELETE CASCADE,
+    table_id       INTEGER REFERENCES service_table(table_id) ON DELETE SET NULL,
+    business_date  TEXT NOT NULL,
+    start_at       TEXT NOT NULL,
+    end_at         TEXT,
+    minutes        INTEGER NOT NULL DEFAULT 0,
+    is_pointed     INTEGER NOT NULL DEFAULT 0,
+    status         TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_technician_bell_date ON technician_bell(business_date, status);
+ALTER TABLE table_session ADD COLUMN current_technician_id INTEGER REFERENCES technician(technician_id);
+
+ALTER TABLE service_table ADD COLUMN fee_cap_cents INTEGER NOT NULL DEFAULT 0;
+INSERT OR IGNORE INTO system_config(config_key,config_value,updated_at) VALUES
+ ('chess_fee_cap_cents','0',datetime('now')),
+ ('chess_fee_slots_json','[]',datetime('now')),
+ ('round_off_mode','OFF',datetime('now'));
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -877,6 +969,11 @@ pub fn all() -> Vec<Migration> {
             version: 19,
             name: "recharge_request_fingerprint",
             up: M0019,
+        },
+        Migration {
+            version: 20,
+            name: "industry_business_models",
+            up: M0020,
         },
     ]
 }

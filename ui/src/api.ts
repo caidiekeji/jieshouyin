@@ -17,8 +17,11 @@ export interface LicenseSnapshot {
 
 export interface ProductHit {
   sku_id: number
+  spu_id: number
   spu_name: string
   barcode: string
+  /** 规格快照展示串，如「颜色:黑 / 尺码:M」；非规格商品为空 */
+  spec_text: string
   price_cents: number
   member_price_cents: number | null
   is_weighed: boolean
@@ -61,6 +64,8 @@ export interface TableCreateSpec {
   feeUnit: 'MINUTE' | 'HOUR' | null
   minMinutes: number | null
   roundMinutes: number | null
+  /** 本包间房费封顶（分）；0 表示跟随门店配置 */
+  capCents?: number
 }
 
 /** 厨打返回的本次新增出品行 */export interface KitchenItem {
@@ -86,6 +91,14 @@ export interface KitchenSubmitResult {
 }
 
 /** 棋牌计时账单 */
+export interface FeeSegment {
+  from_minute: number
+  to_minute: number
+  unit: 'MINUTE' | 'HOUR'
+  rate_cents: number
+  fee_cents: number
+}
+
 export interface ChessFee {
   elapsed_minutes: number
   billable_minutes: number
@@ -93,6 +106,12 @@ export interface ChessFee {
   unit_cents: number
   fee_unit: 'MINUTE' | 'HOUR'
   fee_cents: number
+  /** 分时段计费明细；空数组表示按商品单价线性计费 */
+  segments: FeeSegment[]
+  /** 是否触发封顶 */
+  capped: boolean
+  /** 生效封顶金额（分），0 表示未设置 */
+  cap_cents: number
 }
 
 /** 养生技师与日排班 */
@@ -146,6 +165,8 @@ export interface OrderQuote {
   total_cents: number
   discount_cents: number
   payable_cents: number
+  /** 抹零额（分），已包含在 discount_cents 中 */
+  round_off_cents: number
   /** 券不可用等提示（不阻断报价） */
   coupon_note: string | null
   /** 券不可用原因码：NOT_FOUND / DISABLED / EXPIRED / NOT_STARTED / MEMBER_MISMATCH / BELOW_THRESHOLD；券生效或未用券为 null */
@@ -418,6 +439,121 @@ export interface PromotionRow {
   status: number
 }
 
+// ── 行业业务模型（规格矩阵 / 月龄效期 / 套餐加料 / 钟态） ──
+
+export interface SpecValue {
+  spec_value_id: number
+  spec_group_id: number
+  value: string
+  sort_order: number
+}
+
+export interface SpecGroup {
+  spec_group_id: number
+  spu_id: number
+  name: string
+  sort_order: number
+  values: SpecValue[]
+}
+
+export interface VariantInput {
+  spec_value_ids: number[]
+  sale_price_cents: number
+  cost_price_cents: number
+  member_price_cents: number | null
+  barcode: string | null
+  instore_code: string | null
+  initial_qty: number
+}
+
+export interface SkuVariant {
+  sku_id: number
+  spu_id: number
+  name: string
+  spec_json: string
+  spec_text: string
+  sale_price_cents: number
+  cost_price_cents: number
+  member_price_cents: number | null
+  barcode: string | null
+  instore_code: string | null
+  qty: number
+}
+
+export interface SkuBatch {
+  batch_id: number
+  sku_id: number
+  batch_no: string
+  production_date: string | null
+  expiry_date: string | null
+  qty: number
+}
+
+export interface AgeProduct {
+  sku_id: number
+  name: string
+  category_name: string
+  unit: string
+  price_cents: number
+  member_price_cents: number | null
+  month_min: number | null
+  month_max: number | null
+  shelf_life_days: number
+  /** 最早批次效期，仅作临期提示，不参与库存扣减 */
+  expiry_date: string | null
+  qty: number
+}
+
+export interface ComboItem {
+  sku_id: number
+  name: string
+  qty: number
+  unit_price_cents: number
+}
+
+export interface ComboItemInput {
+  sku_id: number
+  qty: number
+}
+
+export interface Combo {
+  combo_id: number
+  sku_id: number
+  name: string
+  note: string | null
+  price_cents: number
+  items: ComboItem[]
+}
+
+export interface OptionItem {
+  option_item_id: number
+  sku_id: number
+  name: string
+  price_cents: number
+}
+
+export interface OptionGroup {
+  group_id: number
+  name: string
+  scene: string
+  items: OptionItem[]
+}
+
+export interface TechnicianBell {
+  bell_id: number
+  technician_id: number
+  technician_name: string
+  table_id: number | null
+  table_code: string | null
+  business_date: string
+  start_at: string
+  end_at: string | null
+  minutes: number
+  is_pointed: boolean
+  status: string
+  elapsed_minutes: number
+}
+
 export const api = {
   bootstrap: () => invoke<LicenseSnapshot>('bootstrap'),
   initAdmin: (username: string, password: string) =>
@@ -572,6 +708,88 @@ export const api = {
     invoke<Technician[]>('list_technicians', { businessDate }),
   technicianCommission: (fromDate: string, toDate: string) =>
     invoke<TechnicianCommission[]>('technician_commission', { fromDate, toDate }),
+
+  // 服装：款×色×码规格矩阵
+  createSpecGroup: (spuId: number, name: string) =>
+    invoke<number>('create_spec_group', { spuId, name }),
+  addSpecValue: (specGroupId: number, value: string) =>
+    invoke<number>('add_spec_value', { specGroupId, value }),
+  listSpecGroups: (spuId: number) =>
+    invoke<SpecGroup[]>('list_spec_groups', { spuId }),
+  createSkuVariants: (spuId: number, variants: VariantInput[]) =>
+    invoke<number[]>('create_sku_variants', { spuId, variants }),
+  listSkuVariants: (spuId: number) =>
+    invoke<SkuVariant[]>('list_sku_variants', { spuId }),
+
+  // 母婴：月龄段与批次效期（批次为登记台账，不参与库存自动扣减）
+  setProductAgeRange: (
+    skuId: number,
+    monthMin: number | null,
+    monthMax: number | null,
+    shelfLifeDays: number
+  ) => invoke<void>('set_product_age_range', { skuId, monthMin, monthMax, shelfLifeDays }),
+  createSkuBatch: (
+    skuId: number,
+    batchNo: string,
+    productionDate: string | null,
+    expiryDate: string | null,
+    qty: number
+  ) =>
+    invoke<number>('create_sku_batch', {
+      skuId,
+      batchNo,
+      productionDate,
+      expiryDate,
+      qty,
+    }),
+  listSkuBatches: (skuId: number) =>
+    invoke<SkuBatch[]>('list_sku_batches', { skuId }),
+  listProductsByAge: (month: number, limit = 200) =>
+    invoke<AgeProduct[]>('list_products_by_age', { month, limit }),
+
+  // 餐饮：套餐与加料（价格始终来自服务端 SKU）
+  createCombo: (skuId: number, note: string | null) =>
+    invoke<number>('create_combo', { skuId, note }),
+  setComboItems: (comboId: number, items: ComboItemInput[]) =>
+    invoke<void>('set_combo_items', { comboId, items }),
+  listCombos: () => invoke<Combo[]>('list_combos'),
+  comboItemsBySku: (skuId: number) =>
+    invoke<ComboItem[]>('combo_items_by_sku', { skuId }),
+  createOptionGroup: (name: string, scene: string) =>
+    invoke<number>('create_option_group', { name, scene }),
+  setOptionItems: (groupId: number, skuIds: number[]) =>
+    invoke<void>('set_option_items', { groupId, skuIds }),
+  listOptionGroups: (scene?: string | null) =>
+    invoke<OptionGroup[]>('list_option_groups', { scene: scene ?? null }),
+
+  // 养生：排钟 / 点钟 / 加钟 / 收钟
+  assignBell: (
+    technicianId: number,
+    tableId: number,
+    businessDate: string,
+    minutes: number,
+    isPointed: boolean
+  ) =>
+    invoke<number>('assign_bell', {
+      technicianId,
+      tableId,
+      businessDate,
+      minutes,
+      isPointed,
+    }),
+  autoAssignBell: (tableId: number, businessDate: string, minutes: number) =>
+    invoke<number>('auto_assign_bell', { tableId, businessDate, minutes }),
+  addBellMinutes: (bellId: number, extraMinutes: number) =>
+    invoke<void>('add_bell_minutes', { bellId, extraMinutes }),
+  finishBell: (bellId: number) => invoke<void>('finish_bell', { bellId }),
+  listBells: (businessDate: string, status?: string | null) =>
+    invoke<TechnicianBell[]>('list_bells', { businessDate, status: status ?? null }),
+  activeBellForTable: (tableId: number) =>
+    invoke<TechnicianBell | null>('active_bell_for_table', { tableId }),
+
+  // 计时规则：包间封顶覆盖（0 表示跟随门店配置）
+  setServiceTableFeeCap: (tableId: number, capCents: number) =>
+    invoke<void>('set_service_table_fee_cap', { tableId, capCents }),
   closeServiceTable: (tableId: number, force = false) =>
     invoke<void>('close_service_table', { tableId, force }),
   parkCart: (cartJson: string, remark: string | null) =>

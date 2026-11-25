@@ -60,7 +60,27 @@ pub struct KitchenItem {
     pub qty: i64,
 }
 
-/// 棋牌计时：房费 SKU 按“每分钟单价”维护，最低 60 分钟，超出按分钟实算。
+/// 房费分段明细：以开台后的计费分钟为区间，金额由服务端逐段计算。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FeeSegment {
+    pub from_minute: i64,
+    pub to_minute: i64,
+    /// MINUTE=费率即每分钟价；HOUR=费率按每小时价折算到分钟
+    pub unit: String,
+    pub rate_cents: i64,
+    pub fee_cents: i64,
+}
+
+/// 计时规则中的一段费率。to_minute 省略表示直到计费结束。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TimeSlot {
+    pub from_minute: i64,
+    pub to_minute: Option<i64>,
+    pub unit: String,
+    pub rate_cents: i64,
+}
+
+/// 棋牌/养生计时：按房费商品单位计费，支持分时段费率与封顶；未配置时保持线性计费。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ChessFee {
     pub elapsed_minutes: i64,
@@ -69,6 +89,12 @@ pub struct ChessFee {
     pub unit_cents: i64,
     pub fee_unit: String,
     pub fee_cents: i64,
+    /// 分时段计费明细；空表示按商品单价线性计费。
+    pub segments: Vec<FeeSegment>,
+    /// 是否触发封顶。
+    pub capped: bool,
+    /// 生效的封顶金额（分），0 表示未设置。
+    pub cap_cents: i64,
 }
 
 type ChessFeeRow = (
@@ -78,6 +104,8 @@ type ChessFeeRow = (
     Option<String>,
     Option<String>,
     Option<i64>,
+    Option<i64>,
+    Option<String>,
     Option<i64>,
 );
 
@@ -399,13 +427,34 @@ pub fn prepare_order(
             )
             .optional()?
             .ok_or_else(|| CoreError::Validation(format!("菜品 {sku_id} 不存在")))?;
-        additions.push(KitchenItem {
-            sku_id: *sku_id,
-            category_id,
-            name,
-            unit,
-            qty: add,
-        });
+        // 套餐按组合明细下厨，套餐本身不再作为一道菜重复出品；价格仍取套餐 SKU。
+        let details = crate::catalog_ext::combo_items_by_sku(conn, *sku_id)?;
+        if details.is_empty() {
+            additions.push(KitchenItem {
+                sku_id: *sku_id,
+                category_id,
+                name,
+                unit,
+                qty: add,
+            });
+        } else {
+            for d in details {
+                let (dname, dunit, dcat): (String, String, i64) = conn
+                    .query_row(
+                        "SELECT p.spu_name,p.unit,p.category_id
+                         FROM sku s JOIN spu p ON p.spu_id=s.spu_id WHERE s.sku_id=?1",
+                        [d.sku_id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )?;
+                additions.push(KitchenItem {
+                    sku_id: d.sku_id,
+                    category_id: dcat,
+                    name: dname,
+                    unit: dunit,
+                    qty: add * d.qty,
+                });
+            }
+        }
     }
     Ok((additions, cart_json))
 }
@@ -581,14 +630,69 @@ pub fn transfer_table(conn: &Connection, table_id: i64, target_id: i64) -> Resul
     table_view(conn, target_id)
 }
 
-/// 棋牌/养生包间计时：最低 60 分钟，之后按实际分钟按房费 SKU 的分钟单价计费。
+/// 按分段费率计算房费。边界按开台后的计费分钟切分，避免门店时区差异。
+fn fee_by_slots(
+    billable_minutes: i64,
+    slots: &[TimeSlot],
+    base_rate: i64,
+    base_unit: &str,
+) -> (i64, Vec<FeeSegment>) {
+    let mut points = vec![0_i64, billable_minutes];
+    for s in slots {
+        if s.from_minute > 0 && s.from_minute < billable_minutes {
+            points.push(s.from_minute);
+        }
+        if let Some(to) = s.to_minute {
+            if to > 0 && to < billable_minutes {
+                points.push(to);
+            }
+        }
+    }
+    points.sort_unstable();
+    points.dedup();
+
+    let mut total: i128 = 0;
+    let mut segments = Vec::new();
+    for pair in points.windows(2) {
+        let (from, to) = (pair[0], pair[1]);
+        if to <= from {
+            continue;
+        }
+        let matched = slots.iter().find(|s| {
+            s.from_minute <= from && s.to_minute.map_or(true, |end| from < end)
+        });
+        let (rate, unit) = match matched {
+            Some(s) => (s.rate_cents, s.unit.as_str()),
+            None => (base_rate, base_unit),
+        };
+        let minutes = (to - from) as i128;
+        let fee = if unit == "HOUR" {
+            (rate as i128 * minutes + 30) / 60
+        } else {
+            rate as i128 * minutes
+        };
+        total += fee;
+        segments.push(FeeSegment {
+            from_minute: from,
+            to_minute: to,
+            unit: unit.to_string(),
+            rate_cents: rate,
+            fee_cents: fee as i64,
+        });
+    }
+    (total as i64, segments)
+}
+
+/// 棋牌/养生包间计时：最低分钟、超时取整、分时段费率与封顶，金额始终由服务端计算。
 pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
-    let (scene, status, fee_sku, opened, fee_unit, min_minutes, round_minutes): ChessFeeRow = conn
+    let (scene, status, fee_sku, opened, fee_unit, min_minutes, round_minutes, spu_unit, table_cap): ChessFeeRow = conn
         .query_row(
             "SELECT t.scene,t.status,t.fee_sku_id,s.opened_at,
-                    t.fee_unit,t.min_minutes,t.round_minutes
+                    t.fee_unit,t.min_minutes,t.round_minutes,sp.unit,t.fee_cap_cents
              FROM service_table t
              LEFT JOIN table_session s ON s.table_id=t.table_id AND s.status='OPEN'
+             LEFT JOIN sku sk ON sk.sku_id=t.fee_sku_id
+             LEFT JOIN spu sp ON sp.spu_id=sk.spu_id
              WHERE t.table_id=?1",
             [table_id],
             |r| {
@@ -600,6 +704,8 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
                     r.get(4)?,
                     r.get(5)?,
                     r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
                 ))
             },
         )
@@ -615,9 +721,22 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
         .with_timezone(&Utc);
     let seconds = (Utc::now() - opened_at).num_seconds().max(0);
     let elapsed_minutes = (seconds + 59) / 60;
-    let unit =
-        fee_unit.unwrap_or_else(|| cfg_text(conn, crate::constants::CFG_CHESS_FEE_UNIT, "MINUTE"));
-    let unit = if unit == "HOUR" { "HOUR" } else { "MINUTE" };
+    // 商品展示的单价单位与计费口径必须同源，否则 ¥90/小时会被按分钟乘成 ¥5400。
+    // 商品已维护小时/分钟时以此为准；包间覆盖与门店默认只用于未维护计时单位的商品。
+    let unit = match spu_unit.as_deref() {
+        Some("小时") => "HOUR",
+        Some("分钟") => "MINUTE",
+        _ => {
+            let u = fee_unit
+                .filter(|u| u.as_str() == "MINUTE" || u.as_str() == "HOUR")
+                .unwrap_or_else(|| cfg_text(conn, crate::constants::CFG_CHESS_FEE_UNIT, "MINUTE"));
+            if u == "HOUR" {
+                "HOUR"
+            } else {
+                "MINUTE"
+            }
+        }
+    };
     let min_minutes = min_minutes
         .unwrap_or_else(|| {
             cfg_i64(
@@ -640,19 +759,68 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
         [fee_sku],
         |r| r.get(0),
     )?;
-    let fee_cents = if unit == "HOUR" {
-        // 小时价按分钟折算，分位四舍五入；金额仍由服务端计算。
-        ((unit_cents as i128 * billable_minutes as i128) + 30) / 60
+    // 包间封顶 > 门店封顶 > 0（不封顶）。包间 0 表示未覆盖、跟随门店配置。
+    let cap_cents = table_cap
+        .filter(|v| *v > 0)
+        .unwrap_or_else(|| {
+            cfg_i64(
+                conn,
+                crate::constants::CFG_CHESS_FEE_CAP_CENTS,
+                0,
+            )
+        })
+        .max(0);
+
+    let slots_json = cfg_text(conn, crate::constants::CFG_CHESS_FEE_SLOTS_JSON, "[]");
+    let parsed: Vec<TimeSlot> = serde_json::from_str(&slots_json).unwrap_or_default();
+    // 非法规则直接忽略：宁可退回商品单价线性计费，也不能让脏配置算出负金额。
+    let slots: Vec<TimeSlot> = parsed
+        .into_iter()
+        .filter(|s| {
+            s.from_minute >= 0
+                && s.rate_cents >= 0
+                && (s.unit == "MINUTE" || s.unit == "HOUR")
+                && s.to_minute.map_or(true, |to| to > s.from_minute)
+        })
+        .collect();
+
+    let (fee_cents, segments) = if slots.is_empty() {
+        let fee = if unit == "HOUR" {
+            // 小时价按分钟折算，分位四舍五入；金额仍由服务端计算。
+            ((unit_cents as i128 * billable_minutes as i128) + 30) / 60
+        } else {
+            unit_cents as i128 * billable_minutes as i128
+        };
+        (fee as i64, Vec::new())
     } else {
-        unit_cents as i128 * billable_minutes as i128
+        fee_by_slots(billable_minutes, &slots, unit_cents, unit)
     };
+    let capped = cap_cents > 0 && fee_cents > cap_cents;
     Ok(ChessFee {
         elapsed_minutes,
         billable_minutes,
         unit_cents,
         fee_unit: unit.to_string(),
-        fee_cents: fee_cents as i64,
+        fee_cents: if capped { cap_cents } else { fee_cents },
+        segments,
+        capped,
+        cap_cents,
     })
+}
+
+/// 设置单个包间的房费封顶（分），0 表示取消覆盖、回退门店配置。
+pub fn set_table_fee_cap(conn: &Connection, table_id: i64, cap_cents: i64) -> Result<()> {
+    if !(0..=100_000_000).contains(&cap_cents) {
+        return Err(CoreError::Validation("封顶金额须在 0–1000000 元之间".into()));
+    }
+    let affected = conn.execute(
+        "UPDATE service_table SET fee_cap_cents=?2 WHERE table_id=?1",
+        params![table_id, cap_cents],
+    )?;
+    if affected == 0 {
+        return Err(CoreError::Validation("包间不存在".into()));
+    }
+    Ok(())
 }
 
 fn parse_lines(json: &str) -> Result<Vec<serde_json::Value>> {
@@ -734,12 +902,16 @@ fn merge_lines(
 fn table_view(conn: &Connection, table_id: i64) -> Result<ServiceTable> {
     conn.query_row(
         "SELECT t.table_id, t.code, t.name, t.zone, t.seats, t.scene,
-                t.fee_sku_id, t.fee_unit, t.min_minutes, t.round_minutes, t.status,
+                t.fee_sku_id,
+                CASE sp.unit WHEN '小时' THEN 'HOUR' WHEN '分钟' THEN 'MINUTE' ELSE t.fee_unit END,
+                t.min_minutes, t.round_minutes, t.status,
                 s.session_id, s.opened_at, s.member_id,
                 (SELECT phone FROM member WHERE member_id=s.member_id),
                 COALESCE(s.cart_json,'[]'), COALESCE(s.sent_json,'[]')
          FROM service_table t
          LEFT JOIN table_session s ON s.table_id=t.table_id AND s.status='OPEN'
+         LEFT JOIN sku sk ON sk.sku_id=t.fee_sku_id
+         LEFT JOIN spu sp ON sp.spu_id=sk.spu_id
          WHERE t.table_id=?1",
         [table_id],
         map_table,
@@ -753,12 +925,16 @@ pub fn list_tables(conn: &Connection, scene: &str) -> Result<Vec<ServiceTable>> 
     validate_scene(scene)?;
     let mut stmt = conn.prepare(
         "SELECT t.table_id, t.code, t.name, t.zone, t.seats, t.scene,
-                t.fee_sku_id, t.fee_unit, t.min_minutes, t.round_minutes, t.status,
+                t.fee_sku_id,
+                CASE sp.unit WHEN '小时' THEN 'HOUR' WHEN '分钟' THEN 'MINUTE' ELSE t.fee_unit END,
+                t.min_minutes, t.round_minutes, t.status,
                 s.session_id, s.opened_at, s.member_id,
                 (SELECT phone FROM member WHERE member_id=s.member_id),
                 COALESCE(s.cart_json,'[]'), COALESCE(s.sent_json,'[]')
          FROM service_table t
          LEFT JOIN table_session s ON s.table_id=t.table_id AND s.status='OPEN'
+         LEFT JOIN sku sk ON sk.sku_id=t.fee_sku_id
+         LEFT JOIN spu sp ON sp.spu_id=sk.spu_id
          WHERE t.scene=?1
          ORDER BY t.zone, t.code",
     )?;
@@ -1033,6 +1209,42 @@ mod tests {
     }
 
     #[test]
+    fn chess_fee_uses_sku_hour_price_regardless_of_table_unit() {
+        let c = setup();
+        seed_dish(&c);
+        c.execute("UPDATE spu SET unit='小时' WHERE spu_id=1", [])
+            .unwrap();
+        c.execute("UPDATE sku SET sale_price_cents=9000 WHERE sku_id=1", [])
+            .unwrap();
+        let id = create_table(
+            &c,
+            SCENE_CHESS,
+            "B03",
+            "包间 3",
+            "二楼",
+            6,
+            Some(1),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        open_table(&c, id, "[]", None).unwrap();
+        assert_eq!(table_view(&c, id).unwrap().fee_unit.as_deref(), Some("HOUR"));
+        let fee = chess_fee(&c, id).unwrap();
+        assert_eq!(fee.fee_unit, "HOUR");
+        assert_eq!(fee.billable_minutes, 60);
+        assert_eq!(fee.fee_cents, 9000);
+        // 历史脏数据：包间被显式写成 MINUTE 时仍以商品单位为准。
+        c.execute(
+            "UPDATE service_table SET fee_unit='MINUTE' WHERE table_id=?1",
+            [id],
+        )
+        .unwrap();
+        assert_eq!(chess_fee(&c, id).unwrap().fee_cents, 9000);
+    }
+
+    #[test]
     fn chess_fee_respects_table_override_and_rounding() {
         let c = setup();
         seed_dish(&c);
@@ -1065,5 +1277,55 @@ mod tests {
         let fee = chess_fee(&c, id).unwrap();
         assert_eq!(fee.billable_minutes, 50);
         assert_eq!(fee.fee_cents, 5000);
+    }
+
+    #[test]
+    fn chess_fee_supports_time_slots_and_cap() {
+        let c = setup();
+        seed_dish(&c);
+        c.execute("UPDATE sku SET sale_price_cents=150 WHERE sku_id=1", [])
+            .unwrap();
+        let id = create_table(
+            &c,
+            SCENE_CHESS,
+            "B04",
+            "包间 4",
+            "二楼",
+            6,
+            Some(1),
+            Some("MINUTE"),
+            Some(180),
+            None,
+        )
+        .unwrap();
+        open_table(&c, id, "[]", None).unwrap();
+
+        let slots = r#"[{"from_minute":0,"to_minute":60,"unit":"MINUTE","rate_cents":100},{"from_minute":60,"unit":"MINUTE","rate_cents":200}]"#;
+        c.execute(
+            "INSERT OR REPLACE INTO system_config(config_key,config_value,updated_at)
+             VALUES ('chess_fee_slots_json',?1,datetime('now'))",
+            [slots],
+        )
+        .unwrap();
+        let fee = chess_fee(&c, id).unwrap();
+        assert_eq!(fee.segments.len(), 2);
+        assert_eq!(fee.fee_cents, 60 * 100 + 120 * 200);
+        assert!(!fee.capped);
+
+        c.execute(
+            "INSERT OR REPLACE INTO system_config(config_key,config_value,updated_at)
+             VALUES ('chess_fee_cap_cents','25000',datetime('now'))",
+            [],
+        )
+        .unwrap();
+        let fee = chess_fee(&c, id).unwrap();
+        assert!(fee.capped);
+        assert_eq!(fee.fee_cents, 25000);
+
+        // 包间覆盖优先；设为 0 表示回退门店配置。
+        set_table_fee_cap(&c, id, 28000).unwrap();
+        assert_eq!(chess_fee(&c, id).unwrap().fee_cents, 28000);
+        set_table_fee_cap(&c, id, 0).unwrap();
+        assert_eq!(chess_fee(&c, id).unwrap().fee_cents, 25000);
     }
 }

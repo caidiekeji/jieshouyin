@@ -14,13 +14,15 @@ import {
   TOAST_DURATION_MS,
 } from '../constants'
 import { useAppContext } from '../composables/useAppContext'
+import HintTip from './HintTip.vue'
+import IndustryAttributesPanel from './IndustryAttributesPanel.vue'
 
 const ctx = useAppContext()
 const { industry } = ctx
 
 /** 计时行业（棋牌/养生）：商品是按时间计费的服务项目，表单区别于零售 */
 const timedIndustry = computed(() => industry.value === 'BOARD_GAME' || industry.value === 'WELLNESS')
-/** 计时行业的计价单位选项（存入 SKU 的 unit 字段，POS 与房费展示共用） */
+/** 计时行业的计价单位选项（存入商品单位字段，POS 展示与房费计费共用） */
 const TIMED_UNITS = ['小时', '分钟', '次']
 
 const products = ref<ProductRow[]>([])
@@ -345,7 +347,7 @@ onMounted(reload)
       <h3>{{ editSku != null ? `编辑商品 · ${editingProduct?.name ?? ''}` : '新增商品' }}</h3>
       <!-- 计时行业：项目按时间计费，不计库存、无条码 -->
       <template v-if="timedIndustry">
-        <p class="muted small">当前为计时行业：项目按时间计费（单价 × 时长），不计库存；包间房费绑定在「包间管理」里维护。</p>
+        <HintTip text="当前为计时行业：项目按时间计费（单价 × 时长），不计库存；房费绑定在对应的包间或服务间管理页维护。" />
         <div class="form-grid">
           <label>名称<input v-model="form.name" class="input" placeholder="如 棋牌房费 / 按摩理疗" /></label>
           <label>分类
@@ -393,11 +395,21 @@ onMounted(reload)
         </label>
         <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
       </div>
-      <p v-if="editSku != null && !timedIndustry" class="muted small">编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。</p>
+      <HintTip
+        v-if="editSku != null && !timedIndustry"
+        text="编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。"
+      />
       <div class="op-form">
         <button class="btn primary" @click="submitProduct"><Icon name="check" :size="ICON_SIZE.sm" />{{ editSku != null ? '保存修改' : '创建商品' }}</button>
         <button class="btn ghost" @click="closeForm">取消</button>
       </div>
+      <IndustryAttributesPanel
+        v-if="editSku != null"
+        :sku-id="editSku"
+        :spu-id="editingProduct?.spu_id ?? 0"
+        :scene="industry"
+        :base-price-cents="Math.round(Number(form.salePrice || 0) * 100)"
+      />
     </div>
 
     <div class="card">
@@ -450,7 +462,7 @@ onMounted(reload)
 
     <div v-if="imageSku != null" class="card">
       <h3>商品图片（SKU {{ imageSku }}）</h3>
-      <p class="muted small">两种方式二选一或并存：上传本地文件（存本机），或登记在线图片地址（仅 https）。</p>
+      <HintTip text="两种方式二选一或并存：上传本地文件（存本机），或登记在线图片地址（仅 https）。" />
       <div class="form-grid">
         <label>上传本地图片<input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="uploadImage" /></label>
         <label>在线图片地址<input v-model="imageUrlDraft" class="input" placeholder="https://…" /></label>
@@ -463,7 +475,7 @@ onMounted(reload)
 
     <div v-if="adjustSku != null" class="card">
       <h3>库存调整（SKU {{ adjustSku }}）</h3>
-      <p class="muted small">正数为盘盈/入账，负数为盘亏/报损；原因将记入库存台账</p>
+      <HintTip text="正数为盘盈/入账，负数为盘亏/报损；原因将记入库存台账" />
       <div class="form-row">
         <input v-model="adjustQty" class="input" type="number" placeholder="变化数量，如 5 或 -3" />
         <input v-model="adjustReason" class="input" placeholder="原因（必填），如 破损报废" />

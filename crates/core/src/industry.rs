@@ -47,20 +47,20 @@ fn industry_meta(id: &str) -> Option<(&'static str, &'static str, &'static str, 
         )),
         INDUSTRY_CLOTHING => Some((
             "服装鞋帽",
-            "服饰鞋包按男女童分类，规格属性驱动",
+            "服饰鞋包按分类与条码点选；维护款色码后可按规格筛选 SKU",
             "件",
             false,
         )),
         INDUSTRY_RESTAURANT => Some((
             "餐饮门店",
-            // 支持开台、点单、结算、清台；不做厨打/并台/口味加料，描述不承诺这些。
-            "餐饮桌台收银（开台点单、结算清台，暂不含厨打与并台）",
+            // 套餐按 SKU 计价、明细用于厨打；加料是独立 SKU，价格由商品档案维护。
+            "餐饮桌台收银（开台点单、套餐加料、厨打、并台转台、结算清台）",
             "份",
             false,
         )),
         INDUSTRY_BABY => Some((
             "母婴用品",
-            "奶粉纸尿裤按月龄段分类，辅食洗护玩具一屏直达",
+            "奶粉纸尿裤按品类与月龄段选购，可查看批次效期，辅食洗护玩具一屏直达",
             "件",
             false,
         )),
@@ -72,7 +72,7 @@ fn industry_meta(id: &str) -> Option<(&'static str, &'static str, &'static str, 
         )),
         INDUSTRY_WELLNESS => Some((
             "养生保健",
-            "推拿艾灸等养生项目开单结算，按项目分类快速点选",
+            "服务间床位计时、养生项目点选与技师指定，一单结算",
             "次",
             false,
         )),

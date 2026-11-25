@@ -1,11 +1,12 @@
-//! 设备指纹（§4.4）：SHA-256(MachineGuid || volume_serial)。
+//! 设备指纹（§4.4）：Windows = SHA-256(MachineGuid || volume_serial)；
+//! Android = SHA-256(Settings.Secure.ANDROID_ID)。
 //! 降级纪律：计算失败不得阻止激活，降级为"未绑定设备"模式并审计。
 
 use crate::error::Result;
 use sha2::{Digest, Sha256};
 
 /// 计算设备指纹。Windows 读取注册表 MachineGuid 与系统盘卷序列号；
-/// 非 Windows 或读取失败返回 Ok(None)，由调用方按未绑定模式处理。
+/// Android 读取 Settings.Secure.ANDROID_ID；其余平台或读取失败返回 Ok(None)。
 pub fn device_fingerprint() -> Result<Option<String>> {
     #[cfg(windows)]
     {
@@ -21,9 +22,61 @@ pub fn device_fingerprint() -> Result<Option<String>> {
             _ => Ok(None),
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "android")]
+    {
+        match android_device_id() {
+            Some(id) if !id.is_empty() => {
+                let mut hasher = Sha256::new();
+                hasher.update(id.as_bytes());
+                Ok(Some(hex::encode(hasher.finalize())))
+            }
+            _ => Ok(None),
+        }
+    }
+    #[cfg(all(not(windows), not(target_os = "android")))]
     {
         Ok(None)
+    }
+}
+
+/// Android 设备标识：Settings.Secure.ANDROID_ID（无需权限、签名域内稳定）。
+/// 读取失败返回 None，由调用方按未绑定设备降级处理。
+#[cfg(target_os = "android")]
+pub(crate) fn android_device_id() -> Option<String> {
+    use jni::objects::{JObject, JString, JValue};
+
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
+    let mut env = vm.attach_current_thread().ok()?;
+    let context = unsafe { JObject::from_raw(ctx.context()) };
+
+    let resolver = env
+        .call_method(
+            context,
+            "getContentResolver",
+            "()Landroid/content/ContentResolver;",
+            &[],
+        )
+        .ok()?
+        .l()
+        .ok()?;
+    let class = env.find_class("android/provider/Settings$Secure").ok()?;
+    let name: JObject = env.new_string("android_id").ok()?.into();
+    let value = env
+        .call_static_method(
+            class,
+            "getString",
+            "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&resolver), JValue::Object(&name)],
+        )
+        .ok()?
+        .l()
+        .ok()?;
+    let id: String = env.get_string(&JString::from(value)).ok()?.into();
+    if id.is_empty() || id == "unknown" {
+        None
+    } else {
+        Some(id)
     }
 }
 

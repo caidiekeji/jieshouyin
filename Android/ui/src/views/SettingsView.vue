@@ -6,6 +6,7 @@ import ReceiptPreview from '../components/ReceiptPreview.vue'
 import Switch from '../components/Switch.vue'
 import Icon from '../components/Icon.vue'
 import { useAppContext } from '../composables/useAppContext'
+import HintTip from '../components/HintTip.vue'
 
 const ctx = useAppContext()
 const {
@@ -82,15 +83,15 @@ watch(configGroupTabs, (tabs) => {
                 <button class="btn primary" @click="saveStoreName">保存店名</button>
                 <button class="btn" @click="confirmIndustry">应用行业分类</button>
               </div>
-              <p class="muted small">当前：{{ storeProfile?.industry_name || '未设置' }} · {{ storeProfile?.store_name || '未命名门店' }}。切换行业会新增模板分类并隐藏旧行业里没有商品的空分类；有商品的分类会保留。</p>
+              <HintTip :text="`当前：${storeProfile?.industry_name || '未设置'} · ${storeProfile?.store_name || '未命名门店'}。切换行业会新增模板分类并隐藏旧行业里没有商品的空分类；有商品的分类会保留。`" />
             </div>
             <div class="card wide">
               <h3>授权状态</h3>
               <div class="license-info">
                 <p>授权状态：<strong>{{ licenseStatusLabel }}</strong></p>
-                <p class="muted small">{{ license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可' }}</p>
-                <p v-if="license?.trial_ends_at" class="muted small">试用期至 {{ license.trial_ends_at }}</p>
-                <p class="muted small">授权状态以激活服务为准，可联网刷新。</p>
+                <HintTip :text="license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可'" />
+                <HintTip v-if="license?.trial_ends_at" :text="`试用期至 ${license.trial_ends_at}`" />
+                <HintTip text="授权状态以激活服务为准，可联网刷新。" />
                 <div class="license-actions">
                   <button class="btn" @click="refreshLicense"><Icon name="refresh" :size="ICON_SIZE.md" />刷新授权状态</button>
                 </div>
@@ -113,7 +114,7 @@ watch(configGroupTabs, (tabs) => {
           <!-- 外观 -->
           <div v-else-if="settingsTab === 'appearance'" class="card wide">
             <h3>外观主题</h3>
-            <p class="muted small">主题切换入口仅在设置页，不占主界面。</p>
+            <HintTip text="主题切换入口仅在设置页，不占主界面。" />
             <div class="theme-row">
               <button :class="['btn', { primary: theme === 'light' }]" @click="applyTheme('light')">浅色</button>
               <button :class="['btn', { primary: theme === 'dark' }]" @click="applyTheme('dark')">深色</button>
@@ -123,7 +124,7 @@ watch(configGroupTabs, (tabs) => {
           <!-- 员工管理 -->
           <div v-else-if="settingsTab === 'staff'" class="card wide">
             <h3>员工管理</h3>
-            <p class="muted small">仅管理员可见可用（user.manage 权限）。</p>
+            <HintTip text="仅管理员可见可用（user.manage 权限）。" />
             <table class="tbl">
               <thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
@@ -166,7 +167,7 @@ watch(configGroupTabs, (tabs) => {
               class="card wide"
             >
               <h3>{{ g.title }}</h3>
-              <p class="muted small">{{ g.hint }}</p>
+              <HintTip :text="g.hint" />
               <div v-for="c in g.items" :key="c.config_key" class="config-row config-row-stacked">
                 <div class="config-label">
                   <strong>{{ c.label }}</strong>
@@ -209,7 +210,7 @@ watch(configGroupTabs, (tabs) => {
             </div>
             <div v-show="activeConfigGroup === '安全'" class="card wide">
               <h3>安全</h3>
-              <p class="muted small">离岗锁屏、关闭窗口隐藏到托盘后需输入此码解锁（仅存本机）。</p>
+              <HintTip text="离岗锁屏、关闭窗口隐藏到托盘后需输入此码解锁（仅存本机）。" />
               <div class="config-row config-row-stacked">
                 <div class="config-label">
                   <strong>锁机码</strong>
@@ -237,13 +238,13 @@ watch(configGroupTabs, (tabs) => {
               <span class="muted small">微信：{{ gatewayModes.wechat === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}；支付宝：{{ gatewayModes.alipay === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}。保存凭据后需重启应用生效。</span>
             </div>
             <h4>支付渠道开关</h4>
-            <p class="muted small">收银台可用的支付方式；关闭后该渠道在收款区隐藏。</p>
+            <HintTip text="收银台可用的支付方式；关闭后该渠道在收款区隐藏。" />
             <div class="config-row" v-for="(v, k) in channelDraft" :key="k">
               <span class="config-key">{{ configLabel(k) }}</span>
               <Switch :model-value="v === '1'" :label="configLabel(k)" @update:model-value="toggleChannel(k, v)" />
             </div>
             <h4>商户凭据（存 Windows 凭据库，不落库不回显）</h4>
-            <p class="muted small">点击渠道按钮，在弹窗中填写密钥字段。</p>
+            <HintTip text="点击渠道按钮，在弹窗中填写密钥字段。" />
             <div class="cred-channel-row">
               <button class="btn" @click="openCredDialog('WECHAT')"><Icon name="wallet" :size="ICON_SIZE.md" />微信支付凭据</button>
               <button class="btn" @click="openCredDialog('ALIPAY')"><Icon name="wallet" :size="ICON_SIZE.md" />支付宝凭据</button>
@@ -253,7 +254,7 @@ watch(configGroupTabs, (tabs) => {
           <!-- 积分配置 -->
           <div v-else-if="settingsTab === 'points'" class="card wide">
             <h3>积分配置</h3>
-            <p class="muted small">识别会员收款后自动累计积分：按实付整元数 × 每元赠送积分计算，赠送金抵扣部分不计分；退款时按原单积分扣回。修改后对新订单生效。</p>
+            <HintTip text="识别会员收款后自动累计积分：按实付整元数 × 每元赠送积分计算，赠送金抵扣部分不计分；退款时按原单积分扣回。修改后对新订单生效。" />
             <div v-for="c in pointsConfigs" :key="c.config_key" class="config-row config-row-stacked">
               <div class="config-label">
                 <strong>{{ c.label }}</strong>
@@ -292,7 +293,7 @@ watch(configGroupTabs, (tabs) => {
               <input v-model="reconDate" class="input" type="date" />
               <button class="btn" @click="loadReconDiffs">查询差异</button>
             </div>
-            <p class="muted small">微信粘贴交易账单 CSV；支付宝粘贴对账单 CSV。差异只告警冻结，绝不自动抹平。</p>
+            <HintTip text="微信粘贴交易账单 CSV；支付宝粘贴对账单 CSV。差异只告警冻结，绝不自动抹平。" />
             <textarea v-model="reconText" class="input mono" rows="5" placeholder="粘贴渠道账单文本"></textarea>
             <div class="op-form">
               <button class="btn" @click="importBill('WECHAT')">导入微信账单</button>
@@ -324,7 +325,7 @@ watch(configGroupTabs, (tabs) => {
           <template v-else-if="settingsTab === 'print'">
             <div class="card wide">
               <h3>打印机设置</h3>
-              <p class="muted small">结算后自动打印开关在「系统配置 → 打印设置」里。下方为所见即所得预览，使用示例数据，不实际打印。</p>
+              <HintTip text="结算后自动打印开关在「系统配置 → 打印设置」里。下方为所见即所得预览，使用示例数据，不实际打印。" />
               <h4 class="print-subtitle">小票设置与预览</h4>
               <div class="receipt-toolbar">
                 <label>纸张宽度
@@ -338,7 +339,7 @@ watch(configGroupTabs, (tabs) => {
               </div>
               <ReceiptPreview :store-name="storeProfile?.store_name || ''" :paper-width-mm="receiptPaperWidth" />
               <div v-if="showTemplateJson" class="receipt-advanced">
-                <p class="muted small">{{ templateVarHint }}</p>
+                <HintTip :text="templateVarHint" />
                 <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12"></textarea>
                 <div class="op-form">
                   <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="previewReceipt">刷新预览</button>
@@ -350,7 +351,7 @@ watch(configGroupTabs, (tabs) => {
               <template v-if="industry === 'RESTAURANT'">
                 <div class="print-section-divider"></div>
                 <h4 class="print-subtitle">厨打档口路由</h4>
-                <p class="muted small">按菜品分类把厨房小票分发到指定档口打印机；未配置的分类走主打印机。</p>
+                <HintTip text="按菜品分类把厨房小票分发到指定档口打印机；未配置的分类走主打印机。" />
                 <KitchenRoutePanel :can-manage="atLeast('MANAGER')" />
               </template>
             </div>
@@ -370,7 +371,7 @@ watch(configGroupTabs, (tabs) => {
           <template v-else-if="settingsTab === 'technicians'">
             <div class="card wide">
               <h3>技师排班与在岗</h3>
-              <p class="muted small">维护技师资料、在岗状态与排班；收银台按在岗技师展示点单入口。仅店长及以上可修改。</p>
+              <HintTip text="维护技师资料、在岗状态与排班；收银台按在岗技师展示点单入口。仅店长及以上可修改。" />
               <TechnicianPanel :can-manage="atLeast('MANAGER')" @changed="loadTechnicians" />
             </div>
           </template>

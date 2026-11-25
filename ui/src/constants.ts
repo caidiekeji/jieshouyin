@@ -31,6 +31,51 @@ export const PAGE_SIZE = {
   LOOKUP: 10,
 } as const
 
+/** 行业界面口径：页面入口、台位语义、看板文案与默认编号前缀的唯一来源 */
+export const INDUSTRY_UI: Record<string, {
+  scene: 'DINING' | 'CHESS' | 'WELLNESS' | null
+  navTables: string
+  manageTitle: string
+  itemTitle: string
+  capacityLabel: string
+  capacityUnit: string
+  capacityDefault: number
+  boardTitle: string
+  boardHint: string
+  defaultPrefix: string
+}> = {
+  SUPERMARKET: {
+    scene: null, navTables: '', manageTitle: '', itemTitle: '',
+    capacityLabel: '', capacityUnit: '', capacityDefault: 1,
+    boardTitle: '超市选购', boardHint: '扫码或点选商品，称重品按重量计价', defaultPrefix: '',
+  },
+  CLOTHING: {
+    scene: null, navTables: '', manageTitle: '', itemTitle: '',
+    capacityLabel: '', capacityUnit: '', capacityDefault: 1,
+    boardTitle: '服装选购', boardHint: '按分类点选或扫码/款号检索；维护款色码后可点规格标签筛选对应 SKU', defaultPrefix: '',
+  },
+  RESTAURANT: {
+    scene: 'DINING', navTables: '桌台管理', manageTitle: '餐饮桌台管理', itemTitle: '餐饮桌台',
+    capacityLabel: '座位', capacityUnit: '座', capacityDefault: 4,
+    boardTitle: '餐饮桌台', boardHint: '点击空闲桌台进入点菜，加入菜品后自动开台；结算成功自动清台', defaultPrefix: 'A',
+  },
+  BABY: {
+    scene: null, navTables: '', manageTitle: '', itemTitle: '',
+    capacityLabel: '', capacityUnit: '', capacityDefault: 1,
+    boardTitle: '母婴选购', boardHint: '奶粉、纸尿裤、辅食按品类点选；可按月龄段筛选并查看批次效期', defaultPrefix: '',
+  },
+  BOARD_GAME: {
+    scene: 'CHESS', navTables: '包间管理', manageTitle: '棋牌包间管理', itemTitle: '棋牌包间',
+    capacityLabel: '人数', capacityUnit: '人', capacityDefault: 4,
+    boardTitle: '棋牌包间', boardHint: '按分钟计时，最低 60 分钟；开台不再预收整小时房费', defaultPrefix: 'B',
+  },
+  WELLNESS: {
+    scene: 'WELLNESS', navTables: '服务间管理', manageTitle: '养生服务间管理', itemTitle: '养生服务间',
+    capacityLabel: '床位', capacityUnit: '床', capacityDefault: 1,
+    boardTitle: '养生服务间', boardHint: '选择床位进入服务间，点选项目并指定技师；房费按服务间时长自动生成', defaultPrefix: 'W',
+  },
+}
+
 /** 促销默认优先级：新建规则排在已有规则之后，不擅自改变现有顺序 */
 export const PROMO_DEFAULT_PRIORITY = 100
 

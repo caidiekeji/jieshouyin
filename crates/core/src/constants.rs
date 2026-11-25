@@ -131,6 +131,13 @@ pub const CFG_CHESS_FEE_UNIT: &str = "chess_fee_unit";
 pub const CFG_CHESS_MIN_MINUTES: &str = "chess_min_minutes";
 /// 棋牌超出后取整分钟数，默认 0 表示按实际分钟不取整；10 表示不足 10 分钟按 10 分钟。
 pub const CFG_CHESS_ROUND_MINUTES: &str = "chess_round_minutes";
+/// 分时段费率 JSON：以开台后的计费分钟为基准划段，空数组表示不启用。
+/// 格式 [{"from_minute":0,"to_minute":120,"unit":"HOUR","rate_cents":9000}, ...]
+pub const CFG_CHESS_FEE_SLOTS_JSON: &str = "chess_fee_slots_json";
+/// 门店级房费封顶（分），0 表示不封顶；包间可单独覆盖。
+pub const CFG_CHESS_FEE_CAP_CENTS: &str = "chess_fee_cap_cents";
+/// 结算抹零模式：OFF / YUAN（抹到元）/ JIAO（抹到角）。默认 OFF。
+pub const CFG_ROUND_OFF_MODE: &str = "round_off_mode";
 /// 开台会员策略：OPTIONAL（可不绑）/ REQUIRED（必须绑定会员才能开台）。
 pub const CFG_TABLE_MEMBER_BIND: &str = "table_member_bind";
 /// 占用中的桌台是否允许换绑会员（1 允许 / 0 禁止）。
@@ -366,7 +373,7 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 34] = [
     (
         CFG_CHESS_FEE_UNIT,
         "棋牌房费计价单位",
-        "MINUTE=单价按每分钟；HOUR=单价按每小时。可在包间建档时单独覆盖",
+        "商品未维护小时/分钟单位时的默认值；包间显式覆盖仅在此时生效",
         CONFIG_KIND_SELECT,
     ),
     (
@@ -380,6 +387,24 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 34] = [
         "棋牌超时取整分钟",
         "0=按实际分钟；10=不足 10 分钟按 10 分钟计",
         CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_CHESS_FEE_SLOTS_JSON,
+        "房费分时段费率",
+        "JSON 数组，按开台后计费分钟划段；留空 [] 表示按商品单价线性计费",
+        CONFIG_KIND_TEXT,
+    ),
+    (
+        CFG_CHESS_FEE_CAP_CENTS,
+        "房费封顶金额（分）",
+        "0=不封顶；桌台可单独覆盖。封顶只在计时金额超过该值时生效",
+        CONFIG_KIND_NUMBER,
+    ),
+    (
+        CFG_ROUND_OFF_MODE,
+        "结算抹零模式",
+        "OFF=不抹零；YUAN=抹到元；JIAO=抹到角。抹零计入优惠，不改变原价与促销试算",
+        CONFIG_KIND_SELECT,
     ),
     (
         CFG_TABLE_MEMBER_BIND,
@@ -403,7 +428,7 @@ pub const CONFIG_META: [(&str, &str, &str, &str); 34] = [
 
 /// 可在「系统配置」页直接编辑的配置键白名单。
 /// 未列入的键（门店名称、所属行业）由专属命令管理，界面只读展示，避免点了保存却被拒。
-pub const CONFIG_EDITABLE: [&str; 31] = [
+pub const CONFIG_EDITABLE: [&str; 34] = [
     CFG_STORE_TIMEZONE,
     CFG_BUSINESS_DAY_CUTOFF,
     CFG_SCAN_GAP_MS,
@@ -433,6 +458,9 @@ pub const CONFIG_EDITABLE: [&str; 31] = [
     CFG_CHESS_FEE_UNIT,
     CFG_CHESS_MIN_MINUTES,
     CFG_CHESS_ROUND_MINUTES,
+    CFG_CHESS_FEE_SLOTS_JSON,
+    CFG_CHESS_FEE_CAP_CENTS,
+    CFG_ROUND_OFF_MODE,
     CFG_TABLE_MEMBER_BIND,
     CFG_TABLE_ALLOW_REBIND,
 ];

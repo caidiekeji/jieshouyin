@@ -511,6 +511,10 @@ export const usePosStore = defineStore('pos', {
         }
       }
       const existing = this.cart.find((l) => l.sku_id === p.sku_id)
+      if (existing?.is_chess_fee) {
+        this.showToast('包间房费按计时自动生成，无需手动添加', true)
+        return
+      }
       if (existing) existing.qty += 1
       else this.cart.push({
         sku_id: p.sku_id, qty: 1, unit_price_cents: p.price_cents,

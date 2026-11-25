@@ -174,6 +174,15 @@ mod tests {
             "technician",
             "technician_shift",
             "technician_commission_rule",
+            "spu_spec_group",
+            "spu_spec_value",
+            "sku_spec",
+            "sku_batch",
+            "combo",
+            "combo_item",
+            "option_group",
+            "option_item",
+            "technician_bell",
         ];
         for t in tables {
             let n: i32 = conn

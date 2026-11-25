@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Icon from '../components/Icon.vue'
 import { useAppContext } from '../composables/useAppContext'
+import HintTip from '../components/HintTip.vue'
 
 const ctx = useAppContext()
 const {
@@ -81,7 +82,7 @@ const {
       <div v-if="authDialog" class="modal-mask">
         <div class="modal" role="dialog" aria-modal="true" aria-label="二次授权">
           <h3>{{ authDialog?.title }}</h3>
-          <p class="muted small">此项操作需店长或管理员二次授权</p>
+          <HintTip text="此项操作需店长或管理员二次授权" />
           <input v-model="authUser" class="input" placeholder="授权人用户名" />
           <input v-model="authPass" class="input" type="password" placeholder="授权人密码" @keyup.enter="confirmSensitiveAuth" />
           <p v-if="authError" class="err-text">{{ authError }}</p>
@@ -96,7 +97,7 @@ const {
       <div v-if="nativeDialog" class="modal-mask">
         <div class="modal native-modal" role="dialog" aria-modal="true" aria-label="顾客扫码支付">
           <h3>顾客扫码支付</h3>
-          <p class="muted small">请顾客使用微信或支付宝扫一扫完成付款，收款后自动关闭</p>
+          <HintTip text="请顾客使用微信或支付宝扫一扫完成付款，收款后自动关闭" />
           <div class="qr-box" v-html="nativeDialog.qrSvg"></div>
           <p class="mono small muted">单号 {{ nativeDialog.orderNo }}</p>
           <div class="actions">
@@ -110,7 +111,7 @@ const {
       <div v-if="parkDialogOpen" class="modal-mask" @click.self="parkDialogOpen = false">
         <div class="modal" role="dialog" aria-modal="true" aria-label="待取挂单">
           <h3>待取挂单</h3>
-          <p class="muted small">点击「取单」将挂单商品放回购物车，促销与会员价现场重算。</p>
+          <HintTip text="点击「取单」将挂单商品放回购物车，促销与会员价现场重算。" />
           <div class="park-dialog-list">
             <div v-for="p in parked" :key="String((p as any).park_id)" class="row-item">
               <span>挂单 {{ (p as any).park_id }} · {{ (p as any).created_at }}</span>
@@ -130,7 +131,7 @@ const {
       <div v-if="couponDialogOpen" class="modal-mask" @click.self="couponDialogOpen = false">
         <div class="modal" role="dialog" aria-modal="true" aria-label="使用优惠券">
           <h3>使用优惠券</h3>
-          <p class="muted small">输入优惠券码，应用后按券规则计算优惠；不使用可清除。</p>
+          <HintTip text="输入优惠券码，应用后按券规则计算优惠；不使用可清除。" />
           <input
             ref="couponDialogInput"
             v-model="couponDraft"
@@ -210,7 +211,7 @@ const {
       <div v-if="memberDialogOpen" class="modal-mask" @click.self="memberDialogOpen = false">
         <div class="modal" role="dialog" aria-modal="true" aria-label="识别会员">
           <h3>识别会员</h3>
-          <p class="muted small">输入会员手机号或会员码，识别后按会员价结算；本单收款完成后自动清除。</p>
+          <HintTip text="输入会员手机号或会员码，识别后按会员价结算；本单收款完成后自动清除。" />
           <input
             ref="memberDialogInput"
             v-model="memberPhone"
@@ -222,7 +223,7 @@ const {
           <div v-if="memberBalances" class="member-balance">
             本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
           </div>
-          <p class="muted small">识别后本单按会员价结算，并在收款成功后自动累计积分（赠送金抵扣部分不计分）。</p>
+          <HintTip text="识别后本单按会员价结算，并在收款成功后自动累计积分（赠送金抵扣部分不计分）。" />
           <div class="actions">
             <button class="btn" @click="memberDialogOpen = false">关闭</button>
             <button class="btn primary" @click="confirmMemberDialog">识别会员</button>
@@ -235,7 +236,7 @@ const {
         <div class="lock-card">
           <div class="brand-mark"><Icon name="lock" :size="ICON_SIZE.xxl" /></div>
           <h2>收银台已锁定</h2>
-          <p class="muted small">收银员临时离岗，请输入锁机码解锁</p>
+          <HintTip text="收银员临时离岗，请输入锁机码解锁" />
           <input
             v-model="lockInput"
             class="input mono lock-input"
@@ -252,7 +253,7 @@ const {
       <div v-if="lockSetupOpen" class="modal-mask" @click.self="cancelLockSetup">
         <div class="modal" role="dialog" aria-modal="true" aria-label="设置锁机码">
           <h3>设置锁机码</h3>
-          <p class="muted small">离岗锁屏、或关闭窗口隐藏到托盘后，输入此码解锁。摘要仅保存在本机，清空浏览器数据会一并清除。</p>
+          <HintTip text="离岗锁屏、或关闭窗口隐藏到托盘后，输入此码解锁。摘要仅保存在本机，清空浏览器数据会一并清除。" />
           <input
             v-model="lockCodeDraft"
             class="input mono"
@@ -274,7 +275,7 @@ const {
             <h3>商户凭据 · {{ credChannel === 'WECHAT' ? '微信支付' : '支付宝' }}</h3>
             <button class="btn btn-sm ghost" aria-label="关闭" @click="closeCredDialog"><Icon name="close" :size="ICON_SIZE.md" /></button>
           </div>
-          <p class="muted small">凭据存 Windows 凭据库，不落库、不回显。留空表示不修改该项；保存后需重启应用生效。</p>
+          <HintTip text="凭据存 Windows 凭据库，不落库、不回显。留空表示不修改该项；保存后需重启应用生效。" />
           <label v-for="f in currentCredFields" :key="f.key" class="field-label cred-field">
             <span class="cred-field-head">
               {{ f.label }}
@@ -299,7 +300,7 @@ const {
       <div v-if="pwdDialogOpen" class="modal-mask" @click.self="closePwdDialog">
         <div class="modal pwd-modal" role="dialog" aria-modal="true" aria-label="修改密码">
           <h3>修改密码</h3>
-          <p class="muted small">新密码须 ≥8 位且同时包含字母和数字，修改后立即生效。</p>
+          <HintTip text="新密码须 ≥8 位且同时包含字母和数字，修改后立即生效。" />
           <input v-model="pwdDraft.old" class="input" type="password" autocomplete="current-password" placeholder="原密码" />
           <input v-model="pwdDraft.next" class="input" type="password" autocomplete="new-password" placeholder="新密码" />
           <input v-model="pwdDraft.confirm" class="input" type="password" autocomplete="new-password" placeholder="确认新密码" @keyup.enter="submitChangePassword" />

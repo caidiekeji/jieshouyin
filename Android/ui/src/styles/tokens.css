@@ -348,6 +348,9 @@
   /* 弹窗表单统一控件高度：输入框/下拉/按钮同高，行内比例协调 */
   --control-height-form: 34px;
   --control-qty-size: 24px;
+  /* POS 触屏最小点击区：比管理后台控件大一档，兼顾窄购物车栏 */
+  --pos-touch-size: 44px;
+  --pos-card-min-height: 96px;
   --control-spinner-size: 36px;
   --control-brandmark-size: 42px;
   /* 登录页品牌标识：比通用 brand-mark 大一档，作为页面的视觉锚点 */

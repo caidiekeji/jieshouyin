@@ -5,6 +5,7 @@ import {
   formatMoney,
   type Category,
   type Technician,
+  type TechnicianBell,
   type TechnicianCommission,
   type TechnicianRule,
 } from '../api'
@@ -21,6 +22,7 @@ const technicians = ref<Technician[]>([])
 const report = ref<TechnicianCommission[]>([])
 const rules = ref<TechnicianRule[]>([])
 const categories = ref<Category[]>([])
+const bells = ref<TechnicianBell[]>([])
 const form = ref({
   name: '',
   percent: 10,
@@ -59,6 +61,7 @@ async function load() {
     report.value = await api.technicianCommission(range.start, range.end)
     rules.value = await api.listTechnicianRules(null)
     categories.value = await api.listCategories()
+    bells.value = await api.listBells(today.value)
     if (!ruleForm.value.technicianId && technicians.value.length) {
       ruleForm.value.technicianId = technicians.value[0].technician_id
     }
@@ -70,6 +73,7 @@ async function load() {
     report.value = []
     rules.value = []
     categories.value = []
+    bells.value = []
   }
 }
 
@@ -235,6 +239,17 @@ onMounted(() => {
         </table>
         <p v-else class="muted small">本月还没有技师提成记录。</p>
       </div>
+      <div class="tech-bells">
+        <div class="muted small">今日钟态（{{ today }}）</div>
+        <ul v-if="bells.length" class="tech-rule-list">
+          <li v-for="b in bells" :key="b.bell_id">
+            {{ b.technician_name }} · {{ b.table_code || '未绑定服务间' }}
+            · {{ b.is_pointed ? '点钟' : '排钟' }} · {{ b.minutes }} 分钟
+            · {{ b.status === 'ACTIVE' ? `上钟 ${b.elapsed_minutes} 分钟` : '已收钟' }}
+          </li>
+        </ul>
+        <p v-else class="muted small">今日还没有排钟记录。</p>
+      </div>
     </div>
   </section>
 </template>
@@ -270,6 +285,11 @@ onMounted(() => {
   list-style: none; padding: 0; margin: var(--space-2) 0;
   display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4);
   font-size: var(--font-xs);
+}
+.tech-bells {
+  margin: var(--space-2) 0;
+  border-top: var(--border-width) dashed var(--scene-line);
+  padding-top: var(--space-2);
 }
 .tech-report table { width: 100%; border-collapse: collapse; font-size: var(--font-xs); }
 .tech-report th,

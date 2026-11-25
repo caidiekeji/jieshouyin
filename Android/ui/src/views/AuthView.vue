@@ -2,6 +2,7 @@
 import Icon from '../components/Icon.vue'
 import SetupSteps from '../components/SetupSteps.vue'
 import { useAppContext } from '../composables/useAppContext'
+import HintTip from '../components/HintTip.vue'
 const ctx = useAppContext()
 const {
   ICON_SIZE, view, onboarding, authStep, needAdmin, storeProfile, industries,
@@ -27,7 +28,7 @@ const {
           <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <div>
             <h1>Checkout-R</h1>
-            <p class="muted">选择经营行业，收银台和商品分类会按行业切换</p>
+            <HintTip text="选择经营行业，收银台和商品分类会按行业切换" />
           </div>
         </div>
         <h2>选择经营行业</h2>
@@ -51,7 +52,7 @@ const {
         <button class="btn primary btn-lg" @click="finishIndustrySetup">
           {{ needsActivation ? '下一步：激活设备' : '进入收银' }}
         </button>
-        <p class="muted small">行业分类可在设置页随时调整，切换只新增分类不删除已有商品。</p>
+        <HintTip text="行业分类可在设置页随时调整，切换只新增分类不删除已有商品。" />
       </div>
     </div>
 
@@ -63,7 +64,7 @@ const {
           <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <div>
             <h1>Checkout-R</h1>
-            <p class="muted">收银系统授权</p>
+            <HintTip text="收银系统授权" />
           </div>
         </div>
         <h2>激活设备</h2>
@@ -99,9 +100,10 @@ const {
         <div class="auth-brand">
           <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <h1>{{ needAdmin ? '设置管理员账号' : onboarding ? '登录' : '欢迎回来' }}</h1>
-          <p v-if="needAdmin || onboarding" class="muted">
-            {{ needAdmin ? '首次使用，先创建管理员账号，再登录完成初始化' : '使用刚创建的管理员账号登录，继续选择行业' }}
-          </p>
+          <HintTip
+            v-if="needAdmin || onboarding"
+            :text="needAdmin ? '首次使用，先创建管理员账号，再登录完成初始化' : '使用刚创建的管理员账号登录，继续选择行业'"
+          />
         </div>
         <template v-if="needAdmin">
           <label class="field">

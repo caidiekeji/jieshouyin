@@ -1,7 +1,8 @@
 //! 支付商户凭据管理（§6.8）。
 //!
-//! 纪律：商户号 / API 密钥 / apiv3_key / 私钥一律存操作系统凭据库
-//! （Windows Credential Manager），不落 SQLite、不进备份、不进日志。
+//! 纪律：商户号 / API 密钥 / apiv3_key / 私钥一律走平台安全存储：
+//! Windows 用凭据管理器，Android 用 ANDROID_ID 派生密钥的加密文件（应用私有目录）；
+//! 不落 SQLite、不进日志。
 //! 本模块只暴露"是否已配置"状态与加载结果，任何路径都不得返回明文。
 
 use crate::error::{CoreError, Result};
@@ -47,7 +48,7 @@ pub trait SecretStore: Send + Sync {
     fn delete_secret(&self, account: &str) -> Result<()>;
 }
 
-/// 生产实现：Windows Credential Manager（keyring）。
+/// 生产实现：Windows Credential Manager / Android 加密凭据文件。
 pub struct KeyringStore;
 
 #[cfg(windows)]
@@ -81,7 +82,7 @@ impl SecretStore for KeyringStore {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "android")))]
 impl SecretStore for KeyringStore {
     fn set_secret(&self, _account: &str, _value: &str) -> Result<()> {
         Err(CoreError::Other(
@@ -97,6 +98,108 @@ impl SecretStore for KeyringStore {
         Err(CoreError::Other(
             "凭据库仅支持 Windows（v1 目标平台）".into(),
         ))
+    }
+}
+
+// ── Android：应用私有目录内的加密凭据文件 ──────────────────────
+// 与授权存储同级防护（ChaCha20-Poly1305），密钥由 ANDROID_ID 派生：
+// 文件拷出设备后无法解密，且不落 SQLite、不进日志。
+#[cfg(target_os = "android")]
+const PAYCREDS_FILE: &str = "paycreds.enc";
+#[cfg(target_os = "android")]
+static PAYCREDS_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// 宿主启动时注入应用私有数据目录（仅 Android 需要）。
+#[cfg(target_os = "android")]
+pub fn init_store_dir(path: std::path::PathBuf) -> Result<()> {
+    PAYCREDS_DIR
+        .set(path)
+        .map_err(|_| CoreError::Other("支付凭据目录已初始化".into()))
+}
+
+#[cfg(target_os = "android")]
+fn cred_file() -> Result<std::path::PathBuf> {
+    let dir = PAYCREDS_DIR
+        .get()
+        .ok_or_else(|| CoreError::Other("支付凭据目录未初始化".into()))?;
+    Ok(dir.join(PAYCREDS_FILE))
+}
+
+#[cfg(target_os = "android")]
+fn derive_key() -> Result<[u8; 32]> {
+    use sha2::{Digest, Sha256};
+    let id = crate::license::fingerprint::android_device_id()
+        .ok_or_else(|| CoreError::Other("无法读取设备标识，凭据库不可用".into()))?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"checkout-r-pay-creds-v1:");
+    hasher.update(id.as_bytes());
+    Ok(hasher.finalize().into())
+}
+
+#[cfg(target_os = "android")]
+fn read_all() -> Result<std::collections::HashMap<String, String>> {
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    use chacha20poly1305::{ChaCha20Poly1305, Nonce};
+
+    let bytes = match std::fs::read(cred_file()?) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(std::collections::HashMap::new())
+        }
+        Err(e) => return Err(CoreError::SecureStorage(e.to_string())),
+    };
+    if bytes.len() < 12 {
+        return Err(CoreError::SecureStorage("凭据文件损坏".into()));
+    }
+    let (nonce, ciphertext) = bytes.split_at(12);
+    let cipher = ChaCha20Poly1305::new_from_slice(&derive_key()?)
+        .map_err(|e| CoreError::SecureStorage(e.to_string()))?;
+    let plain = cipher
+        .decrypt(Nonce::from_slice(nonce), ciphertext)
+        .map_err(|_| CoreError::SecureStorage("凭据文件解密失败".into()))?;
+    Ok(serde_json::from_slice(&plain)?)
+}
+
+#[cfg(target_os = "android")]
+fn write_all(map: &std::collections::HashMap<String, String>) -> Result<()> {
+    use chacha20poly1305::aead::{Aead, KeyInit, OsRng};
+    use chacha20poly1305::{ChaCha20Poly1305, Nonce};
+    use rand::RngCore;
+
+    let plain = serde_json::to_vec(map)?;
+    let cipher = ChaCha20Poly1305::new_from_slice(&derive_key()?)
+        .map_err(|e| CoreError::SecureStorage(e.to_string()))?;
+    let mut nonce_bytes = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plain.as_slice())
+        .map_err(|e| CoreError::SecureStorage(e.to_string()))?;
+    let mut out = Vec::with_capacity(12 + ciphertext.len());
+    out.extend_from_slice(&nonce_bytes);
+    out.extend_from_slice(&ciphertext);
+    let path = cred_file()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| CoreError::SecureStorage(e.to_string()))?;
+    }
+    std::fs::write(path, out).map_err(|e| CoreError::SecureStorage(e.to_string()))
+}
+
+#[cfg(target_os = "android")]
+impl SecretStore for KeyringStore {
+    fn set_secret(&self, account: &str, value: &str) -> Result<()> {
+        let mut all = read_all()?;
+        all.insert(account.to_string(), value.to_string());
+        write_all(&all)
+    }
+
+    fn get_secret(&self, account: &str) -> Result<Option<String>> {
+        Ok(read_all()?.get(account).cloned())
+    }
+
+    fn delete_secret(&self, account: &str) -> Result<()> {
+        let mut all = read_all()?;
+        all.remove(account);
+        write_all(&all)
     }
 }
 

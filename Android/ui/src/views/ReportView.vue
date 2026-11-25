@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAppContext } from '../composables/useAppContext'
+import HintTip from '../components/HintTip.vue'
 
 const ctx = useAppContext()
 const {
@@ -79,7 +80,7 @@ function openOrderNo(ci: number, cell: unknown) {
             <template v-if="activeReport">
               <div class="report-head">
                 <h3>{{ activeReport.title }}</h3>
-                <p class="muted small">{{ activeReport.description }}</p>
+                <HintTip :text="activeReport.description" />
               </div>
               <div v-if="activeReport.metrics.length" class="stats">
                 <div v-for="(mt, i) in activeReport.metrics" :key="i" class="stat">
@@ -114,7 +115,7 @@ function openOrderNo(ci: number, cell: unknown) {
           <template v-else-if="reportTool === 'shift'">
             <div class="report-head">
               <h3>班次管理 <span v-if="currentShiftId" class="badge">当前班次 #{{ currentShiftId }}</span></h3>
-              <p class="muted small">开班设置备用金；关班需接班收银员或店长授权，并核对现金差额。</p>
+              <HintTip text="开班设置备用金；关班需接班收银员或店长授权，并核对现金差额。" />
             </div>
 
             <!-- 开班 -->
@@ -170,7 +171,7 @@ function openOrderNo(ci: number, cell: unknown) {
           <template v-else>
             <div class="report-head">
               <h3>订单作废 / 退货</h3>
-              <p class="muted small">作废：仅待支付单或当日现金单；扫码已支付订单只能退货退款。退货受角色限额约束。</p>
+              <HintTip text="作废：仅待支付单或当日现金单；扫码已支付订单只能退货退款。退货受角色限额约束。" />
             </div>
             <div class="toolbar">
               <input v-model="opOrderNo" class="input" placeholder="输入订单号" />

@@ -82,6 +82,20 @@ pub fn allocate_refund(weights: &[i64], total: i64) -> Result<Vec<i64>> {
     allocate_by_remaining(weights, total)
 }
 
+/// 计算抹零额（分）：YUAN 抹掉元以下尾数，JIAO 抹掉角以下尾数，其余模式为 0。
+/// 只向下抹零，不找补；返回被抹掉的金额，调用方需把它并入整单优惠，
+/// 以保持 `payable = total - discount` 不变式。
+pub fn round_off_cents(payable_cents: i64, mode: &str) -> i64 {
+    if payable_cents <= 0 {
+        return 0;
+    }
+    match mode {
+        "YUAN" => payable_cents % 100,
+        "JIAO" => payable_cents % 10,
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +157,15 @@ mod tests {
     fn refund_allocation_sums_exact() {
         let r = allocate_refund(&[3300, 1700], 1000).unwrap();
         assert_eq!(r.iter().sum::<i64>(), 1000);
+    }
+
+    #[test]
+    fn round_off_only_truncates_and_defaults_off() {
+        assert_eq!(round_off_cents(9876, "OFF"), 0);
+        assert_eq!(round_off_cents(9876, "YUAN"), 76);
+        assert_eq!(round_off_cents(9876, "JIAO"), 6);
+        assert_eq!(round_off_cents(9000, "YUAN"), 0);
+        assert_eq!(round_off_cents(0, "YUAN"), 0);
+        assert_eq!(round_off_cents(-10, "YUAN"), 0);
     }
 }

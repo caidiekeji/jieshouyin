@@ -4,6 +4,8 @@
  * 行业配色由宿主传入 .scene-* class（tokens.css 语义层，暗色只翻语义层）；
  * 卡片本体用全局 .scene-card 类（styles.css），行业密度用 minCard 设定。
  */
+import HintTip from './HintTip.vue'
+
 defineProps<{
   title: string
   hint?: string
@@ -22,7 +24,7 @@ const emit = defineEmits<{ cancel: [] }>()
     <div class="scene-board-head">
       <div class="scene-board-title">
         <strong>{{ title }}</strong>
-        <span v-if="hint">{{ hint }}</span>
+        <HintTip v-if="hint" :text="hint" />
       </div>
       <slot name="action" />
     </div>
@@ -54,7 +56,6 @@ const emit = defineEmits<{ cancel: [] }>()
   flex-wrap: wrap;
 }
 .scene-board-title strong { color: var(--scene-title); margin-right: var(--space-2); }
-.scene-board-title span { color: var(--scene-sub); font-size: var(--font-xs); }
 /* 操作提示条（转台/并台）：餐饮用 hint 色、包间用 soft 色，token 缺省时逐级回退 */
 .scene-notice {
   display: flex;

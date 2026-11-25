@@ -400,6 +400,63 @@ h2 { font-size: var(--font-lg); }
 .pos-card-meta { color: var(--muted); font-size: var(--font-xs); }
 .pos-empty { grid-column: 1 / -1; }
 .pos-shortcuts { display: flex; gap: var(--space-3); flex-wrap: wrap; color: var(--muted); font-size: var(--font-xs); padding-top: var(--space-2); flex: none; }
+
+/* 收银页通用页头与组件骨架：行业页各自写文案，这里只管对齐与触控尺度 */
+.pos-page-head {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-bottom: var(--space-3); flex: none;
+}
+.pos-page-head strong { font-size: var(--font-md); }
+.pos-catalog-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pos-catalog-wrap .product-list { margin-top: var(--space-3); }
+.scan-input { min-height: var(--pos-touch-size); }
+/* 常用商品快捷键：按本机保存，位置固定在分类上方，减少高峰期翻找 */
+.pos-quick-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  overflow-x: auto; padding-bottom: var(--space-2); flex: none;
+}
+.pos-quick-label { color: var(--text-muted); font-size: var(--font-xs); flex: none; }
+.pos-quick-chip {
+  min-height: var(--pos-touch-size); padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-subtle); color: var(--text); white-space: nowrap; cursor: pointer;
+}
+.pos-quick-chip:hover { border-color: var(--brand); background: var(--brand-subtle); }
+.pos-card-wrap { position: relative; display: flex; min-width: 0; }
+.pos-card { flex: 1; min-height: var(--pos-card-min-height); }
+.pos-pin {
+  position: absolute; top: var(--space-1); right: var(--space-1);
+  width: var(--pos-touch-size); height: var(--pos-touch-size);
+  display: flex; align-items: center; justify-content: center;
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-sm);
+  background: var(--panel); color: var(--text-muted); cursor: pointer;
+}
+.pos-pin.active { color: var(--warning-text); background: var(--warning-subtle); border-color: var(--warning-border); }
+/* 手工称重：不占主网格，按需要展开 */
+.weigh-entry {
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2); flex: none;
+}
+.weigh-toggle {
+  width: 100%; min-height: var(--pos-touch-size);
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 0; background: var(--surface-subtle); color: var(--text);
+  cursor: pointer; text-align: left;
+}
+.weigh-form { display: flex; gap: var(--space-2); padding: var(--space-2); flex-wrap: wrap; }
+.weigh-form .input { flex: 1; min-width: var(--control-search-min-width); }
+/* 结算区常驻上下文与触屏热区 */
+.cart-context {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  padding-bottom: var(--space-2); margin-bottom: var(--space-2);
+  border-bottom: var(--border-width) solid var(--border);
+  color: var(--text-muted); font-size: var(--font-xs);
+}
+.cart-context span { display: inline-flex; align-items: center; gap: var(--space-1); }
+.qty-ctrl button { width: var(--pos-touch-size); height: var(--pos-touch-size); }
+.qty-input { width: var(--pos-touch-size); height: var(--pos-touch-size); }
+.pay-method-btn { min-height: var(--pos-touch-size); }
 .product-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-0_5); }
 .price-stack { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-0_5); }
 .price { color: var(--brand); font-weight: 600; white-space: nowrap; }
@@ -482,8 +539,9 @@ h2 { font-size: var(--font-lg); }
 .actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
 /* 收银动作区：收款是唯一主行动，占满剩余宽度；挂单保持内容宽 */
 .checkout-actions { gap: var(--space-1); padding-top: var(--space-0_5); }
-.checkout-actions .btn { min-height: 38px; padding-top: var(--space-1); padding-bottom: var(--space-1); }
-.checkout-actions .btn.primary { flex: 1; }
+.checkout-actions .btn { min-height: var(--pos-touch-size); padding-top: var(--space-1); padding-bottom: var(--space-1); }
+/* 收款是唯一主行动：最大热区靠右下角，与其他按钮拉开形状差异 */
+.checkout-actions .btn.primary { flex: 1; min-height: calc(var(--pos-touch-size) + var(--space-2)); font-size: var(--font-md); }
 
 /* 后台管理骨架：左栏贴左全高（报表中心 / 设置中心共用），右侧内容独立滚动 */
 .admin-shell {
