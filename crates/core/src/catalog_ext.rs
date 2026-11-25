@@ -83,11 +83,9 @@ pub fn create_spec_group(conn: &Connection, spu_id: i64, name: String) -> Result
         return Err(CoreError::Validation("规格组名不能为空".into()));
     }
     let exists: Option<i64> = conn
-        .query_row(
-            "SELECT spu_id FROM spu WHERE spu_id=?1",
-            [spu_id],
-            |r| r.get(0),
-        )
+        .query_row("SELECT spu_id FROM spu WHERE spu_id=?1", [spu_id], |r| {
+            r.get(0)
+        })
         .optional()?;
     if exists.is_none() {
         return Err(CoreError::Validation(format!("商品 {spu_id} 不存在")));
@@ -173,7 +171,9 @@ pub fn create_sku_variants(
         return Err(CoreError::Validation("至少填写一个规格组合".into()));
     }
     let spu_exists: Option<i64> = conn
-        .query_row("SELECT spu_id FROM spu WHERE spu_id=?1", [spu_id], |r| r.get(0))
+        .query_row("SELECT spu_id FROM spu WHERE spu_id=?1", [spu_id], |r| {
+            r.get(0)
+        })
         .optional()?;
     if spu_exists.is_none() {
         return Err(CoreError::Validation(format!("商品 {spu_id} 不存在")));
@@ -239,7 +239,9 @@ pub fn create_sku_variants(
             stmt.query_row(rusqlite::params_from_iter(all_params), |r| r.get(0))?
         };
         if valid_count != sorted.len() as i64 {
-            return Err(CoreError::Validation("规格值不属于该商品，请重新选择".into()));
+            return Err(CoreError::Validation(
+                "规格值不属于该商品，请重新选择".into(),
+            ));
         }
 
         for (field, code) in [
@@ -249,7 +251,14 @@ pub fn create_sku_variants(
             if let Some(code) = code.map(str::trim).filter(|c| !c.is_empty()) {
                 let dup: Option<i64> = tx
                     .query_row(
-                        &format!("SELECT sku_id FROM sku WHERE {}=?1", if field == "条码" { "barcode" } else { "instore_code" }),
+                        &format!(
+                            "SELECT sku_id FROM sku WHERE {}=?1",
+                            if field == "条码" {
+                                "barcode"
+                            } else {
+                                "instore_code"
+                            }
+                        ),
                         [code],
                         |r| r.get(0),
                     )
@@ -279,8 +288,14 @@ pub fn create_sku_variants(
              VALUES (?1,?2,?3,?4,?5,?6,?7,0,0)",
             params![
                 spu_id,
-                v.barcode.as_deref().map(str::trim).filter(|b| !b.is_empty()),
-                v.instore_code.as_deref().map(str::trim).filter(|c| !c.is_empty()),
+                v.barcode
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|b| !b.is_empty()),
+                v.instore_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|c| !c.is_empty()),
                 spec_json,
                 v.sale_price_cents,
                 v.cost_price_cents,
@@ -342,7 +357,8 @@ pub fn list_sku_variants(conn: &Connection, spu_id: i64) -> Result<Vec<SkuVarian
             qty: r.get(9)?,
         })
     })?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
 }
 
 // ───────────────────────────── 母婴：月龄与批次效期 ─────────────────────────────
@@ -390,7 +406,9 @@ pub fn set_product_age_range(
         return Err(CoreError::Validation("保质期天数不能为负".into()));
     }
     let exists: Option<i64> = conn
-        .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| r.get(0))
+        .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| {
+            r.get(0)
+        })
         .optional()?;
     if exists.is_none() {
         return Err(CoreError::Validation(format!("商品 {sku_id} 不存在")));
@@ -418,10 +436,7 @@ pub fn create_sku_batch(
     if qty < 0 {
         return Err(CoreError::Validation("批次数量不能为负".into()));
     }
-    for (name, d) in [
-        ("生产日期", production_date),
-        ("失效日期", expiry_date),
-    ] {
+    for (name, d) in [("生产日期", production_date), ("失效日期", expiry_date)] {
         if let Some(d) = d {
             if d.len() != 10 || d.chars().filter(|c| *c == '-').count() != 2 {
                 return Err(CoreError::Validation(format!("{name} 需为 YYYY-MM-DD")));
@@ -429,7 +444,9 @@ pub fn create_sku_batch(
         }
     }
     let exists: Option<i64> = conn
-        .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| r.get(0))
+        .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| {
+            r.get(0)
+        })
         .optional()?;
     if exists.is_none() {
         return Err(CoreError::Validation(format!("商品 {sku_id} 不存在")));
@@ -464,15 +481,12 @@ pub fn list_sku_batches(conn: &Connection, sku_id: i64) -> Result<Vec<SkuBatch>>
             qty: r.get(5)?,
         })
     })?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
 }
 
 /// 按月龄筛选在售商品。month=0 表示不筛选（返回全部）。
-pub fn list_products_by_age(
-    conn: &Connection,
-    month: i64,
-    limit: i64,
-) -> Result<Vec<AgeProduct>> {
+pub fn list_products_by_age(conn: &Connection, month: i64, limit: i64) -> Result<Vec<AgeProduct>> {
     let limit = limit.clamp(1, 500);
     let mut stmt = conn.prepare(
         "SELECT s.sku_id,p.spu_name,COALESCE(c.name,'未分类'),p.unit,
@@ -503,7 +517,8 @@ pub fn list_products_by_age(
             qty: r.get(10)?,
         })
     })?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
 }
 
 // ───────────────────────────── 餐饮：套餐与加料 ─────────────────────────────
@@ -552,7 +567,9 @@ pub struct OptionGroup {
 /// 把一个已存在的 SKU 登记为套餐主体。
 pub fn create_combo(conn: &Connection, sku_id: i64, note: Option<&str>) -> Result<i64> {
     let exists: Option<i64> = conn
-        .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| r.get(0))
+        .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| {
+            r.get(0)
+        })
         .optional()?;
     if exists.is_none() {
         return Err(CoreError::Validation(format!("套餐商品 {sku_id} 不存在")));
@@ -565,16 +582,16 @@ pub fn create_combo(conn: &Connection, sku_id: i64, note: Option<&str>) -> Resul
 }
 
 /// 覆盖式设置套餐明细；明细只用于备餐/厨打，不参与计价。
-pub fn set_combo_items(
-    conn: &Connection,
-    combo_id: i64,
-    items: &[ComboItemInput],
-) -> Result<()> {
+pub fn set_combo_items(conn: &Connection, combo_id: i64, items: &[ComboItemInput]) -> Result<()> {
     if items.is_empty() {
         return Err(CoreError::Validation("套餐至少包含一个明细商品".into()));
     }
     let exists: Option<i64> = conn
-        .query_row("SELECT combo_id FROM combo WHERE combo_id=?1", [combo_id], |r| r.get(0))
+        .query_row(
+            "SELECT combo_id FROM combo WHERE combo_id=?1",
+            [combo_id],
+            |r| r.get(0),
+        )
         .optional()?;
     if exists.is_none() {
         return Err(CoreError::Validation(format!("套餐 {combo_id} 不存在")));
@@ -586,10 +603,17 @@ pub fn set_combo_items(
             return Err(CoreError::Validation("套餐明细数量须在 1-99 之间".into()));
         }
         let ok: Option<i64> = tx
-            .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [item.sku_id], |r| r.get(0))
+            .query_row(
+                "SELECT sku_id FROM sku WHERE sku_id=?1",
+                [item.sku_id],
+                |r| r.get(0),
+            )
             .optional()?;
         if ok.is_none() {
-            return Err(CoreError::Validation(format!("明细商品 {} 不存在", item.sku_id)));
+            return Err(CoreError::Validation(format!(
+                "明细商品 {} 不存在",
+                item.sku_id
+            )));
         }
         tx.execute(
             "INSERT INTO combo_item(combo_id,sku_id,qty) VALUES (?1,?2,?3)",
@@ -659,14 +683,11 @@ pub fn combo_items_by_sku(conn: &Connection, sku_id: i64) -> Result<Vec<ComboIte
             unit_price_cents: r.get(3)?,
         })
     })?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
 }
 
-pub fn create_option_group(
-    conn: &Connection,
-    name: &str,
-    scene: &str,
-) -> Result<i64> {
+pub fn create_option_group(conn: &Connection, name: &str, scene: &str) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() {
         return Err(CoreError::Validation("选项组名不能为空".into()));
@@ -695,7 +716,9 @@ pub fn set_option_items(conn: &Connection, group_id: i64, sku_ids: &[i64]) -> Re
     tx.execute("DELETE FROM option_item WHERE group_id=?1", [group_id])?;
     for sku_id in sku_ids {
         let ok: Option<i64> = tx
-            .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| r.get(0))
+            .query_row("SELECT sku_id FROM sku WHERE sku_id=?1", [sku_id], |r| {
+                r.get(0)
+            })
             .optional()?;
         if ok.is_none() {
             return Err(CoreError::Validation(format!("选项商品 {sku_id} 不存在")));
@@ -866,15 +889,7 @@ mod tests {
         )
         .unwrap();
         let combo_id = create_combo(&c, 1, Some("套餐说明")).unwrap();
-        set_combo_items(
-            &c,
-            combo_id,
-            &[ComboItemInput {
-                sku_id: 2,
-                qty: 1,
-            }],
-        )
-        .unwrap();
+        set_combo_items(&c, combo_id, &[ComboItemInput { sku_id: 2, qty: 1 }]).unwrap();
         let combos = list_combos(&c).unwrap();
         assert_eq!(combos[0].price_cents, 10000);
         assert_eq!(combos[0].items.len(), 1);

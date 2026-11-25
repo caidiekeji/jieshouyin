@@ -439,13 +439,12 @@ pub fn prepare_order(
             });
         } else {
             for d in details {
-                let (dname, dunit, dcat): (String, String, i64) = conn
-                    .query_row(
-                        "SELECT p.spu_name,p.unit,p.category_id
+                let (dname, dunit, dcat): (String, String, i64) = conn.query_row(
+                    "SELECT p.spu_name,p.unit,p.category_id
                          FROM sku s JOIN spu p ON p.spu_id=s.spu_id WHERE s.sku_id=?1",
-                        [d.sku_id],
-                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                    )?;
+                    [d.sku_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )?;
                 additions.push(KitchenItem {
                     sku_id: d.sku_id,
                     category_id: dcat,
@@ -658,9 +657,9 @@ fn fee_by_slots(
         if to <= from {
             continue;
         }
-        let matched = slots.iter().find(|s| {
-            s.from_minute <= from && s.to_minute.map_or(true, |end| from < end)
-        });
+        let matched = slots
+            .iter()
+            .find(|s| s.from_minute <= from && s.to_minute.map_or(true, |end| from < end));
         let (rate, unit) = match matched {
             Some(s) => (s.rate_cents, s.unit.as_str()),
             None => (base_rate, base_unit),
@@ -762,13 +761,7 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
     // 包间封顶 > 门店封顶 > 0（不封顶）。包间 0 表示未覆盖、跟随门店配置。
     let cap_cents = table_cap
         .filter(|v| *v > 0)
-        .unwrap_or_else(|| {
-            cfg_i64(
-                conn,
-                crate::constants::CFG_CHESS_FEE_CAP_CENTS,
-                0,
-            )
-        })
+        .unwrap_or_else(|| cfg_i64(conn, crate::constants::CFG_CHESS_FEE_CAP_CENTS, 0))
         .max(0);
 
     let slots_json = cfg_text(conn, crate::constants::CFG_CHESS_FEE_SLOTS_JSON, "[]");
@@ -811,7 +804,9 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
 /// 设置单个包间的房费封顶（分），0 表示取消覆盖、回退门店配置。
 pub fn set_table_fee_cap(conn: &Connection, table_id: i64, cap_cents: i64) -> Result<()> {
     if !(0..=100_000_000).contains(&cap_cents) {
-        return Err(CoreError::Validation("封顶金额须在 0–1000000 元之间".into()));
+        return Err(CoreError::Validation(
+            "封顶金额须在 0–1000000 元之间".into(),
+        ));
     }
     let affected = conn.execute(
         "UPDATE service_table SET fee_cap_cents=?2 WHERE table_id=?1",
@@ -1230,7 +1225,10 @@ mod tests {
         )
         .unwrap();
         open_table(&c, id, "[]", None).unwrap();
-        assert_eq!(table_view(&c, id).unwrap().fee_unit.as_deref(), Some("HOUR"));
+        assert_eq!(
+            table_view(&c, id).unwrap().fee_unit.as_deref(),
+            Some("HOUR")
+        );
         let fee = chess_fee(&c, id).unwrap();
         assert_eq!(fee.fee_unit, "HOUR");
         assert_eq!(fee.billable_minutes, 60);

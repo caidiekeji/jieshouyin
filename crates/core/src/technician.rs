@@ -390,7 +390,9 @@ pub fn assign_bell(
         |r| r.get(0),
     )?;
     if on_duty == 0 {
-        return Err(CoreError::Validation("技师当日未排班或已停用，不能上钟".into()));
+        return Err(CoreError::Validation(
+            "技师当日未排班或已停用，不能上钟".into(),
+        ));
     }
     let table_ok: i64 = conn.query_row(
         "SELECT COUNT(*) FROM service_table WHERE table_id=?1",
@@ -423,7 +425,14 @@ pub fn assign_bell(
         "INSERT INTO technician_bell(technician_id,table_id,business_date,start_at,minutes,
                                      is_pointed,status,created_at)
          VALUES (?1,?2,?3,?4,?5,?6,'ACTIVE',?4)",
-        params![technician_id, table_id, business_date, now, minutes, is_pointed as i64],
+        params![
+            technician_id,
+            table_id,
+            business_date,
+            now,
+            minutes,
+            is_pointed as i64
+        ],
     )?;
     let bell_id = tx.last_insert_rowid();
     tx.execute(
@@ -515,12 +524,15 @@ pub fn list_bells(
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![business_date, status], bell_row)?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
 }
 
 pub fn active_bell_for_table(conn: &Connection, table_id: i64) -> Result<Option<TechnicianBell>> {
     let sql = format!("{BELL_SELECT} WHERE b.table_id=?1 AND b.status='ACTIVE' LIMIT 1");
-    conn.query_row(&sql, [table_id], bell_row).optional().map_err(Into::into)
+    conn.query_row(&sql, [table_id], bell_row)
+        .optional()
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

@@ -1356,10 +1356,7 @@ fn plan_amounts(
             |r| r.get(0),
         )
         .unwrap_or_else(|_| "OFF".to_string());
-    let round_off = checkout_core::money::round_off_cents(
-        (total - discount).max(0),
-        &round_mode,
-    );
+    let round_off = checkout_core::money::round_off_cents((total - discount).max(0), &round_mode);
     discount += round_off;
     Ok(AmountPlan {
         applied: promo_result.applied,
@@ -5667,11 +5664,7 @@ pub fn set_user_status(user_id: i64, status: i64, state: State<'_, AppState>) ->
 // ─────────────────── 行业业务模型扩展命令（M0020） ───────────────────
 
 #[tauri::command]
-pub fn create_spec_group(
-    spu_id: i64,
-    name: String,
-    state: State<'_, AppState>,
-) -> Result<i64> {
+pub fn create_spec_group(spu_id: i64, name: String, state: State<'_, AppState>) -> Result<i64> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::catalog_ext::create_spec_group(&conn, spu_id, name)
 }
@@ -5772,11 +5765,7 @@ pub fn list_products_by_age(
 }
 
 #[tauri::command]
-pub fn create_combo(
-    sku_id: i64,
-    note: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<i64> {
+pub fn create_combo(sku_id: i64, note: Option<String>, state: State<'_, AppState>) -> Result<i64> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::catalog_ext::create_combo(&conn, sku_id, note.as_deref())
 }
@@ -5807,11 +5796,7 @@ pub fn combo_items_by_sku(
 }
 
 #[tauri::command]
-pub fn create_option_group(
-    name: String,
-    scene: String,
-    state: State<'_, AppState>,
-) -> Result<i64> {
+pub fn create_option_group(name: String, scene: String, state: State<'_, AppState>) -> Result<i64> {
     let (_op, conn) = admin_guard(&state, PERM_PRODUCT_EDIT)?;
     checkout_core::catalog_ext::create_option_group(&conn, &name, &scene)
 }
