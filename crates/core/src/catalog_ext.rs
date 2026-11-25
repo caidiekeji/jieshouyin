@@ -783,7 +783,7 @@ mod tests {
         let mut c = open_in_memory().unwrap();
         run_migrations(&mut c).unwrap();
         c.execute(
-            "INSERT INTO category(category_id,name) VALUES (1,'服装')",
+            "INSERT OR IGNORE INTO category(category_id,name) VALUES (1,'服装')",
             [],
         )
         .unwrap();
