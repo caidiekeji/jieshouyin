@@ -75,9 +75,6 @@ jobs:
         working-directory: Android/crates/app
         env:
           ACTIVATION_ENDPOINT: ${{ vars.ACTIVATION_ENDPOINT || 'https://www.lequ.pw' }}
-          # CLI 从 crates/app 启动，默认把该目录当前端目录导致 npm 找不到 package.json；
-          # 显式指向前端工程根目录，npm 才能解析依赖。
-          TAURI_FRONTEND_PATH: ${{ github.workspace }}/Android/ui
         run: npx -y @tauri-apps/cli@2 android build --debug --apk --target aarch64 --target armv7 --ci
 
       - name: Upload APK

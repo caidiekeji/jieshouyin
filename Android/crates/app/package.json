@@ -1,0 +1,8 @@
+{
+  "name": "checkout-r-android-bundle",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "tauri": "npx -y @tauri-apps/cli@2"
+  }
+}
