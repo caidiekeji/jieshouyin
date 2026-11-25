@@ -659,7 +659,7 @@ fn fee_by_slots(
             continue;
         }
         let matched = slots.iter().find(|s| {
-            s.from_minute <= from && s.to_minute.map_or(true, |end| from < end)
+            s.from_minute <= from && s.to_minute.is_none_or(|end| from < end)
         });
         let (rate, unit) = match matched {
             Some(s) => (s.rate_cents, s.unit.as_str()),
@@ -780,7 +780,7 @@ pub fn chess_fee(conn: &Connection, table_id: i64) -> Result<ChessFee> {
             s.from_minute >= 0
                 && s.rate_cents >= 0
                 && (s.unit == "MINUTE" || s.unit == "HOUR")
-                && s.to_minute.map_or(true, |to| to > s.from_minute)
+                && s.to_minute.is_none_or(|to| to > s.from_minute)
         })
         .collect();
 

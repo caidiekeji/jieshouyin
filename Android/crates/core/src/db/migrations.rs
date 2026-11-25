@@ -788,7 +788,7 @@ ALTER TABLE payment_record ADD COLUMN request_fingerprint TEXT;
 /// - 养生：技师钟态（排钟/点钟/加钟/收钟），会话当前技师
 /// - 计时：包间封顶价、门店时段费率配置（默认空，保持原有线性计费）
 /// - 结算：抹零模式配置（默认 OFF，不改变已有金额口径）
-/// 全部新增结构默认空/关闭，老库升级后既有行为完全不变。
+///   全部新增结构默认空/关闭，老库升级后既有行为完全不变。
 const M0020: &str = r#"
 CREATE TABLE IF NOT EXISTS spu_spec_group (
     spec_group_id INTEGER PRIMARY KEY AUTOINCREMENT,
