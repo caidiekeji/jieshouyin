@@ -311,8 +311,8 @@ onMounted(() => {
     <!-- 采购入库 -->
     <template v-if="tab === 'purchase'">
       <div class="toolbar">
-        <button class="btn" @click="showSupplier = !showSupplier"><Icon name="truck" :size="ICON_SIZE.md" />供应商</button>
-        <button class="btn primary" @click="showCreatePo = !showCreatePo"><Icon name="plus" :size="ICON_SIZE.md" />新建采购单</button>
+        <button class="btn" @click="showSupplier = !showSupplier">供应商</button>
+        <button class="btn primary" @click="showCreatePo = !showCreatePo">新建采购单</button>
       </div>
 
       <div v-if="showSupplier" class="card">
@@ -340,7 +340,7 @@ onMounted(() => {
         </div>
         <div class="form-row mb-2">
           <input v-model="poSearch" class="input" placeholder="搜索商品加入采购单" @keyup.enter="searchForPo" />
-          <button class="btn" @click="searchForPo"><Icon name="search" :size="ICON_SIZE.md" />搜索</button>
+          <button class="btn" @click="searchForPo">搜索</button>
         </div>
         <button v-for="p in poCandidates" :key="p.sku_id" type="button" class="candidate" @click="addPoLine(p)">
           {{ p.name }}（库存 {{ p.qty }}）
@@ -408,14 +408,14 @@ onMounted(() => {
     <!-- 库存盘点 -->
     <template v-else>
       <div class="toolbar">
-        <button class="btn primary" @click="showCreateSt = !showCreateSt"><Icon name="plus" :size="ICON_SIZE.md" />新建盘点任务</button>
+        <button class="btn primary" @click="showCreateSt = !showCreateSt">新建盘点任务</button>
       </div>
 
       <div v-if="showCreateSt" class="card">
         <h3>新建盘点任务</h3>
         <div class="form-row mb-2">
           <input v-model="stSearch" class="input" placeholder="搜索商品加入盘点" @keyup.enter="searchForSt" />
-          <button class="btn" @click="searchForSt"><Icon name="search" :size="ICON_SIZE.md" />搜索</button>
+          <button class="btn" @click="searchForSt">搜索</button>
         </div>
         <button v-for="p in stCandidates" :key="p.sku_id" type="button" class="candidate" @click="addStLine(p)">
           {{ p.name }}（账面 {{ p.qty }}）
@@ -423,7 +423,7 @@ onMounted(() => {
         <div class="chip-row" v-if="stLines.length">
           <span v-for="(l, i) in stLines" :key="l.sku_id" class="chip">
             {{ l.name }}
-            <button class="btn btn-sm ghost danger-text" aria-label="移除该商品" @click="removeStLine(i)"><Icon name="close" :size="ICON_SIZE.sm" /></button>
+            <button class="btn btn-sm ghost danger-text" aria-label="移除该商品" @click="removeStLine(i)"></button>
           </span>
         </div>
         <button class="btn primary" @click="submitSt">创建任务</button>

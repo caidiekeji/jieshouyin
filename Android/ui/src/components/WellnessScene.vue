@@ -31,7 +31,6 @@ onMounted(load)
   <SceneBoard
     class="scene-wellness"
     title="养生项目"
-    hint="按项目分类点单，价格与次数以商品档案为准"
     :min-card="210"
     :empty-text="filtered.length ? '' : `「${group}」下还没有项目。到商品管理按推拿理疗、艾灸、足疗等分类建服务项目。`"
   >

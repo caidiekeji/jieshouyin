@@ -334,9 +334,9 @@ onMounted(reload)
       <input v-model="keyword" class="input" placeholder="搜索商品名 / 条码" @keyup.enter="reload" />
       <button class="btn" :disabled="loading" @click="reload">
         <span v-if="loading" class="btn-spinner" aria-label="查询中"></span>
-        <Icon v-else name="search" :size="ICON_SIZE.md" />{{ loading ? '查询中…' : '查询' }}
+        {{ loading ? '查询中…' : '查询' }}
       </button>
-      <button class="btn primary" :aria-expanded="showCreate" @click="showCreate ? closeForm() : openCreate()"><Icon name="plus" :size="ICON_SIZE.md" />{{ showCreate ? '收起表单' : '新增商品' }}</button>
+      <button class="btn primary" :aria-expanded="showCreate" @click="showCreate ? closeForm() : openCreate()">{{ showCreate ? '收起表单' : '新增商品' }}</button>
     </div>
 
     <p v-if="err" class="error">{{ err }}</p>
@@ -400,7 +400,7 @@ onMounted(reload)
         text="编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。"
       />
       <div class="op-form">
-        <button class="btn primary" @click="submitProduct"><Icon name="check" :size="ICON_SIZE.sm" />{{ editSku != null ? '保存修改' : '创建商品' }}</button>
+        <button class="btn primary" @click="submitProduct">{{ editSku != null ? '保存修改' : '创建商品' }}</button>
         <button class="btn ghost" @click="closeForm">取消</button>
       </div>
       <IndustryAttributesPanel
@@ -445,10 +445,10 @@ onMounted(reload)
             <td>{{ p.status === 1 ? '在售' : '停用' }}</td>
             <td class="row-actions-cell">
               <div class="row-actions">
-                <button class="btn btn-sm" @click="startEdit(p)"><Icon name="edit" :size="ICON_SIZE.sm" />编辑</button>
-                <button v-if="!p.is_service" class="btn btn-sm" @click="startAdjust(p)"><Icon name="package" :size="ICON_SIZE.sm" />库存</button>
+                <button class="btn btn-sm" @click="startEdit(p)">编辑</button>
+                <button v-if="!p.is_service" class="btn btn-sm" @click="startAdjust(p)">库存</button>
                 <button class="btn btn-sm ghost" @click="toggleService(p)">{{ p.is_service ? '转实体' : '设为服务' }}</button>
-                <button class="btn btn-sm" @click="startImage(p)"><Icon name="image" :size="ICON_SIZE.sm" />图片</button>
+                <button class="btn btn-sm" @click="startImage(p)">图片</button>
                 <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
               </div>
             </td>
@@ -462,7 +462,6 @@ onMounted(reload)
 
     <div v-if="imageSku != null" class="card">
       <h3>商品图片（SKU {{ imageSku }}）</h3>
-      <HintTip text="两种方式二选一或并存：上传本地文件（存本机），或登记在线图片地址（仅 https）。" />
       <div class="form-grid">
         <label>上传本地图片<input class="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" @change="uploadImage" /></label>
         <label>在线图片地址<input v-model="imageUrlDraft" class="input" placeholder="https://…" /></label>

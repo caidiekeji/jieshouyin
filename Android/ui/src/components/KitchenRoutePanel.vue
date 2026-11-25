@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, type Category, type KitchenRoute } from '../api'
-import HintTip from './HintTip.vue'
 
 /** 厨打档口路由小节：嵌入设置页「打印机设置」卡片内，按分类绑定档口打印机。 */
 const props = defineProps<{ canManage: boolean }>()
@@ -79,7 +78,6 @@ onMounted(() => {
       <li v-if="!routes.length" class="muted small">还没有档口，未配置的分类会打到主打印机。</li>
     </ul>
   </div>
-  <HintTip v-else text="仅店长及以上可修改档口路由。" />
 </template>
 
 <style scoped>

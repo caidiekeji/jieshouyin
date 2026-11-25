@@ -7,7 +7,6 @@ import { useAppContext } from '../../composables/useAppContext'
 import RestaurantScene from '../../components/RestaurantScene.vue'
 import PosCatalogPanel from '../../components/PosCatalogPanel.vue'
 import PosCartPanel from '../../components/PosCartPanel.vue'
-import HintTip from '../../components/HintTip.vue'
 
 const {
   view,
@@ -95,7 +94,6 @@ function asHit(
         </div>
         <div class="pos-page-head">
           <strong>{{ activeTable ? `${activeTable.code} 点单` : ui.boardTitle }}</strong>
-          <HintTip :text="ui.boardHint" />
         </div>
         <div class="pos-quick-row" aria-label="点单类型">
           <button

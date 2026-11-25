@@ -97,7 +97,6 @@ const {
       <div v-if="nativeDialog" class="modal-mask">
         <div class="modal native-modal" role="dialog" aria-modal="true" aria-label="顾客扫码支付">
           <h3>顾客扫码支付</h3>
-          <HintTip text="请顾客使用微信或支付宝扫一扫完成付款，收款后自动关闭" />
           <div class="qr-box" v-html="nativeDialog.qrSvg"></div>
           <p class="mono small muted">单号 {{ nativeDialog.orderNo }}</p>
           <div class="actions">
@@ -111,7 +110,6 @@ const {
       <div v-if="parkDialogOpen" class="modal-mask" @click.self="parkDialogOpen = false">
         <div class="modal" role="dialog" aria-modal="true" aria-label="待取挂单">
           <h3>待取挂单</h3>
-          <HintTip text="点击「取单」将挂单商品放回购物车，促销与会员价现场重算。" />
           <div class="park-dialog-list">
             <div v-for="p in parked" :key="String((p as any).park_id)" class="row-item">
               <span>挂单 {{ (p as any).park_id }} · {{ (p as any).created_at }}</span>
@@ -131,7 +129,6 @@ const {
       <div v-if="couponDialogOpen" class="modal-mask" @click.self="couponDialogOpen = false">
         <div class="modal" role="dialog" aria-modal="true" aria-label="使用优惠券">
           <h3>使用优惠券</h3>
-          <HintTip text="输入优惠券码，应用后按券规则计算优惠；不使用可清除。" />
           <input
             ref="couponDialogInput"
             v-model="couponDraft"
@@ -211,7 +208,6 @@ const {
       <div v-if="memberDialogOpen" class="modal-mask" @click.self="memberDialogOpen = false">
         <div class="modal" role="dialog" aria-modal="true" aria-label="识别会员">
           <h3>识别会员</h3>
-          <HintTip text="输入会员手机号或会员码，识别后按会员价结算；本单收款完成后自动清除。" />
           <input
             ref="memberDialogInput"
             v-model="memberPhone"
@@ -234,9 +230,7 @@ const {
       <!-- 锁机码锁屏：离岗锁屏或隐藏到托盘时覆盖整个界面 -->
       <div v-if="locked" class="lock-overlay">
         <div class="lock-card">
-          <div class="brand-mark"><Icon name="lock" :size="ICON_SIZE.xxl" /></div>
           <h2>收银台已锁定</h2>
-          <HintTip text="收银员临时离岗，请输入锁机码解锁" />
           <input
             v-model="lockInput"
             class="input mono lock-input"
@@ -290,7 +284,7 @@ const {
           <div class="cred-modal-actions">
             <button class="btn" @click="closeCredDialog">关闭</button>
             <button class="btn primary" :disabled="credBusy" @click="saveAllCredentials">
-              <Icon name="check" :size="ICON_SIZE.sm" />{{ credBusy ? '保存中…' : '保存修改' }}
+              {{ credBusy ? '保存中…' : '保存修改' }}
             </button>
           </div>
         </div>
@@ -308,7 +302,7 @@ const {
           <div class="actions">
             <button class="btn" @click="closePwdDialog">取消</button>
             <button class="btn primary" :disabled="pwdBusy" @click="submitChangePassword">
-              <Icon name="check" :size="ICON_SIZE.sm" />{{ pwdBusy ? '保存中…' : '确认修改' }}
+              {{ pwdBusy ? '保存中…' : '确认修改' }}
             </button>
           </div>
         </div>

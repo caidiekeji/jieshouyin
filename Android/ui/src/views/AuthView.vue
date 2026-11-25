@@ -28,7 +28,6 @@ const {
           <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <div>
             <h1>Checkout-R</h1>
-            <HintTip text="选择经营行业，收银台和商品分类会按行业切换" />
           </div>
         </div>
         <h2>选择经营行业</h2>
@@ -64,7 +63,6 @@ const {
           <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <div>
             <h1>Checkout-R</h1>
-            <HintTip text="收银系统授权" />
           </div>
         </div>
         <h2>激活设备</h2>
@@ -100,10 +98,6 @@ const {
         <div class="auth-brand">
           <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <h1>{{ needAdmin ? '设置管理员账号' : onboarding ? '登录' : '欢迎回来' }}</h1>
-          <HintTip
-            v-if="needAdmin || onboarding"
-            :text="needAdmin ? '首次使用，先创建管理员账号，再登录完成初始化' : '使用刚创建的管理员账号登录，继续选择行业'"
-          />
         </div>
         <template v-if="needAdmin">
           <label class="field">

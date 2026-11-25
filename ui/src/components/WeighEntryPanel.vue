@@ -6,11 +6,8 @@
 import { ref } from 'vue'
 import { api } from '../api'
 import { useAppContext } from '../composables/useAppContext'
-import Icon from './Icon.vue'
-import { ICON_SIZE } from '../constants'
 
-const { ICON_SIZE: ctxIconSize, pushWeighToCart, showToast } = useAppContext()
-const iconSize = ctxIconSize ?? ICON_SIZE
+const { pushWeighToCart, showToast } = useAppContext()
 
 const instoreCode = ref('')
 const grams = ref('')
@@ -61,9 +58,7 @@ async function submit() {
 <template>
   <div class="weigh-entry">
     <button type="button" class="weigh-toggle" :aria-expanded="open" @click="open = !open">
-      <Icon name="scale" :size="iconSize.md" />
       手工称重
-      <span class="muted small">无条码秤时按店内码 + 克重计价</span>
     </button>
     <div v-if="open" class="weigh-form">
       <input v-model="instoreCode" class="input" inputmode="numeric" maxlength="5" placeholder="店内码 5 位" aria-label="称重商品店内码" />

@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, formatMoney, type CouponRow, type MemberRow, type PromotionRow } from '../api'
-import Icon from './Icon.vue'
 import HintTip from './HintTip.vue'
 import {
   CENTS_PER_YUAN,
   DISCOUNT_ZHE_FACTOR,
   ERROR_DURATION_MS,
-  ICON_SIZE,
   PAGE_SIZE,
   PROMO_DEFAULT_PRIORITY,
   TOAST_DURATION_MS,
@@ -255,8 +253,8 @@ onMounted(() => {
     <template v-if="tab === 'member'">
       <div class="toolbar">
         <input v-model="memberKw" class="input" placeholder="搜索手机号 / 会员名 / 会员号" @keyup.enter="reloadMembers" />
-        <button class="btn" @click="reloadMembers"><Icon name="search" :size="ICON_SIZE.md" />查询</button>
-        <button class="btn primary" @click="showCreate = !showCreate"><Icon name="plus" :size="ICON_SIZE.md" />新增会员</button>
+        <button class="btn" @click="reloadMembers">查询</button>
+        <button class="btn primary" @click="showCreate = !showCreate">新增会员</button>
       </div>
 
       <div v-if="showCreate" class="card">
@@ -299,14 +297,13 @@ onMounted(() => {
           <button class="btn primary" @click="submitRecharge">确认充值</button>
           <button class="btn ghost" @click="rechargeMemberId = null">取消</button>
         </div>
-        <HintTip text="扫码充值需要渠道收款回调确认，当前版本仅支持现金充值（微信/支付宝充值待渠道收款接入后开放）。" />
       </div>
     </template>
 
     <!-- 促销 -->
     <template v-else-if="tab === 'promo'">
       <div class="toolbar">
-        <button class="btn primary" @click="showCreatePromo = !showCreatePromo"><Icon name="plus" :size="ICON_SIZE.md" />新建促销</button>
+        <button class="btn primary" @click="showCreatePromo = !showCreatePromo">新建促销</button>
       </div>
 
       <div v-if="showCreatePromo" class="card">

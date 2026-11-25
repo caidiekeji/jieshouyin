@@ -78,7 +78,6 @@ onMounted(load)
   <SceneBoard
     class="scene-baby"
     title="母婴选购"
-    hint="按月龄段与品类分档，点卡片直接加购"
     :min-card="132"
     :empty-text="filtered.length ? '' : '当前分类还没有商品。到「商品 → 新增」按奶粉、纸尿裤、辅食等分类建品后即可点选。'"
   >

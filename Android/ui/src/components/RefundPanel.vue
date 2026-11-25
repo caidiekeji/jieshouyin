@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { api, formatMoney, today, type OrderDetail, type OrderSummary } from '../api'
-import Icon from './Icon.vue'
 import HintTip from './HintTip.vue'
 import {
   ERROR_DURATION_MS,
-  ICON_SIZE,
   ORDER_LIST_LIMIT,
   ORDER_STATUS_LABEL,
   TOAST_DURATION_MS,
@@ -159,7 +157,7 @@ onMounted(async () => {
         <input v-model="keyword" class="input" placeholder="订单号" aria-label="订单号" @keyup.enter="loadOrders" />
         <button class="btn" :disabled="loading" @click="loadOrders">
           <span v-if="loading" class="btn-spinner" aria-label="查询中"></span>
-          <Icon v-else name="search" :size="ICON_SIZE.md" />{{ loading ? '查询中…' : '查询' }}
+          {{ loading ? '查询中…' : '查询' }}
         </button>
       </div>
       <table class="tbl">
@@ -230,7 +228,7 @@ onMounted(async () => {
         @click="submitRefund"
       >
         <span v-if="submitting" class="btn-spinner" aria-label="退款处理中"></span>
-        <Icon v-else name="check" :size="ICON_SIZE.md" />{{ submitting ? '退款处理中…' : '确认退款（需授权）' }}
+        {{ submitting ? '退款处理中…' : '确认退款（需授权）' }}
       </button>
       <HintTip text="退款按原单行优惠还原金额；扫码支付订单退至原渠道，需店长授权。" />
     </div>

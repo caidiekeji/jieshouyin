@@ -6,54 +6,54 @@
  * component  组件层：在组件 <style> 内声明局部变量，引用语义层。
  *
  * 推导依据：B 端收银工作台——操作密集、扫读为主、色彩克制、动效极低。
- * 配色范式：对标 Square 的「沉稳主体 + 单一撞色强调」，主体取暖石墨。
- *   - 主体石墨（slate）：顶栏、导航、品牌承载信息密度，沉稳克制；
- *   - 撞色朱橙（ember）：收款/金额/选中/主行动一眼跳出，商业温度；
- *   - 石墨与朱橙一冷一暖，全程避开蓝紫与墨绿。
- *   - 暖中性（ink）：内容区背景与正文，掺暖调避免纯灰的 AI 味。
+ * 配色范式：对标 Square「黑白极简 + 单一撞色强调」的零售 POS 语言：
+ *   - 主体近黑石墨（slate）：顶栏、导航、品牌承载信息密度，Square 式克制；
+ *   - 撞色天蓝（brand #006aff）：收款/金额/选中/主行动一眼跳出，全站唯一彩色事件；
+ *   - 中性面为冷灰（ink）：内容区背景与正文走纯中性灰，不用暖调杂色；
+ *   - 语义色沿用 Square 口径：success #008060 / warning #cc4b00 / danger #c01a1f。
+ *   - 全程纯色，避开蓝紫渐变。
  * ============================================================ */
 
 /* ---------- primitives：色阶 ---------- */
 :root {
-  /* 撞色强调阶：朱橙（ember），以 #e8590c 为 600 沿明度双向派生（纯色，无渐变）。
-     取自 Square 语义橙 #cc4b00 与 Strava #fc4c02 之间，兼顾警示感与商业暖度。 */
-  --p-brand-50: #fff2e8;
-  --p-brand-100: #ffe0cc;
-  --p-brand-200: #ffc19e;
-  --p-brand-300: #ff9b66;
-  --p-brand-400: #f97330;
-  --p-brand-500: #ea5f14;
-  --p-brand-600: #e8590c;
-  --p-brand-700: #c24107;
-  --p-brand-800: #9a350b;
-  --p-brand-900: #7a2e0e;
+  /* 撞色强调阶：天蓝（brand），以 Square 强调色 #006aff 为 600 纯色派生。
+     hover 走 #0050c8，淡底 #e6efff，与 Square 官方口径一致。 */
+  --p-brand-50: #f0f6ff;
+  --p-brand-100: #e6efff;
+  --p-brand-200: #bcd6ff;
+  --p-brand-300: #8ab8ff;
+  --p-brand-400: #4a94ff;
+  --p-brand-500: #1e78ff;
+  --p-brand-600: #006aff;
+  --p-brand-700: #0050c8;
+  --p-brand-800: #0043a6;
+  --p-brand-900: #0a2d5e;
 
-  /* 主体石墨阶（slate）：顶栏、导航、品牌标识的承载色，与朱橙撞色。
-     暖调深灰，不带绿相也不带蓝相；50/900 是亮/暗两极。 */
-  --p-slate-50: #f5f4f2;
-  --p-slate-100: #e9e6e1;
-  --p-slate-200: #d3cec7;
-  --p-slate-300: #b3aca2;
-  --p-slate-400: #8e8579;
-  --p-slate-500: #6b6359;
-  --p-slate-600: #514a41;
-  --p-slate-700: #3c362f;
-  --p-slate-800: #2a251f;
-  --p-slate-900: #1b1713;
+  /* 主体石墨阶（slate）：顶栏、导航、品牌标识的承载色，冷调近黑（Square #1c1c1c 口径）。 */
+  --p-slate-50: #f7f7f7;
+  --p-slate-100: #ececec;
+  --p-slate-200: #d8d8d8;
+  --p-slate-300: #b8b8b8;
+  --p-slate-400: #919191;
+  --p-slate-500: #6e6e6e;
+  --p-slate-600: #535353;
+  --p-slate-700: #383838;
+  --p-slate-800: #1c1c1c;
+  --p-slate-900: #0f0f0f;
 
-  /* 暖中性阶（ink）：内容区背景与正文，掺暖调而非纯灰；0/900 是亮/暗两极画布。 */
+  /* 冷中性阶（ink）：内容区背景与正文，纯中性灰不带色相；0/900 是亮/暗两极画布。 */
   --p-ink-0: #ffffff;
-  --p-ink-25: #faf8f6;
-  --p-ink-50: #f5f2ee;
-  --p-ink-100: #ebe5de;
-  --p-ink-200: #ddd5cb;
-  --p-ink-300: #c3b8ab;
-  --p-ink-400: #9c9082;
-  --p-ink-500: #6f6559;
-  --p-ink-600: #4f473d;
-  --p-ink-700: #332d26;
-  --p-ink-800: #211c17;
-  --p-ink-900: #15110e;
+  --p-ink-25: #fbfbfb;
+  --p-ink-50: #f6f6f6;
+  --p-ink-100: #ededed;
+  --p-ink-200: #dedede;
+  --p-ink-300: #c6c6c6;
+  --p-ink-400: #9a9a9a;
+  --p-ink-500: #6b6b6b;
+  --p-ink-600: #4a4a4a;
+  --p-ink-700: #2e2e2e;
+  --p-ink-800: #1b1b1b;
+  --p-ink-900: #101010;
 
   /* 中性阶保留别名指向墨炭，兼容既有 var(--p-neutral-*) 引用 */
   --p-neutral-0: var(--p-ink-0);
@@ -69,30 +69,30 @@
   --p-neutral-800: var(--p-ink-800);
   --p-neutral-900: var(--p-ink-900);
 
-  /* 危险： destructive 动作与校验错误 */
-  --p-danger-50: #fdecea;
-  --p-danger-100: #f9d5d0;
-  --p-danger-500: #c0392b;
-  --p-danger-600: #a32d22;
-  --p-danger-700: #7f231a;
-  --p-danger-900: #3a1f1c;
+  /* 危险： destructive 动作与校验错误（Square critical #c01a1f） */
+  --p-danger-50: #fdeded;
+  --p-danger-100: #f6c9c9;
+  --p-danger-500: #c01a1f;
+  --p-danger-600: #9e1418;
+  --p-danger-700: #7e1013;
+  --p-danger-900: #3f0a0c;
 
-  /* 成功： 完成态、正向结果 */
-  --p-success-50: #e7f6ed;
-  --p-success-500: #1f9254;
-  --p-success-600: #18794e;
-  --p-success-900: #153325;
+  /* 成功： 完成态、正向结果（Square success #008060） */
+  --p-success-50: #e8f5f1;
+  --p-success-500: #008060;
+  --p-success-600: #006650;
+  --p-success-900: #0a3328;
 
-  /* 警示： 试用期、到期提醒；金黄与朱橙、危险红都拉开，避免撞色混淆 */
-  --p-warning-50: #fdf6e3;
-  --p-warning-100: #f5e4ae;
-  --p-warning-500: #b8890f;
-  --p-warning-700: #8a6604;
-  --p-warning-900: #3a2f10;
-  --p-warning-950: #5a4a18;
+  /* 警示： 试用期、到期提醒；Square warning #cc4b00，与天蓝强调、危险红都拉开 */
+  --p-warning-50: #fdf2ec;
+  --p-warning-100: #f7dcc8;
+  --p-warning-500: #cc4b00;
+  --p-warning-700: #a63c02;
+  --p-warning-900: #4a2408;
+  --p-warning-950: #582b0a;
 
   /* 行业强调色原料：每个行业一组，供场景语义层引用。
-     只在各自行业的看板/面板内出现，不进入全局 chrome，避免冲垮朱橙主体。 */
+     只在各自行业的看板/面板内出现，不进入全局 chrome，避免冲垮天蓝主体。 */
   /* 母婴玫瑰 rose */
   --p-rose-50: #fff5f8;
   --p-rose-100: #fde8ef;
@@ -127,11 +127,11 @@
   --p-gold-500: #c9a227;
   --p-gold-700: #7d6a3a;
 
-  /* 暗色表面： 墨炭深底带暖调，相邻层靠提亮区分而非描边 */
-  --p-surface-dark-1: #15110e;
-  --p-surface-dark-2: #211c17;
-  --p-surface-dark-3: #332d26;
-  --p-border-dark: #4f473d;
+  /* 暗色表面： 近黑深底冷灰，相邻层靠提亮区分而非描边 */
+  --p-surface-dark-1: #101010;
+  --p-surface-dark-2: #1a1a1a;
+  --p-surface-dark-3: #262626;
+  --p-border-dark: #3d3d3d;
 
   /* ---------- primitives：刻度 ---------- */
 
@@ -181,9 +181,9 @@
   /* 描边：全站统一 1px，靠颜色而非粗细区分层级 */
   --p-border-width: 1px;
 
-  /* 阴影：只有「卡片」与「浮层」两级海拔；暖调墨炭投影，不带蓝 */
-  --p-shadow-card: 0 2px 10px rgba(32, 24, 16, 0.10);
-  --p-shadow-float: 0 2px 12px rgba(0, 0, 0, 0.32);
+  /* 阴影：只有「卡片」与「浮层」两级海拔；中性黑投影 */
+  --p-shadow-card: 0 2px 10px rgba(0, 0, 0, 0.10);
+  --p-shadow-float: 0 2px 12px rgba(0, 0, 0, 0.30);
 
   /* 动效：工具类仅保留状态切换 120ms；spinner 是持续运动单独一档 */
   --p-duration-fast: 120ms;
@@ -198,8 +198,8 @@
   --p-z-toast: 300;
   --p-z-lock: 400;
 
-  /* 遮罩：模态框背后压暗层，用墨炭 900 半透明表达，禁止就地写 rgba */
-  --p-overlay-scrim: rgba(21, 17, 14, 0.5);
+  /* 遮罩：模态框背后压暗层，用近黑半透明表达，禁止就地写 rgba */
+  --p-overlay-scrim: rgba(16, 16, 16, 0.5);
 }
 
 /* ---------- semantic：亮色（表达用在哪） ---------- */
@@ -220,7 +220,7 @@
   --border: var(--p-neutral-200);
   --border-strong: var(--p-neutral-300);
 
-  /* 撞色强调（朱橙）：收款、金额、主行动、选中态 */
+  /* 撞色强调（天蓝）：收款、金额、主行动、选中态，全站唯一彩色事件 */
   --brand: var(--p-brand-600);
   --brand-hover: var(--p-brand-700);
   --brand-subtle: var(--p-brand-50);
@@ -230,7 +230,7 @@
   --brand-wechat: #07C160;
   --brand-alipay: #1677FF;
 
-  /* 主体色（石墨）：顶栏、导航、品牌标识 */
+  /* 主体色（近黑石墨）：顶栏、导航、品牌标识 */
   --chrome: var(--p-slate-800);
   --chrome-hover: var(--p-slate-700);
   --chrome-active: var(--p-slate-600);
@@ -321,6 +321,8 @@
 :root {
   --layout-topbar-height: 56px;
   --layout-auth-width: 460px;
+  /* 弹窗基础最小宽：小弹窗不再被登录卡宽度顶宽 */
+  --layout-modal-min: 400px;
   /* 弹窗宽度三档：sm=现金/确认、md=凭据/单列表单、lg=批量创建/多列表单 */
   --layout-modal-sm: 440px;
   --layout-modal-md: 560px;
@@ -352,8 +354,7 @@
   --pos-touch-size: 44px;
   --pos-card-min-height: 96px;
   --control-spinner-size: 36px;
-  --control-brandmark-size: 42px;
-  /* 登录页品牌标识：比通用 brand-mark 大一档，作为页面的视觉锚点 */
+  /* 登录页品牌标识：作为认证页面的视觉锚点 */
   --control-brandmark-lg-size: 56px;
   /* 行内轻量加载指示：嵌在输入框/按钮里，16px 不抢内容 */
   --control-inline-spinner-size: 16px;
@@ -440,7 +441,7 @@
  * danger 破坏操作 / hint-bg 提示底 / hint-line 提示描边 / hint-text 提示字。
  * ============================================================ */
 
-/* ---------- 餐饮桌台：暖米底 + 朱棕强调（默认场景） ---------- */
+/* ---------- 餐饮桌台：纯白底 + 品牌蓝强调（默认场景） ---------- */
 .scene-dining {
   --scene-surface: var(--p-ink-0);
   --scene-line: var(--border);

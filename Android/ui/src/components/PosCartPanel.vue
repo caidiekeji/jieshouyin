@@ -5,7 +5,6 @@
  */
 import { useAppContext } from '../composables/useAppContext'
 import { ICON_SIZE } from '../constants'
-import HintTip from './HintTip.vue'
 import Icon from './Icon.vue'
 import Checkbox from './Checkbox.vue'
 
@@ -22,7 +21,6 @@ const {
   couponCode,
   couponHint,
   couponRecoverable,
-  currentUser,
   effectivePrice,
   enterMixedMode,
   formatMoney,
@@ -53,7 +51,6 @@ const {
   returnTableLine,
   selectPayChannel,
   setLineQty,
-  storeProfile,
   submitCheckout,
   submitTableOrder,
   tableSentQty,
@@ -63,12 +60,6 @@ const iconSize = ctxIconSize ?? ICON_SIZE
 
 <template>
   <section class="panel cart-panel">
-    <!-- 常驻上下文：门店 / 收银员 / 当前台位，收银员不用离开结算区确认身份 -->
-    <div class="cart-context">
-      <span><Icon name="store" :size="iconSize.sm" />{{ storeProfile?.store_name || '未命名门店' }}</span>
-      <span><Icon name="user" :size="iconSize.sm" />{{ currentUser || '收银员' }}</span>
-      <span><Icon name="scan" :size="iconSize.sm" />{{ activeTable ? activeTable.code : '散客收银' }}</span>
-    </div>
     <h3>
       购物车 <span class="badge">{{ cart.length }}</span>
       <button
@@ -143,14 +134,13 @@ const iconSize = ctxIconSize ?? ICON_SIZE
         >
           <Icon name="ticket" :size="iconSize.md" />{{ couponCode ? `券 ${couponCode}` : '优惠券' }}
         </button>
-        <button v-if="couponCode" class="btn ghost pay-quick" @click="clearCoupon"><Icon name="close" :size="iconSize.sm" />清除券</button>
+        <button v-if="couponCode" class="btn ghost pay-quick" @click="clearCoupon">清除券</button>
       </div>
       <span v-if="couponHint" class="small" :class="couponRecoverable ? 'warning-text' : 'muted'">{{ couponHint }}</span>
       <span v-if="memberBalances" class="member-balance-inline">
         本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
       </span>
       <div v-if="memberId != null" class="points-earn-inline">
-        <Icon name="star" :size="iconSize.sm" />
         <span v-if="(quote?.points_earned ?? 0) > 0">本单预计累计 <strong>+{{ quote?.points_earned }}</strong> 积分</span>
         <span v-else>本单无积分累计（未达整元或积分功能已关闭）</span>
       </div>
@@ -192,20 +182,18 @@ const iconSize = ctxIconSize ?? ICON_SIZE
               placeholder="扫描顾客付款码，回车即收款"
               @keyup.enter="submitCheckout"
             />
-            <HintTip text="扫码枪扫顾客付款码即完成收款，金额已按应收自动带出。" />
-            <button class="btn ghost" @click="nativeMode = true"><Icon name="qr" :size="iconSize.sm" />改为顾客扫屏幕二维码</button>
+            <button class="btn ghost" @click="nativeMode = true">改为顾客扫屏幕二维码</button>
           </template>
           <template v-else>
             <p class="pay-hint">
-              <Icon name="qr" :size="iconSize.md" />
               点击「收款」后将展示二维码，顾客用{{ payChannel === 'WECHAT' ? '微信' : '支付宝' }}扫码支付 ¥{{ formatMoney(payableAmount) }}。
             </p>
-            <button class="btn ghost" @click="nativeMode = false"><Icon name="undo" :size="iconSize.sm" />改回扫描顾客付款码</button>
+            <button class="btn ghost" @click="nativeMode = false">改回扫描顾客付款码</button>
           </template>
         </div>
         <div v-else-if="payMode === 'simple' && payChannel === 'STORED_VALUE'" class="pay-panel">
           <p v-if="memberId == null" class="pay-hint warn"><Icon name="alert" :size="iconSize.md" />储值支付需先点击「会员」识别会员。</p>
-          <p v-else class="pay-hint ok"><Icon name="wallet" :size="iconSize.md" />将从会员储值余额扣除 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}。</p>
+          <p v-else class="pay-hint ok">将从会员储值余额扣除 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}。</p>
         </div>
         <div v-else-if="payMode === 'mixed'" class="pay-splits">
           <div v-for="(s, i) in paySplits" :key="i" class="pay-split">
@@ -253,7 +241,7 @@ const iconSize = ctxIconSize ?? ICON_SIZE
             <span class="pay-shortfall" :class="{ ok: payShortfall <= 0 }">
               待收 ¥{{ formatMoney(payShortfall > 0 ? payShortfall : 0) }}
             </span>
-            <button class="link" @click="selectPayChannel('CASH')"><Icon name="undo" :size="iconSize.sm" />返回单笔支付</button>
+            <button class="link" @click="selectPayChannel('CASH')">返回单笔支付</button>
           </div>
         </div>
         <div class="actions checkout-actions">
@@ -265,10 +253,9 @@ const iconSize = ctxIconSize ?? ICON_SIZE
         </div>
       </template>
       <div v-else class="cart-idle">
-        <Icon name="scan" :size="iconSize.lg" />
         <span>扫码或选择商品后开始收款</span>
       </div>
-      <button v-if="lastOrder && printAuto" class="btn ghost full" @click="printReceipt"><Icon name="print" :size="iconSize.md" />重打小票 {{ lastOrder }}</button>
+      <button v-if="lastOrder && printAuto" class="btn ghost full" @click="printReceipt">重打小票 {{ lastOrder }}</button>
     </div>
   </section>
 </template>

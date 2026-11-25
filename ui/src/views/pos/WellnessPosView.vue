@@ -5,7 +5,6 @@ import { useAppContext } from '../../composables/useAppContext'
 import WellnessRoomBoard from '../../components/WellnessRoomBoard.vue'
 import WellnessScene from '../../components/WellnessScene.vue'
 import PosCartPanel from '../../components/PosCartPanel.vue'
-import HintTip from '../../components/HintTip.vue'
 
 const {
   view,
@@ -27,7 +26,6 @@ const ui = INDUSTRY_UI.WELLNESS
     <section v-if="sceneBoardStage" class="panel scene-home-panel">
       <WellnessRoomBoard
         :title="ui.boardTitle"
-        :hint="ui.boardHint"
         :default-prefix="ui.defaultPrefix"
         :active-table-id="null"
         :cart="[]"
@@ -52,7 +50,6 @@ const ui = INDUSTRY_UI.WELLNESS
         </div>
         <div class="pos-page-head">
           <strong>{{ activeTable ? `${activeTable.code} 服务项目` : ui.boardTitle }}</strong>
-          <HintTip :text="ui.boardHint" />
         </div>
         <WellnessScene @add="addToCart" @error="showSceneError" />
       </section>

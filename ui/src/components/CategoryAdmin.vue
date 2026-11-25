@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, type Category } from '../api'
-import Icon from './Icon.vue'
-import { ICON_SIZE, TOAST_DURATION_MS } from '../constants'
-import HintTip from './HintTip.vue'
+import { TOAST_DURATION_MS } from '../constants'
 
 const categories = ref<Category[]>([])
 const name = ref('')
@@ -100,8 +98,6 @@ onMounted(reload)
 
 <template>
   <div class="page-body">
-    <HintTip text="按行业预置的分类模板在此维护；新增分类不影响已有商品。" />
-
     <div class="card wide">
       <h3>分类结构</h3>
       <p v-if="err" class="error">{{ err }}</p>
@@ -138,7 +134,7 @@ onMounted(reload)
         </label>
       </div>
       <div class="op-form">
-        <button class="btn primary" @click="add"><Icon name="plus" :size="ICON_SIZE.md" />添加分类</button>
+        <button class="btn primary" @click="add">添加分类</button>
       </div>
     </div>
   </div>

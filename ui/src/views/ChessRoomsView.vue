@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ICON_SIZE } from '../constants'
 import HintTip from '../components/HintTip.vue'
-import Icon from '../components/Icon.vue'
 import TableCreateDialog from '../components/TableCreateDialog.vue'
 import { useAppContext } from '../composables/useAppContext'
 import { useTableAdmin } from '../composables/useTableAdmin'
@@ -22,7 +20,7 @@ const hint = computed(() => `共 ${tables.value.length} 间 · 空闲 ${freeCoun
         <HintTip :text="hint" />
       </div>
       <button v-if="atLeast('MANAGER')" class="btn primary" @click="showCreate = true">
-        <Icon name="plus" :size="ICON_SIZE.md" />批量新增
+        批量新增
       </button>
     </div>
     <p v-if="err" class="error">{{ err }}</p>
@@ -43,7 +41,7 @@ const hint = computed(() => `共 ${tables.value.length} 间 · 空闲 ${freeCoun
               <div class="row-actions">
                 <button v-if="t.status === 'OCCUPIED'" class="btn btn-sm" :disabled="busy" @click="clear(t)">清台</button>
                 <button v-else-if="atLeast('MANAGER')" class="btn btn-sm ghost danger-text" :disabled="busy" @click="remove(t)">
-                  <Icon name="trash" :size="ICON_SIZE.sm" />删除
+                  删除
                 </button>
               </div>
             </td>

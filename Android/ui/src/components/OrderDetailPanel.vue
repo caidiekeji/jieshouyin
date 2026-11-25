@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { api, formatMoney, type OrderDetail } from '../api'
-import Icon from './Icon.vue'
 import { useAppStore } from '../stores/app'
 import {
   ERROR_DURATION_MS,
-  ICON_SIZE,
   ORDER_STATUS_LABEL,
   PAY_CHANNEL_LABEL,
   PAY_STATUS_LABEL,
@@ -77,6 +75,14 @@ function search() {
   }
   emit('search', no)
 }
+
+/** ISO 时间转本地「年-月-日 时:分」，避免原始 ISO 串过长折行 */
+function fmtTime(s: string): string {
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return s
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 </script>
 
 <template>
@@ -84,11 +90,9 @@ function search() {
     <div class="page-head">
       <h2>订单详情</h2>
       <div class="tab-row">
-        <button class="btn" :disabled="loading" @click="load">
-          <Icon name="refresh" :size="ICON_SIZE.md" />刷新
-        </button>
-        <button v-if="app.printAuto" class="btn" @click="reprint"><Icon name="print" :size="ICON_SIZE.md" />重打小票</button>
-        <button class="btn danger-text" @click="emit('refund', props.orderNo)"><Icon name="undo" :size="ICON_SIZE.md" />发起退款</button>
+        <button class="btn" :disabled="loading" @click="load">刷新</button>
+        <button v-if="app.printAuto" class="btn" @click="reprint">重打小票</button>
+        <button class="btn danger-text" @click="emit('refund', props.orderNo)">发起退款</button>
       </div>
     </div>
 
@@ -121,7 +125,7 @@ function search() {
       </div>
       <div class="form-grid">
         <div class="field"><span class="field-label">业务日期</span><span class="field-value mono">{{ detail.header.business_date }}</span></div>
-        <div class="field"><span class="field-label">下单时间</span><span class="field-value mono">{{ detail.header.created_at }}</span></div>
+        <div class="field"><span class="field-label">下单时间</span><span class="field-value mono">{{ fmtTime(detail.header.created_at) }}</span></div>
         <div class="field"><span class="field-label">收银员编号</span><span class="field-value mono">{{ detail.header.cashier_id }}</span></div>
         <div class="field"><span class="field-label">会员</span><span class="field-value">{{ detail.header.member_name || '散客' }}</span></div>
         <div v-if="detail.header.table_code" class="field"><span class="field-label">桌台/包间</span><span class="field-value mono">{{ detail.header.table_code }}</span></div>
@@ -199,7 +203,6 @@ function search() {
     </div>
 
     <div v-if="!detail && !loading" class="empty-state-card">
-      <Icon name="search" :size="ICON_SIZE.lg" />
       <p>输入上方订单号，查看商品明细、支付流水与退货记录</p>
     </div>
   </main>

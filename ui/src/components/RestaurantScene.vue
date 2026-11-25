@@ -157,7 +157,6 @@ onUnmounted(() => {
   <SceneBoard
     class="scene-dining"
     title="餐饮桌台"
-    hint="点击空闲桌台进入点菜，加入菜品后自动开台；结算成功自动清台"
     :min-card="140"
     :empty-text="tables.length ? '' : '还没有桌台。先批量新增 A01 等桌号，再进入点菜。'"
     :notice="actionMode === 'transfer'

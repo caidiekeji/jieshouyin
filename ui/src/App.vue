@@ -167,21 +167,21 @@ onUnmounted(() => {
           <span v-if="storeProfile?.industry_name" class="badge">{{ storeProfile.industry_name }}</span>
         </div>
         <nav class="nav">
-          <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS"><Icon name="cart" :size="ICON_SIZE.lg" />收银</button>
+          <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS">收银</button>
           <template v-if="atLeast('MANAGER')">
-            <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts"><Icon name="package" :size="ICON_SIZE.lg" />商品</button>
+            <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts">商品</button>
             <!-- 桌台/包间管理：台位的批量创建与删除集中在此，收银看板保持纯净 -->
             <button
               v-if="industryUi.navTables"
               :class="['nav-btn', { active: view === 'tables' }]"
               @click="view = 'tables'"
-            ><Icon name="store" :size="ICON_SIZE.lg" />{{ industryUi.navTables }}</button>
-            <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="clipboard" :size="ICON_SIZE.lg" />采购盘点</button>
-            <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="heart" :size="ICON_SIZE.lg" />会员营销</button>
-            <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="undo" :size="ICON_SIZE.lg" />退款</button>
-            <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)"><Icon name="receipt" :size="ICON_SIZE.lg" />订单</button>
-            <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.lg" />报表</button>
-            <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="ICON_SIZE.lg" />设置</button>
+            >{{ industryUi.navTables }}</button>
+            <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'">采购盘点</button>
+            <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'">会员营销</button>
+            <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()">退款</button>
+            <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)">订单</button>
+            <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport">报表</button>
+            <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings">设置</button>
           </template>
         </nav>
         <div class="user">
@@ -191,18 +191,17 @@ onUnmounted(() => {
             aria-haspopup="menu"
             @click.stop="userMenuOpen = !userMenuOpen"
           >
-            <Icon name="user" :size="ICON_SIZE.md" />
             <span class="user-name">{{ currentUser }}</span>
             <span class="role-tag">{{ currentRole === 'ADMIN' ? '管理员' : currentRole === 'MANAGER' ? '店长' : '店员' }}</span>
             <Icon name="chevron-down" :size="ICON_SIZE.sm" class="user-caret" :class="{ open: userMenuOpen }" />
           </button>
           <!-- 账户菜单：交班为收银员日常动作（接班收银员或店长二次授权），锁机/改密/退出为个人操作 -->
           <div v-if="userMenuOpen" class="user-menu" role="menu">
-            <button class="user-menu-item" role="menuitem" @click="pickMenu(goShift)"><Icon name="clipboard" :size="ICON_SIZE.md" />交班</button>
-            <button class="user-menu-item" role="menuitem" @click="pickMenu(lockScreen)"><Icon name="lock" :size="ICON_SIZE.md" />锁机</button>
-            <button class="user-menu-item" role="menuitem" @click="pickMenu(openPwdDialog)"><Icon name="key" :size="ICON_SIZE.md" />修改密码</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(goShift)">交班</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(lockScreen)">锁机</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(openPwdDialog)">修改密码</button>
             <div class="user-menu-sep" role="separator"></div>
-            <button class="user-menu-item danger" role="menuitem" @click="pickMenu(doLogout)"><Icon name="logout" :size="ICON_SIZE.md" />退出登录</button>
+            <button class="user-menu-item danger" role="menuitem" @click="pickMenu(doLogout)">退出登录</button>
           </div>
         </div>
       </header>
@@ -218,10 +217,10 @@ onUnmounted(() => {
           <h2>{{ goodsTab === 'category' ? '分类管理' : '商品管理' }}</h2>
           <div class="seg" role="tablist">
             <button :class="['seg-btn', { active: goodsTab === 'list' }]" role="tab" :aria-selected="goodsTab === 'list'" @click="goodsTab = 'list'; view = 'products'">
-              <Icon name="package" :size="ICON_SIZE.md" />商品列表
+              商品列表
             </button>
             <button :class="['seg-btn', { active: goodsTab === 'category' }]" role="tab" :aria-selected="goodsTab === 'category'" @click="goodsTab = 'category'; view = 'categories'">
-              <Icon name="box" :size="ICON_SIZE.md" />分类管理
+              分类管理
             </button>
           </div>
         </div>

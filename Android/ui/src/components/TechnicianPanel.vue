@@ -162,7 +162,6 @@ onMounted(() => {
         {{ open ? '收起' : '技师排班 / 提成' }}
         <span class="muted">（今日在班 {{ technicians.filter((t) => t.on_duty).length }} 人）</span>
       </button>
-      <span v-if="!open" class="muted small">服务行可在购物车里指定在班技师</span>
     </div>
     <div v-if="open" class="tech-body">
       <div class="tech-add">

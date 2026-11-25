@@ -15,7 +15,6 @@ import TableCreateDialog from './TableCreateDialog.vue'
 /** 养生服务间独立页面：床位列表 + 服务项目计数，不复用棋牌包间页面。 */
 const props = defineProps<{
   title: string
-  hint: string
   defaultPrefix: string
   activeTableId: number | null
   cart: CartLine[]
@@ -82,7 +81,6 @@ async function runAction(fn: () => Promise<unknown>) {
   <SceneBoard
     class="scene-wellness-room"
     :title="title"
-    :hint="hint"
     :min-card="260"
     :empty-text="rooms.length ? '' : '还没有服务间。先在商品里建“房费”项目，再批量新增服务间并绑定床位。'"
     :notice="transferSource ? `转间：点击空闲服务间，当前 ${transferSource.code} 的计时与消费会迁过去` : ''"

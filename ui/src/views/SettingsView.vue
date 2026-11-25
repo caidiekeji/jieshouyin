@@ -4,13 +4,12 @@ import KitchenRoutePanel from '../components/KitchenRoutePanel.vue'
 import TechnicianPanel from '../components/TechnicianPanel.vue'
 import ReceiptPreview from '../components/ReceiptPreview.vue'
 import Switch from '../components/Switch.vue'
-import Icon from '../components/Icon.vue'
 import { useAppContext } from '../composables/useAppContext'
 import HintTip from '../components/HintTip.vue'
 
 const ctx = useAppContext()
 const {
-  ICON_SIZE, activateError, activateInSettings, activateToken, addUser, applyTheme, atLeast,
+  activateError, activateInSettings, activateToken, addUser, applyTheme, atLeast,
   channelDraft, clearLockCode, configDraft, configLabel,
   configOptions, confirmIndustry, doRetryPrint, formatMoney,
   gatewayModes, importBill, industries, industry,
@@ -60,7 +59,7 @@ watch(configGroupTabs, (tabs) => {
             :class="['report-nav-item', { active: settingsTab === t.id }]"
             @click="settingsTab = t.id"
           >
-            <Icon :name="t.icon" :size="ICON_SIZE.md" />{{ t.label }}
+            {{ t.label }}
           </button>
         </aside>
 
@@ -91,9 +90,8 @@ watch(configGroupTabs, (tabs) => {
                 <p>授权状态：<strong>{{ licenseStatusLabel }}</strong></p>
                 <HintTip :text="license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可'" />
                 <HintTip v-if="license?.trial_ends_at" :text="`试用期至 ${license.trial_ends_at}`" />
-                <HintTip text="授权状态以激活服务为准，可联网刷新。" />
                 <div class="license-actions">
-                  <button class="btn" @click="refreshLicense"><Icon name="refresh" :size="ICON_SIZE.md" />刷新授权状态</button>
+                  <button class="btn" @click="refreshLicense">刷新授权状态</button>
                 </div>
                 <!-- 试用期内可直接输入激活码激活，无需退出登录 -->
                 <div v-if="license?.status === 'TRIAL_ACTIVE' || license?.status === 'GRACE_PERIOD' || license?.status === 'OFFLINE_DEGRADED'" class="license-activate">
@@ -114,7 +112,6 @@ watch(configGroupTabs, (tabs) => {
           <!-- 外观 -->
           <div v-else-if="settingsTab === 'appearance'" class="card wide">
             <h3>外观主题</h3>
-            <HintTip text="主题切换入口仅在设置页，不占主界面。" />
             <div class="theme-row">
               <button :class="['btn', { primary: theme === 'light' }]" @click="applyTheme('light')">浅色</button>
               <button :class="['btn', { primary: theme === 'dark' }]" @click="applyTheme('dark')">深色</button>
@@ -124,7 +121,6 @@ watch(configGroupTabs, (tabs) => {
           <!-- 员工管理 -->
           <div v-else-if="settingsTab === 'staff'" class="card wide">
             <h3>员工管理</h3>
-            <HintTip text="仅管理员可见可用（user.manage 权限）。" />
             <table class="tbl">
               <thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
@@ -205,7 +201,6 @@ watch(configGroupTabs, (tabs) => {
                   :disabled="!configGroupChanged(g.title)"
                   @click="saveConfigGroup(g.title)"
                 >保存本组修改{{ configGroupChanged(g.title) ? `（${configGroupChanged(g.title)} 项）` : '' }}</button>
-                <span v-if="configGroupChanged(g.title)" class="muted small">有未保存的修改</span>
               </div>
             </div>
             <div v-show="activeConfigGroup === '安全'" class="card wide">
@@ -214,7 +209,6 @@ watch(configGroupTabs, (tabs) => {
               <div class="config-row config-row-stacked">
                 <div class="config-label">
                   <strong>锁机码</strong>
-                  <span class="muted small">设置后本机生效，不上传服务器；仅保存摘要，但本机文件仍可被读取，不能替代系统账户权限</span>
                 </div>
                 <div class="config-control">
                   <input
@@ -238,16 +232,14 @@ watch(configGroupTabs, (tabs) => {
               <span class="muted small">微信：{{ gatewayModes.wechat === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}；支付宝：{{ gatewayModes.alipay === 'REAL' ? '真实渠道' : '本地确认（未配置凭据）' }}。保存凭据后需重启应用生效。</span>
             </div>
             <h4>支付渠道开关</h4>
-            <HintTip text="收银台可用的支付方式；关闭后该渠道在收款区隐藏。" />
             <div class="config-row" v-for="(v, k) in channelDraft" :key="k">
               <span class="config-key">{{ configLabel(k) }}</span>
               <Switch :model-value="v === '1'" :label="configLabel(k)" @update:model-value="toggleChannel(k, v)" />
             </div>
             <h4>商户凭据（存 Windows 凭据库，不落库不回显）</h4>
-            <HintTip text="点击渠道按钮，在弹窗中填写密钥字段。" />
             <div class="cred-channel-row">
-              <button class="btn" @click="openCredDialog('WECHAT')"><Icon name="wallet" :size="ICON_SIZE.md" />微信支付凭据</button>
-              <button class="btn" @click="openCredDialog('ALIPAY')"><Icon name="wallet" :size="ICON_SIZE.md" />支付宝凭据</button>
+              <button class="btn" @click="openCredDialog('WECHAT')">微信支付凭据</button>
+              <button class="btn" @click="openCredDialog('ALIPAY')">支付宝凭据</button>
             </div>
           </div>
 
@@ -281,7 +273,6 @@ watch(configGroupTabs, (tabs) => {
               <button class="btn btn-sm primary" @click="savePointsConfigs">保存积分配置</button>
             </div>
             <div class="points-summary">
-              <Icon name="star" :size="ICON_SIZE.md" />
               <span>当前规则：每消费 1 元累计 <strong>{{ configDraft['points_per_yuan'] ?? '1' }}</strong> 积分；{{ configDraft['points_enabled'] === '0' ? '积分累计已关闭' : '积分累计已开启' }}。</span>
             </div>
           </div>
@@ -325,7 +316,6 @@ watch(configGroupTabs, (tabs) => {
           <template v-else-if="settingsTab === 'print'">
             <div class="card wide">
               <h3>打印机设置</h3>
-              <HintTip text="结算后自动打印开关在「系统配置 → 打印设置」里。下方为所见即所得预览，使用示例数据，不实际打印。" />
               <h4 class="print-subtitle">小票设置与预览</h4>
               <div class="receipt-toolbar">
                 <label>纸张宽度
@@ -371,7 +361,6 @@ watch(configGroupTabs, (tabs) => {
           <template v-else-if="settingsTab === 'technicians'">
             <div class="card wide">
               <h3>技师排班与在岗</h3>
-              <HintTip text="维护技师资料、在岗状态与排班；收银台按在岗技师展示点单入口。仅店长及以上可修改。" />
               <TechnicianPanel :can-manage="atLeast('MANAGER')" @changed="loadTechnicians" />
             </div>
           </template>

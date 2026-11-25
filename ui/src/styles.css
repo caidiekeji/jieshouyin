@@ -40,9 +40,12 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   border-radius: var(--radius-md);
   padding: var(--space-6);
   box-shadow: var(--shadow);
-  /* 多列后台表格在窄屏由所在卡片承担横向滚动，表头 nowrap 不撑破卡片 */
-  overflow-x: auto;
+  /* 卡片不设 overflow：一旦声明 overflow-x:auto，overflow-y 会被提升为 auto，
+     Windows 经典滚动条下每张卡片都会渲染出一条纵向滚动条（订单详情页一屏三条的根因）。
+     超宽表格由 .report-table-wrap 等专门的滚动容器承担，长单号靠 .mono 折行兜底。 */
 }
+/* 长单号/流水号在表格与只读字段内折行，不撑破卡片、不触发横向滚动条 */
+.tbl .mono, .field-value.mono { word-break: break-all; }
 /* 登录/激活卡片：容器留白大于组内间距——外层 28px、表单组间 16px，呼吸感优先 */
 .auth-card {
   width: var(--layout-auth-width);
@@ -124,14 +127,6 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .card.wide { width: 100%; }
 .brand { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-1); }
 .brand .auth-logo { width: var(--control-brandmark-lg-size); height: var(--control-brandmark-lg-size); }
-.brand-mark {
-  width: var(--control-brandmark-size);
-  height: var(--control-brandmark-size);
-  border-radius: var(--radius-md);
-  background: var(--brand);
-  color: var(--text-on-brand);
-  display: flex; align-items: center; justify-content: center;
-}
 .brand h1, h2, h3 { margin: var(--space-0); }
 h2 { font-size: var(--font-lg); }
 .muted { color: var(--muted); }
@@ -151,7 +146,10 @@ h2 { font-size: var(--font-lg); }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  /* 高度由 min-height 统一锚定（与输入框同高 34px），横向比例由 padding 控制；
+     此前无 min-height，按钮高度随字号浮动，与输入框并排时长宽比例失调 */
+  min-height: var(--control-height-form);
+  padding: var(--space-1) var(--space-3);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel);
@@ -446,14 +444,7 @@ h2 { font-size: var(--font-lg); }
 }
 .weigh-form { display: flex; gap: var(--space-2); padding: var(--space-2); flex-wrap: wrap; }
 .weigh-form .input { flex: 1; min-width: var(--control-search-min-width); }
-/* 结算区常驻上下文与触屏热区 */
-.cart-context {
-  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
-  padding-bottom: var(--space-2); margin-bottom: var(--space-2);
-  border-bottom: var(--border-width) solid var(--border);
-  color: var(--text-muted); font-size: var(--font-xs);
-}
-.cart-context span { display: inline-flex; align-items: center; gap: var(--space-1); }
+/* 结算区触屏热区 */
 .qty-ctrl button { width: var(--pos-touch-size); height: var(--pos-touch-size); }
 .qty-input { width: var(--pos-touch-size); height: var(--pos-touch-size); }
 .pay-method-btn { min-height: var(--pos-touch-size); }
@@ -668,6 +659,8 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-2) var(--space-3);
   text-align: left;
   border-bottom: var(--border-width) solid var(--border);
+  /* 单元格内容允许断词折行：卡片不再自带横向滚动，长内容折行而非撑破表格 */
+  overflow-wrap: anywhere;
 }
 .tbl th { color: var(--muted); font-weight: 600; font-size: var(--font-xs); white-space: nowrap; }
 /* 报表中心左栏：分组清单（宿主 .admin-side 提供全高滚动与分隔线） */
@@ -778,7 +771,7 @@ h2 { font-size: var(--font-lg); }
 }
 .candidate:hover { background: var(--border); }
 .candidate:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-.btn-sm { padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
+.btn-sm { min-height: 28px; padding: var(--space-0_5) var(--space-2); font-size: var(--font-xs); }
 .ok-msg { color: var(--success-text); font-size: var(--font-sm); margin: var(--space-0); }
 /* 警示语义：低库存、盘点差异等「提醒」用金黄，与危险红拉开；暗色模式语义层已翻转文字色 */
 .warning-text { color: var(--warning-text); }
@@ -977,7 +970,9 @@ h2 { font-size: var(--font-lg); }
   background: var(--panel); color: var(--text);
   border: var(--border-width) solid var(--border-strong);
   border-radius: var(--radius-md); box-shadow: var(--shadow-float);
-  padding: var(--space-5); min-width: var(--layout-auth-width); max-width: 92vw;
+  /* 弹窗最小宽收窄到 400px：小弹窗（确认/密码）不再被 460px 的登录卡宽度撑得空旷，
+     宽度档位由 .modal 上的修饰类（cash/pwd/cred 等）按内容密度指定 */
+  padding: var(--space-5); min-width: var(--layout-modal-min); max-width: 92vw;
   /* 内容多的弹窗在矮屏内部滚动，不用整页滚动或裁切底栏 */
   max-height: 86vh; overflow-y: auto;
   display: flex; flex-direction: column; gap: var(--space-3);
