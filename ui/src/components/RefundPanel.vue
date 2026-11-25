@@ -2,8 +2,8 @@
 import { onMounted, ref, watch } from 'vue'
 import { api, formatMoney, today, type OrderDetail, type OrderSummary } from '../api'
 import Icon from './Icon.vue'
-import {
 import HintTip from './HintTip.vue'
+import {
   ERROR_DURATION_MS,
   ICON_SIZE,
   ORDER_LIST_LIMIT,

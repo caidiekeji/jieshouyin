@@ -2,8 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { api, formatMoney, type CouponRow, type MemberRow, type PromotionRow } from '../api'
 import Icon from './Icon.vue'
-import {
 import HintTip from './HintTip.vue'
+import {
   CENTS_PER_YUAN,
   DISCOUNT_ZHE_FACTOR,
   ERROR_DURATION_MS,

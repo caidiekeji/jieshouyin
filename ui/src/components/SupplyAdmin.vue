@@ -11,8 +11,8 @@ import {
   type StocktakeItemRow
 } from '../api'
 import Icon from './Icon.vue'
-import {
 import HintTip from './HintTip.vue'
+import {
   CENTS_PER_YUAN,
   CURRENCY_DECIMALS,
   ERROR_DURATION_MS,
