@@ -24,7 +24,7 @@ const {
   ICON_SIZE, applyTheme, atLeast, authDialog,
   banner, bootError, cancelLockSetup, cancelNative,
   cancelSensitiveAuth, cart, cashDialogOpen, clearCart,
-  couponDialogOpen, currentRole, currentUser, doLogout,
+  couponDialogOpen, credDialogOpen, closeCredDialog, currentRole, currentUser, doLogout,
   focusScan, goPOS, goProducts, goReport, goShift,
   goSettings, goodsTab, gotoOrder, gotoRefund, industry, keyword,
   loadLockCode, loadPosCatalog, loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
@@ -115,6 +115,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   if (cashDialogOpen.value) { cashDialogOpen.value = false; return }
   if (parkDialogOpen.value) { parkDialogOpen.value = false; return }
   if (authDialog.value) { cancelSensitiveAuth(); return }
+  if (credDialogOpen.value) { closeCredDialog(); return }
   if (nativeDialog.value) { cancelNative(); return }
 }
 

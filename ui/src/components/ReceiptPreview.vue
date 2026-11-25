@@ -53,7 +53,7 @@ const paperPx = computed(() => (props.paperWidthMm >= 80 ? 320 : 232))
       <div class="rp-line rp-total"><span>实收</span><span>¥{{ formatMoney(demo.payable) }}</span></div>
       <div class="rp-line"><span>支付</span><span>{{ demo.payChannel }}</span></div>
       <div class="rp-divider">- - - - - - - - - - - - - - - - - -</div>
-      <div class="rp-qr" aria-label="支付二维码示意">
+      <div class="rp-qr" role="img" aria-label="支付二维码示意">
         <svg viewBox="0 0 64 64" width="64" height="64" role="presentation" class="rp-qr-svg">
           <rect width="64" height="64" class="rp-qr-bg" />
           <g class="rp-qr-fg">
@@ -87,7 +87,7 @@ const paperPx = computed(() => (props.paperWidthMm >= 80 ? 320 : 232))
 }
 .receipt-paper {
   box-sizing: border-box; padding: var(--space-4) var(--space-3);
-  background: var(--p-ink-0); color: var(--p-ink-900);
+  background: var(--receipt-paper); color: var(--receipt-ink);
   border: var(--border-width) solid var(--border);
   box-shadow: var(--shadow-float);
   font-family: var(--font-family-mono); font-size: var(--font-xs); line-height: 1.7;
@@ -102,20 +102,20 @@ const paperPx = computed(() => (props.paperWidthMm >= 80 ? 320 : 232))
   background-size: var(--rp-tooth) var(--rp-tooth);
   background-repeat: repeat-x;
 }
-.rp-shop { text-align: center; font-size: var(--font-md); font-weight: 700; letter-spacing: 1px; }
-.rp-meta { text-align: center; color: var(--p-ink-500); font-size: var(--font-2xs); margin-bottom: var(--space-2); }
-.rp-divider { color: var(--p-ink-400); white-space: nowrap; overflow: hidden; font-size: var(--font-2xs); margin: var(--space-1) 0; }
+.rp-shop { text-align: center; font-size: var(--font-md); font-weight: 700; letter-spacing: var(--tracking-wide); }
+.rp-meta { text-align: center; color: var(--receipt-subtle); font-size: var(--font-2xs); margin-bottom: var(--space-2); }
+.rp-divider { color: var(--receipt-divider); white-space: nowrap; overflow: hidden; font-size: var(--font-2xs); margin: var(--space-1) 0; }
 .rp-line { display: flex; justify-content: space-between; gap: var(--space-2); }
 .rp-line > span:first-child { flex: none; }
 .rp-mono { font-variant-numeric: tabular-nums; }
-.rp-items-head { display: grid; grid-template-columns: 1fr auto 64px; gap: var(--space-2); color: var(--p-ink-500); font-size: var(--font-2xs); }
+.rp-items-head { display: grid; grid-template-columns: 1fr auto 64px; gap: var(--space-2); color: var(--receipt-subtle); font-size: var(--font-2xs); }
 .rp-item { display: grid; grid-template-columns: 1fr auto 64px; gap: var(--space-2); }
 .rp-item > span:last-child, .rp-total > span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .rp-total { font-weight: 700; font-size: var(--font-sm); margin-top: var(--space-0_5); }
 .rp-qr { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); margin: var(--space-2) 0; }
 /* 二维码是黑白示意图形，用纸面前景/背景色，暗色下小票仍是白纸 */
-.rp-qr-bg { fill: var(--p-ink-0); }
-.rp-qr-fg { fill: var(--p-ink-900); }
-.rp-qr-tip { font-size: var(--font-2xs); color: var(--p-ink-500); }
-.rp-foot { text-align: center; font-size: var(--font-2xs); color: var(--p-ink-500); margin-top: var(--space-1); }
+.rp-qr-bg { fill: var(--receipt-paper); }
+.rp-qr-fg { fill: var(--receipt-ink); }
+.rp-qr-tip { font-size: var(--font-2xs); color: var(--receipt-subtle); }
+.rp-foot { text-align: center; font-size: var(--font-2xs); color: var(--receipt-subtle); margin-top: var(--space-1); }
 </style>

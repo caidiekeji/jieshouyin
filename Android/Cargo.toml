@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/license-issuance",
+    "crates/app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+thiserror = "2"
+tracing = "0.1"
+tracing-appender = "0.2"
+ed25519-dalek = { version = "=2.1.1", features = ["rand_core"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+encoding_rs = "0.8"
+qrcode = "0.14"
+hex = "0.4"
+clap = { version = "4", features = ["derive"] }
+# 支付渠道适配（§6）：微信 APIv3 SDK（同步客户端）；付款码端点 SDK 未覆盖，
+# 按 §risk 1202 以自封装 HTTP 替换，业务层零改动。支付宝按文档自封装 RSA2。
+wechatpay-v3 = "0.4.0"
+rsa = { version = "0.9", features = ["sha2"] }
+ureq = "2"
+checkout-core = { path = "crates/core" }
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true

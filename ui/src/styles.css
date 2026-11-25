@@ -40,6 +40,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   border-radius: var(--radius-md);
   padding: var(--space-6);
   box-shadow: var(--shadow);
+  /* 多列后台表格在窄屏由所在卡片承担横向滚动，表头 nowrap 不撑破卡片 */
+  overflow-x: auto;
 }
 /* 登录/激活卡片：容器留白大于组内间距——外层 28px、表单组间 16px，呼吸感优先 */
 .auth-card {
@@ -164,11 +166,15 @@ h2 { font-size: var(--font-lg); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--brand); }
 .btn.full { width: 100%; }
 .link { background: none; border: none; color: var(--brand); cursor: pointer; }
-.user .link {
-  display: inline-flex; align-items: center; gap: 4px;
-  color: var(--text-muted); text-decoration: none;
+.link:hover { text-decoration: underline; }
+/* 交互控件统一键盘焦点反馈；已有独立 focus-visible 规则的组件不在此列 */
+.btn:focus-visible, .nav-btn:focus-visible, .user-chip:focus-visible, .user-menu-item:focus-visible,
+.link:focus-visible, .product-item:focus-visible, .pos-card:focus-visible, .pos-cat:focus-visible,
+.report-nav-item:focus-visible, .seg-btn:focus-visible, .pay-method-btn:focus-visible,
+.industry-item:focus-visible, .quick-cash-btn:focus-visible, .cash-key:focus-visible,
+.qty-ctrl button:focus-visible {
+  outline: 2px solid var(--brand); outline-offset: 2px;
 }
-.user .link:hover { text-decoration: underline; }
 .role-tag {
   font-size: var(--font-xs);
   padding: 2px var(--space-2);
@@ -188,9 +194,10 @@ h2 { font-size: var(--font-lg); }
   display: flex; align-items: center;
   padding: var(--space-0) var(--space-4); gap: var(--space-6);
 }
-.logo { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--text); }
+.logo { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--text); flex-shrink: 0; }
 .logo-img { width: var(--space-6); height: var(--space-6); border-radius: var(--radius-md); flex-shrink: 0; }
-.nav { display: flex; gap: var(--space-1); flex: 1; }
+/* 导航项多且不可折行：窄屏由导航自身横向滚动，不挤压两侧品牌与账户区 */
+.nav { display: flex; gap: var(--space-1); flex: 1; min-width: 0; overflow-x: auto; }
 .nav-btn {
   display: inline-flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -200,7 +207,7 @@ h2 { font-size: var(--font-lg); }
 .nav-btn:hover { background: var(--surface-subtle); color: var(--text); }
 .nav-btn.active { background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
 /* 用户区：账户下拉菜单容器，定位锚点 */
-.user { position: relative; display: flex; align-items: center; color: var(--text); }
+.user { position: relative; display: flex; align-items: center; color: var(--text); flex-shrink: 0; }
 .user-chip {
   display: inline-flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-2);
@@ -434,11 +441,14 @@ h2 { font-size: var(--font-lg); }
   margin: var(--space-1) var(--space-0);
 }
 .cart-line {
-  display: grid; grid-template-columns: auto 1fr auto auto;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: var(--space-2); align-items: center;
   padding: var(--space-2) var(--space-0);
   border-bottom: var(--border-width) solid var(--border);
 }
+/* 购物车名称行：标签与技师下拉自然折行但不撑开网格列 */
+.line-name { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
+.line-name .tech-select { width: auto; max-width: 100%; }
 .qty-ctrl { display: flex; align-items: center; gap: var(--space-2); }
 .qty-ctrl button {
   width: var(--control-qty-size); height: var(--control-qty-size);
@@ -502,7 +512,7 @@ h2 { font-size: var(--font-lg); }
   min-width: 0; overflow-y: auto;
   padding: var(--space-5) var(--space-6);
 }
-.settings-content { display: flex; flex-direction: column; gap: var(--space-5); }
+.settings-content { display: flex; flex-direction: column; gap: var(--space-4); }
 /* 设置中心：一级导航恢复左栏（admin-shell + admin-side），内容区沿用 admin-main 独立滚动。
    一级导航按钮带图标，复用报表左栏 .report-nav-item 的语义色，不另造一套。 */
 .settings-side .report-nav-item { display: flex; align-items: center; gap: var(--space-2); }
@@ -524,7 +534,7 @@ h2 { font-size: var(--font-lg); }
 .config-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 /* 凭据渠道按钮行：两个入口并列，不铺满 */
 .cred-channel-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
-.cred-modal { width: var(--layout-modal-md); max-width: 92vw; max-height: 86vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); }
+.cred-modal { width: var(--layout-modal-md); }
 .cred-modal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .cred-field { gap: var(--space-1); }
 .cred-field .input { width: 100%; }
@@ -561,7 +571,7 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-2) var(--space-0);
   border-bottom: var(--border-width) solid var(--border);
 }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); margin-top: var(--space-4); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--stats-col-min), 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
 .stat {
   background: var(--surface-subtle);
   border-radius: var(--radius-md);
@@ -625,15 +635,20 @@ h2 { font-size: var(--font-lg); }
 /* 数字列右对齐 + 等宽数字：所有后台表格的金额/数量/差异列共用，便于纵向扫读比对。
    表头与数据用同一判断规则，确保逐列对齐。 */
 .tbl .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
+/* 表格操作列：td 保持 table-cell 维持对齐，按钮组在内层折行（各管理页共用） */
+.row-actions-cell { white-space: nowrap; }
+.row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 /* 报表单元格内可跳转的订单号：虚线下划线提示可点击，键盘可达 */
 .tbl .cell-link {
   color: var(--brand); cursor: pointer;
   text-decoration: underline; text-decoration-style: dashed;
   text-underline-offset: 3px;
 }
-.tbl .cell-link:hover { color: var(--brand-strong, var(--brand)); }
+.tbl .cell-link:hover { color: var(--brand-hover); }
 .tbl .cell-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 .page-head { display: flex; align-items: center; gap: var(--space-4); }
+.page-title { display: flex; flex-direction: column; gap: var(--space-1); }
+.page-head > .btn { margin-left: auto; }
 .tab-row { display: flex; gap: var(--space-2); }
 /* 子页面内容流：父级 main-simple 提供骨架，此层只做纵向分组 */
 .page-body { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -904,14 +919,16 @@ h2 { font-size: var(--font-lg); }
   background: var(--panel); color: var(--text);
   border: var(--border-width) solid var(--border-strong);
   border-radius: var(--radius-md); box-shadow: var(--shadow-float);
-  padding: var(--space-5); min-width: var(--layout-auth-width);
+  padding: var(--space-5); min-width: var(--layout-auth-width); max-width: 92vw;
+  /* 内容多的弹窗在矮屏内部滚动，不用整页滚动或裁切底栏 */
+  max-height: 86vh; overflow-y: auto;
   display: flex; flex-direction: column; gap: var(--space-3);
 }
 .modal h3 { margin: 0; }
 /* 现金收银弹窗：应收 / 实收 / 找零三栏，下面接快捷面额与数字键盘 */
-.cash-modal { width: var(--layout-modal-sm); max-width: 92vw; }
+.cash-modal { width: var(--layout-modal-sm); min-width: 0; }
 /* 修改密码弹窗：三行密码输入，窄弹窗即可 */
-.pwd-modal { width: var(--layout-modal-sm); max-width: 92vw; }
+.pwd-modal { width: var(--layout-modal-sm); min-width: 0; }
 .cash-summary {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-1);

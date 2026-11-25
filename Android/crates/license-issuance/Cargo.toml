@@ -1,0 +1,16 @@
+[package]
+name = "license-issuance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+checkout-core.workspace = true
+serde_json.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+clap.workspace = true
+hex.workspace = true
+chrono.workspace = true
+base64.workspace = true
+serde.workspace = true

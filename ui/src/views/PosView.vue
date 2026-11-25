@@ -151,22 +151,22 @@ const {
               @keydown="onScanKeydown"
               @focus="focusScan"
             />
-            <span v-if="searchBusy" class="scan-spinner" aria-label="搜索中"></span>
+            <span v-if="searchBusy" class="scan-spinner" role="status" aria-label="搜索中"></span>
             <span v-else-if="products.length" class="scan-hint">{{ products.length }} 个候选 · 回车收第一条</span>
           </div>
           <div v-if="keyword.trim()" class="product-list">
-            <div v-for="p in products" :key="p.sku_id" class="product-item" @click="addToCart(p)">
+            <button v-for="p in products" :key="p.sku_id" type="button" class="product-item" @click="addToCart(p)">
               <img v-if="productImageSrc(p)" :src="productImageSrc(p)!" class="product-thumb" alt="" />
               <span v-else class="product-thumb product-thumb-empty"></span>
-              <div class="product-info">
+              <span class="product-info">
                 <strong>{{ p.spu_name }}</strong>
                 <span class="muted small"> {{ p.barcode }}</span>
-              </div>
-              <div class="price-stack">
+              </span>
+              <span class="price-stack">
                 <span class="price">¥{{ formatMoney(p.price_cents) }}</span>
                 <span v-if="memberPriceOf(p)" class="price member">会员 ¥{{ formatMoney(memberPriceOf(p)!) }}</span>
-              </div>
-            </div>
+              </span>
+            </button>
             <div v-if="!products.length" class="empty">
               {{ searchBusy ? '正在查询…' : '没有匹配的商品' }}
             </div>
@@ -399,9 +399,9 @@ const {
               </div>
             </div>
             <div class="actions checkout-actions">
-              <button class="btn" @click="openParkDialog"><Icon name="pause" :size="ICON_SIZE.md" />挂单</button>
+              <button class="btn" @click="openParkDialog"><Icon name="park" :size="ICON_SIZE.md" />挂单</button>
               <button class="btn primary" :disabled="paying" @click="submitCheckout">
-                <span v-if="paying" class="btn-spinner" aria-label="处理中"></span>
+                <span v-if="paying" class="btn-spinner" role="status" aria-label="处理中"></span>
                 <Icon v-else name="check" :size="ICON_SIZE.md" />{{ paying ? '处理中…' : '收款' }}
               </button>
             </div>

@@ -33,6 +33,15 @@ const {
   shiftRows,
   view,
 } = ctx
+
+/** 订单号单元格才可跳转；同一判断供 class、焦点与键盘共用，避免规则分叉 */
+function orderNoOf(ci: number, cell: unknown): string | null {
+  return activeReport.value?.columns[ci]?.key === 'order_no' && cell ? String(cell) : null
+}
+function openOrderNo(ci: number, cell: unknown) {
+  const no = orderNoOf(ci, cell)
+  if (no) gotoOrder(no)
+}
 </script>
 
 <template>
@@ -87,8 +96,11 @@ const {
                       <td
                         v-for="(cell, ci) in row"
                         :key="ci"
-                        :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent', 'cell-link': activeReport.columns[ci]?.key === 'order_no' && !!cell }"
-                        @click="activeReport.columns[ci]?.key === 'order_no' && cell && gotoOrder(String(cell))"
+                        :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent', 'cell-link': !!orderNoOf(ci, cell) }"
+                        :tabindex="orderNoOf(ci, cell) ? 0 : undefined"
+                        @click="openOrderNo(ci, cell)"
+                        @keydown.enter="openOrderNo(ci, cell)"
+                        @keydown.space.prevent="openOrderNo(ci, cell)"
                       >{{ cell }}</td>
                     </tr>
                   </tbody>

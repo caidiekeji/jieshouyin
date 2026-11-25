@@ -132,10 +132,12 @@ onMounted(() => {
   <main class="main-simple">
     <template v-if="scene">
       <div class="page-head">
-        <h2>{{ title }}</h2>
-        <p class="muted small">
-          共 {{ tables.length }} 个 · 空闲 {{ freeCount }} · 使用中 {{ occupiedCount }}。看板保持纯净，删除等管理动作集中在本页。
-        </p>
+        <div class="page-title">
+          <h2>{{ title }}</h2>
+          <p class="muted small">
+            共 {{ tables.length }} 个 · 空闲 {{ freeCount }} · 使用中 {{ occupiedCount }}。看板保持纯净，删除等管理动作集中在本页。
+          </p>
+        </div>
         <button v-if="canManage" class="btn primary" @click="showCreate = true">
           <Icon name="plus" :size="ICON_SIZE.md" />批量新增
         </button>
@@ -199,8 +201,3 @@ onMounted(() => {
     </div>
   </main>
 </template>
-
-<style scoped>
-.row-actions-cell { white-space: nowrap; }
-.row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-</style>

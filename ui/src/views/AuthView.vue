@@ -99,8 +99,8 @@ const {
         <div class="auth-brand">
           <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
           <h1>{{ needAdmin ? '设置管理员账号' : onboarding ? '登录' : '欢迎回来' }}</h1>
-          <p class="muted">
-            {{ needAdmin ? '首次使用，先创建管理员账号，再登录完成初始化' : onboarding ? '使用刚创建的管理员账号登录，继续选择行业' : '输入账号密码开始收银' }}
+          <p v-if="needAdmin || onboarding" class="muted">
+            {{ needAdmin ? '首次使用，先创建管理员账号，再登录完成初始化' : '使用刚创建的管理员账号登录，继续选择行业' }}
           </p>
         </div>
         <template v-if="needAdmin">

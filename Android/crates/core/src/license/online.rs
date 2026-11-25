@@ -1,0 +1,151 @@
+//! 在线激活客户端（§4.7 激活方式之二）。
+//!
+//! 流程：客户端 → 激活服务换取签名激活码 → 本地验签落库。
+//! 关键纪律：**签发权只在服务端**；客户端拿到的激活码仍走本地验签，
+//! 离线导入与在线激活共用同一条验签链路，客户端不含任何签发私钥。
+//!
+//! 激活码（CKR-XXXX-XXXX-XXXX-XXXX）由用户从服务方获取，收银端输入该码
+//! 即可联网换取签名授权。授权到期、撤销、续期等状态一律以服务端为准，
+//! 客户端通过 `POST /api/activate` 幂等换票来刷新：同设备重复请求会重新签发
+//! 一份新的授权载荷，服务端据此校验撤销/过期并更新到期日。
+//!
+//! 网络不可达时不阻断离线导入路径（降级处理），由调用方决定提示。
+
+use crate::error::{CoreError, LicenseError, Result};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+/// 在线激活请求体。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineActivateRequest {
+    /// 门店编号（由激活服务核验绑定关系）。
+    pub store_id: String,
+    /// 客户名称（写入载荷，便于后台识别）。
+    pub customer_name: String,
+    /// 设备指纹：绑定本机，服务端可据此限制换绑次数。
+    pub device_fingerprint: Option<String>,
+    /// 激活码（购买后获得的兑换码）。
+    pub activation_key: String,
+}
+
+/// 服务端响应体。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineActivateResponse {
+    /// 签名激活码（Base64URL(payload).Base64URL(sig)）。
+    pub token: String,
+    /// 授权到期日（展示用，不参与校验）。
+    #[serde(default)]
+    pub valid_until: Option<String>,
+    /// 服务端提示信息。
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// 激活服务连接超时（秒）：收银机处于弱网环境时不应长时间挂起。
+pub const ACTIVATION_TIMEOUT_SECS: u64 = 15;
+
+/// 校验激活服务地址格式。返回去掉末尾斜杠的根地址。
+pub fn normalize_endpoint(endpoint: &str) -> Result<String> {
+    let base = endpoint.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return Err(CoreError::Validation("未配置在线激活服务地址".into()));
+    }
+    if !(base.starts_with("http://") || base.starts_with("https://")) {
+        return Err(CoreError::Validation(
+            "激活服务地址必须以 http:// 或 https:// 开头".into(),
+        ));
+    }
+    Ok(base.to_string())
+}
+
+/// 向激活服务请求签名激活码。返回激活码字符串。
+pub fn request_activation(
+    endpoint: &str,
+    req: &OnlineActivateRequest,
+) -> Result<OnlineActivateResponse> {
+    let base = normalize_endpoint(endpoint)?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))
+        .timeout_read(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))
+        .timeout_write(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))
+        .build();
+    let body = serde_json::to_string(req)?;
+    let resp = agent
+        .post(&format!("{base}/api/activate"))
+        .set("Content-Type", "application/json")
+        .send_string(&body);
+    match resp {
+        Ok(r) => {
+            let text = r.into_string().unwrap_or_default();
+            serde_json::from_str::<OnlineActivateResponse>(&text)
+                .map_err(|e| CoreError::Other(format!("激活服务返回内容无法解析: {e}")))
+        }
+        Err(ureq::Error::Status(code, r)) => {
+            let t = r.into_string().unwrap_or_default();
+            // 服务端错误体形如 {"error":"激活码不存在"}：取出可读文案直接呈现
+            let detail = serde_json::from_str::<serde_json::Value>(&t)
+                .ok()
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
+                .unwrap_or_else(|| t.trim().to_string());
+            // 4xx 是服务端的明确裁决（撤销/过期/设备超限/码不存在）：以服务端为准。
+            // 5xx 属服务端故障，与网络不可达同义：调用方应保留本地缓存继续工作。
+            if (400..500).contains(&code) {
+                Err(CoreError::License(LicenseError::OnlineRejected(detail)))
+            } else {
+                Err(CoreError::Other(format!(
+                    "激活服务返回错误({code}): {detail}"
+                )))
+            }
+        }
+        Err(e) => Err(CoreError::Other(format!("激活服务不可达: {e}"))),
+    }
+}
+
+/// 探测激活服务是否可用。用于前端在激活前给出「服务可达/不可达」的明确提示。
+pub fn probe_service(endpoint: &str) -> Result<bool> {
+    let base = normalize_endpoint(endpoint)?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))
+        .timeout_read(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))
+        .build();
+    match agent.get(&format!("{base}/api/status")).call() {
+        Ok(_) => Ok(true),
+        // 服务在线但路径返回非 2xx 也算可达：网络通了，只是健康检查路径变了。
+        Err(ureq::Error::Status(_, _)) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req() -> OnlineActivateRequest {
+        OnlineActivateRequest {
+            store_id: "S1".into(),
+            customer_name: "测试门店".into(),
+            device_fingerprint: None,
+            activation_key: "KEY".into(),
+        }
+    }
+
+    #[test]
+    fn empty_endpoint_rejected() {
+        assert!(request_activation("", &req()).is_err());
+        assert!(request_activation("ftp://x", &req()).is_err());
+    }
+
+    #[test]
+    fn endpoint_normalized() {
+        assert_eq!(
+            normalize_endpoint("https://a.workers.dev/").unwrap(),
+            "https://a.workers.dev"
+        );
+        assert_eq!(
+            normalize_endpoint("  https://a.workers.dev//  ").unwrap(),
+            "https://a.workers.dev"
+        );
+        assert!(normalize_endpoint("").is_err());
+        assert!(normalize_endpoint("workers.dev").is_err());
+    }
+}

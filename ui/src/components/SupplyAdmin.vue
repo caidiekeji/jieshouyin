@@ -422,7 +422,7 @@ onMounted(() => {
         <div class="chip-row" v-if="stLines.length">
           <span v-for="(l, i) in stLines" :key="l.sku_id" class="chip">
             {{ l.name }}
-            <button class="link danger-text" aria-label="移除该商品" @click="removeStLine(i)"><Icon name="close" :size="ICON_SIZE.xs" /></button>
+            <button class="btn btn-sm ghost danger-text" aria-label="移除该商品" @click="removeStLine(i)"><Icon name="close" :size="ICON_SIZE.sm" /></button>
           </span>
         </div>
         <button class="btn primary" @click="submitSt">创建任务</button>

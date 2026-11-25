@@ -1,0 +1,80 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Tauri 2 Android APK (arm64 + armv7)
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_PLATFORM: "platforms;android-36"
+      ANDROID_BUILD_TOOLS: "build-tools;36.0.0"
+      ANDROID_NDK_VERSION: "27.3.13750724"
+      # 16KB 页对齐：Google Play 对 target Android 15+ 的硬性要求，必须经环境变量传入
+      RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "$ANDROID_PLATFORM" "$ANDROID_BUILD_TOOLS" "ndk;$ANDROID_NDK_VERSION"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> $GITHUB_ENV
+
+      - name: Install Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Android
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Android/ui/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: Android/ui
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: Android/ui
+        run: npm run build
+
+      - name: Init Android project
+        working-directory: Android/crates/app
+        run: npx -y @tauri-apps/cli@2 android init --ci
+
+      # 第一步用 debug 构建：Gradle 默认 debug 密钥自动签名，产物可直接安装。
+      # release 正式签名需在 gen/android/app/build.gradle.kts 配置 signingConfigs，留待发布阶段。
+      - name: Build APK (debug, auto-signed)
+        working-directory: Android/crates/app
+        env:
+          ACTIVATION_ENDPOINT: ${{ vars.ACTIVATION_ENDPOINT || 'https://www.lequ.pw' }}
+        run: npx -y @tauri-apps/cli@2 android build --debug --apk --target aarch64 --target armv7 --ci
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkout-r-android-apk
+          path: Android/crates/app/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

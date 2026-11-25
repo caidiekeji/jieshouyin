@@ -200,7 +200,7 @@ const {
           <div class="actions">
             <button class="btn" @click="cashDialogOpen = false">取消</button>
             <button class="btn primary" :disabled="paying || cashShort > 0" @click="submitCheckout">
-              <span v-if="paying" class="btn-spinner" aria-label="处理中"></span>
+              <span v-if="paying" class="btn-spinner" role="status" aria-label="处理中"></span>
               <Icon v-else name="check" :size="ICON_SIZE.md" />{{ paying ? '处理中…' : '确认收款' }}
             </button>
           </div>
@@ -269,7 +269,7 @@ const {
 
       <!-- 商户凭据弹窗：由设置页「微信/支付宝凭据」按钮唤起；密钥类字段不回显，统一底部保存 -->
       <div v-if="credDialogOpen" class="modal-mask" @click.self="closeCredDialog">
-        <div class="modal cred-modal" role="dialog" aria-label="商户支付凭据">
+        <div class="modal cred-modal" role="dialog" aria-modal="true" aria-label="商户支付凭据">
           <div class="cred-modal-head">
             <h3>商户凭据 · {{ credChannel === 'WECHAT' ? '微信支付' : '支付宝' }}</h3>
             <button class="btn btn-sm ghost" aria-label="关闭" @click="closeCredDialog"><Icon name="close" :size="ICON_SIZE.md" /></button>

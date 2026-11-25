@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { formatMoney, type ProductHit, type TableCreateSpec } from '../api'
 
 /** 台位批量创建弹窗：前缀+序号区间一次生成一批（餐饮桌台 / 棋牌·养生包间共用）。 */
@@ -13,6 +13,12 @@ const props = defineProps<{
   defaultZone?: string
 }>()
 const emit = defineEmits<{ close: []; create: [items: TableCreateSpec[]] }>()
+
+function onEscape(e: KeyboardEvent) {
+  if (props.open && e.key === 'Escape') emit('close')
+}
+window.addEventListener('keydown', onEscape)
+onUnmounted(() => window.removeEventListener('keydown', onEscape))
 
 const prefix = ref('A')
 const startNo = ref(1)
@@ -78,7 +84,7 @@ function submit() {
 
 <template>
   <div v-if="open" class="modal-mask" @click.self="emit('close')">
-    <div class="modal table-create-modal" role="dialog" :aria-label="title">
+    <div class="modal table-create-modal" role="dialog" aria-modal="true" :aria-label="title">
       <h3>{{ title }}</h3>
       <div class="tc-grid">
         <label class="field-label">台号前缀

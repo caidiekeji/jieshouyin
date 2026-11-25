@@ -1,0 +1,37 @@
+[package]
+name = "checkout-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+base64.workspace = true
+rand.workspace = true
+argon2.workspace = true
+chacha20poly1305.workspace = true
+encoding_rs.workspace = true
+qrcode.workspace = true
+hex.workspace = true
+wechatpay-v3.workspace = true
+rsa.workspace = true
+ureq.workspace = true
+
+[build-dependencies]
+hex.workspace = true
+sha2.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+keyring = "3"
+windows-sys = { version = "0.59", features = [
+    "Win32_System_Registry",
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+] }

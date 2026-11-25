@@ -1,0 +1,658 @@
+/* ============================================================
+ * 设计令牌 · 三层体系
+ *
+ * primitives 原料层：只有刻度没有含义，任何组件都不得直接引用。
+ * semantic   语义层：表达「用在哪」，暗色模式只翻转这一层。
+ * component  组件层：在组件 <style> 内声明局部变量，引用语义层。
+ *
+ * 推导依据：B 端收银工作台——操作密集、扫读为主、色彩克制、动效极低。
+ * 配色范式：对标 Square 的「沉稳主体 + 单一撞色强调」，主体取暖石墨。
+ *   - 主体石墨（slate）：顶栏、导航、品牌承载信息密度，沉稳克制；
+ *   - 撞色朱橙（ember）：收款/金额/选中/主行动一眼跳出，商业温度；
+ *   - 石墨与朱橙一冷一暖，全程避开蓝紫与墨绿。
+ *   - 暖中性（ink）：内容区背景与正文，掺暖调避免纯灰的 AI 味。
+ * ============================================================ */
+
+/* ---------- primitives：色阶 ---------- */
+:root {
+  /* 撞色强调阶：朱橙（ember），以 #e8590c 为 600 沿明度双向派生（纯色，无渐变）。
+     取自 Square 语义橙 #cc4b00 与 Strava #fc4c02 之间，兼顾警示感与商业暖度。 */
+  --p-brand-50: #fff2e8;
+  --p-brand-100: #ffe0cc;
+  --p-brand-200: #ffc19e;
+  --p-brand-300: #ff9b66;
+  --p-brand-400: #f97330;
+  --p-brand-500: #ea5f14;
+  --p-brand-600: #e8590c;
+  --p-brand-700: #c24107;
+  --p-brand-800: #9a350b;
+  --p-brand-900: #7a2e0e;
+
+  /* 主体石墨阶（slate）：顶栏、导航、品牌标识的承载色，与朱橙撞色。
+     暖调深灰，不带绿相也不带蓝相；50/900 是亮/暗两极。 */
+  --p-slate-50: #f5f4f2;
+  --p-slate-100: #e9e6e1;
+  --p-slate-200: #d3cec7;
+  --p-slate-300: #b3aca2;
+  --p-slate-400: #8e8579;
+  --p-slate-500: #6b6359;
+  --p-slate-600: #514a41;
+  --p-slate-700: #3c362f;
+  --p-slate-800: #2a251f;
+  --p-slate-900: #1b1713;
+
+  /* 暖中性阶（ink）：内容区背景与正文，掺暖调而非纯灰；0/900 是亮/暗两极画布。 */
+  --p-ink-0: #ffffff;
+  --p-ink-25: #faf8f6;
+  --p-ink-50: #f5f2ee;
+  --p-ink-100: #ebe5de;
+  --p-ink-200: #ddd5cb;
+  --p-ink-300: #c3b8ab;
+  --p-ink-400: #9c9082;
+  --p-ink-500: #6f6559;
+  --p-ink-600: #4f473d;
+  --p-ink-700: #332d26;
+  --p-ink-800: #211c17;
+  --p-ink-900: #15110e;
+
+  /* 中性阶保留别名指向墨炭，兼容既有 var(--p-neutral-*) 引用 */
+  --p-neutral-0: var(--p-ink-0);
+  --p-neutral-25: var(--p-ink-25);
+  --p-neutral-50: var(--p-ink-50);
+  --p-neutral-100: var(--p-ink-100);
+  --p-neutral-200: var(--p-ink-200);
+  --p-neutral-300: var(--p-ink-300);
+  --p-neutral-400: var(--p-ink-400);
+  --p-neutral-500: var(--p-ink-500);
+  --p-neutral-600: var(--p-ink-600);
+  --p-neutral-700: var(--p-ink-700);
+  --p-neutral-800: var(--p-ink-800);
+  --p-neutral-900: var(--p-ink-900);
+
+  /* 危险： destructive 动作与校验错误 */
+  --p-danger-50: #fdecea;
+  --p-danger-100: #f9d5d0;
+  --p-danger-500: #c0392b;
+  --p-danger-600: #a32d22;
+  --p-danger-700: #7f231a;
+  --p-danger-900: #3a1f1c;
+
+  /* 成功： 完成态、正向结果 */
+  --p-success-50: #e7f6ed;
+  --p-success-500: #1f9254;
+  --p-success-600: #18794e;
+  --p-success-900: #153325;
+
+  /* 警示： 试用期、到期提醒；金黄与朱橙、危险红都拉开，避免撞色混淆 */
+  --p-warning-50: #fdf6e3;
+  --p-warning-100: #f5e4ae;
+  --p-warning-500: #b8890f;
+  --p-warning-700: #8a6604;
+  --p-warning-900: #3a2f10;
+  --p-warning-950: #5a4a18;
+
+  /* 行业强调色原料：每个行业一组，供场景语义层引用。
+     只在各自行业的看板/面板内出现，不进入全局 chrome，避免冲垮朱橙主体。 */
+  /* 母婴玫瑰 rose */
+  --p-rose-50: #fff5f8;
+  --p-rose-100: #fde8ef;
+  --p-rose-200: #f7c9d9;
+  --p-rose-600: #b35472;
+  --p-rose-700: #8e3e5d;
+  --p-rose-900: #4a2635;
+  /* 养生鼠尾草 sage */
+  --p-sage-50: #f4f8f4;
+  --p-sage-100: #e5efe6;
+  --p-sage-200: #cfe0d1;
+  --p-sage-300: #9ab79c;
+  --p-sage-600: #4f7357;
+  --p-sage-700: #3f6148;
+  --p-sage-900: #22372a;
+  /* 技师天青 sky */
+  --p-sky-50: #f3f8fc;
+  --p-sky-100: #e3eef7;
+  --p-sky-200: #c9def0;
+  --p-sky-600: #1c5f9e;
+  --p-sky-700: #1a5489;
+  --p-sky-900: #17324d;
+  /* 棋牌松绿 pine + 金 gold：深色底自带氛围，亮/暗主题下都保持深底浅字 */
+  --p-pine-900: #0d2a21;
+  --p-pine-800: #123c2f;
+  --p-pine-700: #1d5741;
+  --p-pine-600: #2c5f4b;
+  --p-pine-300: #a9c9b8;
+  --p-pine-100: #edf7f1;
+  --p-gold-100: #fff3cf;
+  --p-gold-300: #f1d38b;
+  --p-gold-500: #c9a227;
+  --p-gold-700: #7d6a3a;
+
+  /* 暗色表面： 墨炭深底带暖调，相邻层靠提亮区分而非描边 */
+  --p-surface-dark-1: #15110e;
+  --p-surface-dark-2: #211c17;
+  --p-surface-dark-3: #332d26;
+  --p-border-dark: #4f473d;
+
+  /* ---------- primitives：刻度 ---------- */
+
+  /* 间距基数 4px：由表格内最紧凑呼吸空间决定；2px 半步仅供极小控件内边距 */
+  --p-space-0: 0;
+  --p-space-0_5: 2px;
+  --p-space-1: 4px;
+  /* 极细尺度：装饰标记条(3px)与时钟字距(1px)，非间距节奏，独立命名避免误用 */
+  --p-hairline: 3px;
+  --p-tracking-wide: 1px;
+  --p-space-2: 8px;
+  --p-space-3: 12px;
+  --p-space-4: 16px;
+  --p-space-5: 20px;
+  --p-space-6: 24px;
+  --p-space-7: 28px;
+  --p-space-8: 32px;
+  --p-space-10: 40px;
+  --p-space-12: 48px;
+
+  /* 字号：锚定正文 14px（收银屏高密度），上下各派生两级 */
+  --p-font-2xs: 10px;
+  --p-font-xs: 12px;
+  --p-font-sm: 13px;
+  --p-font-base: 14px;
+  --p-font-md: 16px;
+  --p-font-lg: 18px;
+  --p-font-xl: 20px;
+  --p-font-2xl: 22px;
+
+  /* 行高 */
+  --p-line-tight: 1.3;
+  --p-line-normal: 1.5;
+
+  /* 字族：跟随系统，收银机无需下载字体 */
+  --p-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --p-font-mono: 'SFMono-Regular', Consolas, monospace;
+
+  /* 圆角：全站工具感性格，四级足够覆盖最小控件到卡片 */
+  --p-radius-xs: 4px;
+  --p-radius-sm: 6px;
+  --p-radius-md: 8px;
+  --p-radius-lg: 10px;
+  --p-radius-pill: 999px;
+  --p-radius-circle: 50%;
+
+  /* 描边：全站统一 1px，靠颜色而非粗细区分层级 */
+  --p-border-width: 1px;
+
+  /* 阴影：只有「卡片」与「浮层」两级海拔；暖调墨炭投影，不带蓝 */
+  --p-shadow-card: 0 2px 10px rgba(32, 24, 16, 0.10);
+  --p-shadow-float: 0 2px 12px rgba(0, 0, 0, 0.32);
+
+  /* 动效：工具类仅保留状态切换 120ms；spinner 是持续运动单独一档 */
+  --p-duration-fast: 120ms;
+  --p-duration-spin: 800ms;
+  --p-ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+  /* 层级：按谁该盖住谁排成链，禁止裸数字 */
+  --p-z-base: 0;
+  --p-z-raised: 10;
+  --p-z-overlay: 100;
+  --p-z-modal: 200;
+  --p-z-toast: 300;
+  --p-z-lock: 400;
+
+  /* 遮罩：模态框背后压暗层，用墨炭 900 半透明表达，禁止就地写 rgba */
+  --p-overlay-scrim: rgba(21, 17, 14, 0.5);
+}
+
+/* ---------- semantic：亮色（表达用在哪） ---------- */
+:root {
+  /* 平面层级 */
+  --bg: var(--p-neutral-50);
+  --panel: var(--p-neutral-0);
+  --panel-raised: var(--p-neutral-0);
+  --surface-subtle: var(--p-neutral-25);
+
+  /* 文字层级 */
+  --text: var(--p-neutral-800);
+  --text-muted: var(--p-neutral-500);
+  --text-on-brand: var(--p-neutral-0);
+  --text-strong: var(--p-neutral-900);
+
+  /* 分组与控件描边 */
+  --border: var(--p-neutral-200);
+  --border-strong: var(--p-neutral-300);
+
+  /* 撞色强调（朱橙）：收款、金额、主行动、选中态 */
+  --brand: var(--p-brand-600);
+  --brand-hover: var(--p-brand-700);
+  --brand-subtle: var(--p-brand-50);
+  --brand-border: var(--p-brand-300);
+
+  /* 支付渠道品牌色：第三方品牌固定色，明暗主题均不翻转 */
+  --brand-wechat: #07C160;
+  --brand-alipay: #1677FF;
+
+  /* 主体色（石墨）：顶栏、导航、品牌标识 */
+  --chrome: var(--p-slate-800);
+  --chrome-hover: var(--p-slate-700);
+  --chrome-active: var(--p-slate-600);
+  --on-chrome: var(--p-ink-0);
+  --chrome-subtle: var(--p-slate-50);
+
+  /* 语义色生命周期 */
+  --danger: var(--p-danger-500);
+  --danger-hover: var(--p-danger-600);
+  --danger-subtle: var(--p-danger-50);
+  --danger-border: var(--p-danger-100);
+  --success: var(--p-success-500);
+  --success-text: var(--p-success-600);
+  --success-subtle: var(--p-success-50);
+  --warning: var(--p-warning-500);
+  --warning-text: var(--p-warning-700);
+  --warning-subtle: var(--p-warning-50);
+  --warning-border: var(--p-warning-100);
+
+  /* 海拔：卡片与浮层各用其阶，浮层阴影更深以表达悬浮 */
+  --shadow: var(--p-shadow-card);
+  --shadow-float: var(--p-shadow-float);
+
+  /* 浮层专用反色底（亮色下深底白字，保证与卡片区分） */
+  --toast-bg: var(--p-neutral-800);
+  --toast-text: var(--p-neutral-0);
+
+  /* 小票预览：纸张与印字恒为白纸黑字，不随主题翻转；集中在此避免组件直连原料层 */
+  --receipt-paper: var(--p-ink-0);
+  --receipt-ink: var(--p-ink-900);
+  --receipt-subtle: var(--p-ink-500);
+  --receipt-divider: var(--p-ink-400);
+}
+
+/* ---------- semantic：暗色（只翻转本层，primitives 不动） ---------- */
+:root[data-theme='dark'] {
+  /* 平面层级：深底带色相，靠提亮表达海拔 */
+  --bg: var(--p-surface-dark-1);
+  --panel: var(--p-surface-dark-2);
+  --panel-raised: var(--p-surface-dark-3);
+  --surface-subtle: var(--p-surface-dark-3);
+
+  /* 文字层级：降纯度，避免纯白刺眼 */
+  --text: var(--p-neutral-100);
+  --text-muted: var(--p-neutral-400);
+  --text-on-brand: var(--p-neutral-0);
+  --text-strong: var(--p-neutral-0);
+
+  /* 描边 */
+  --border: var(--p-border-dark);
+  --border-strong: var(--p-neutral-600);
+
+  /* 撞色强调：暗底下提亮一档保证对比度 */
+  --brand: var(--p-brand-400);
+  --brand-hover: var(--p-brand-300);
+  --brand-subtle: var(--p-brand-900);
+  --brand-border: var(--p-brand-700);
+
+  /* 主体色：暗底下提亮保证顶栏与内容区可辨 */
+  --chrome: var(--p-slate-700);
+  --chrome-hover: var(--p-slate-600);
+  --chrome-active: var(--p-slate-500);
+  --on-chrome: var(--p-ink-0);
+  --chrome-subtle: var(--p-slate-900);
+
+  /* 语义色：文字色提亮，淡底转深色 */
+  --danger: var(--p-danger-500);
+  --danger-hover: var(--p-danger-600);
+  --danger-subtle: var(--p-danger-900);
+  --danger-border: var(--p-danger-700);
+  --success: var(--p-success-500);
+  --success-text: var(--p-success-500);
+  --success-subtle: var(--p-success-900);
+  --warning: var(--p-warning-500);
+  --warning-text: var(--p-warning-100);
+  --warning-subtle: var(--p-warning-900);
+  --warning-border: var(--p-warning-950);
+
+  /* 暗色下阴影失效，海拔改由表面提亮承担 */
+  --shadow: var(--p-shadow-float);
+  --shadow-float: var(--p-shadow-float);
+
+  --toast-bg: var(--p-surface-dark-3);
+  --toast-text: var(--p-neutral-0);
+}
+
+/* ---------- semantic：布局尺度（表达位置，不属于原料刻度） ---------- */
+:root {
+  --layout-topbar-height: 56px;
+  --layout-auth-width: 460px;
+  /* 弹窗宽度三档：sm=现金/确认、md=凭据/单列表单、lg=批量创建/多列表单 */
+  --layout-modal-sm: 440px;
+  --layout-modal-md: 560px;
+  --layout-modal-lg: 680px;
+  --layout-content-width: 900px;
+  --layout-cart-width: 400px;
+  /* 管理页内容上限：1280 收银屏减两侧 24px 页边距可用 1232px，取 1200 留呼吸边；
+     会员表格 8 列 + 操作列在该宽度下单列从容铺开 */
+  --layout-admin-width: 1200px;
+  /* 后台管理左栏宽：33 报表分组标题最长 7 字 + 常规菜单 4 字，200px 容纳下
+     「收银员业绩报表」且给图标/文字留出呼吸；窄于它报表名会换行 */
+  --layout-side-nav-width: 200px;
+  /* 表单网格单列最小宽：低于它 auto-fit 降列，保证窄屏不挤 */
+  --layout-form-col-min: 220px;
+  /* 统计卡最小宽：2~5 个指标同一行铺开，窄屏再降列，避免尾行单卡留白 */
+  --stats-col-min: 160px;
+  /* 工具栏搜索框最小宽：防止按钮挤压输入框到不可用 */
+  --control-search-min-width: 200px;
+
+  --control-input-sm-width: 80px;
+  /* 中等宽度输入（金额/编号等短字段）：独立行内字段，不随容器拉伸 */
+  --control-input-md-width: 180px;
+  /* 超窄数字输入（技师提成/厨打端口）：比 small 再窄，容纳百分比与端口号 */
+  --control-input-xs-width: 68px;
+  /* 弹窗表单统一控件高度：输入框/下拉/按钮同高，行内比例协调 */
+  --control-height-form: 34px;
+  --control-qty-size: 24px;
+  --control-spinner-size: 36px;
+  --control-brandmark-size: 42px;
+  /* 登录页品牌标识：比通用 brand-mark 大一档，作为页面的视觉锚点 */
+  --control-brandmark-lg-size: 56px;
+  /* 行内轻量加载指示：嵌在输入框/按钮里，16px 不抢内容 */
+  --control-inline-spinner-size: 16px;
+  --control-spinner-border-width: 3px;
+  /* 商品缩略图：表格行高内的方形缩略图，40px 足够辨认商品又不过度抢眼 */
+  --control-thumb-size: 40px;
+
+  --layout-wide-max: 92%;
+  --layout-pay-label-width: 120px;
+  --layout-toast-max-width: 80%;
+  /* Native 支付二维码展示区：58mm 小票屏兼容的方形弹窗内容尺寸 */
+  --layout-qr-size: 256px;
+  --opacity-disabled: 0.5;
+
+  /* 组件唯一可用入口：语义化的刻度别名。
+   * 组件只引用下面这些名字，绝不直接碰 --p-* 原料层。 */
+  --space-0: var(--p-space-0);
+  --hairline: var(--p-hairline);
+  --tracking-wide: var(--p-tracking-wide);
+  --space-0_5: var(--p-space-0_5);
+  --space-1: var(--p-space-1);
+  --space-2: var(--p-space-2);
+  --space-3: var(--p-space-3);
+  --space-4: var(--p-space-4);
+  --space-5: var(--p-space-5);
+  --space-6: var(--p-space-6);
+  --space-7: var(--p-space-7);
+  --space-8: var(--p-space-8);
+  --space-10: var(--p-space-10);
+  --space-12: var(--p-space-12);
+
+  --font-2xs: var(--p-font-2xs);
+  --font-xs: var(--p-font-xs);
+  --font-sm: var(--p-font-sm);
+  --font-base: var(--p-font-base);
+  --font-md: var(--p-font-md);
+  --font-lg: var(--p-font-lg);
+  --font-xl: var(--p-font-xl);
+  --font-2xl: var(--p-font-2xl);
+  --line-tight: var(--p-line-tight);
+  --line-normal: var(--p-line-normal);
+  --font-family: var(--p-font-sans);
+  --font-family-mono: var(--p-font-mono);
+
+  --radius-xs: var(--p-radius-xs);
+  --radius-sm: var(--p-radius-sm);
+  --radius-md: var(--p-radius-md);
+  --radius-lg: var(--p-radius-lg);
+  --radius-pill: var(--p-radius-pill);
+  --radius-circle: var(--p-radius-circle);
+  --border-width: var(--p-border-width);
+
+  --duration-fast: var(--p-duration-fast);
+  --duration-spin: var(--p-duration-spin);
+  --ease-out: var(--p-ease-out);
+
+  --z-base: var(--p-z-base);
+  --z-raised: var(--p-z-raised);
+  --z-overlay: var(--p-z-overlay);
+  --z-modal: var(--p-z-modal);
+  --z-toast: var(--p-z-toast);
+  --z-lock: var(--p-z-lock);
+  --overlay-scrim: var(--p-overlay-scrim);
+
+  /* 兼容旧组件中使用的短名 */
+  --muted: var(--text-muted);
+}
+
+/* 行业看板卡片网格统一最大高度：四个看板此前各写 205/210/215px，收成一个刻度。
+   注意必须挂在 :root 上：裸露在文件顶层会被 CSS 解析器当作
+   无效规则吞掉后续第一个 {} 块（曾导致整个 .scene-dining 语义层失效、桌台无描边） */
+:root {
+  --scene-board-max-height: 210px;
+}
+
+/* ============================================================
+ * 场景语义层：行业看板/面板共用一组 --scene-* 语义名。
+ * 组件只引用语义名，不碰原料层；行业个性由宿主 class 覆写语义值，
+ * 暗色模式只在 .scene-* 上翻一次，组件代码无需任何主题分支。
+ *
+ * 每个场景提供：surface 看板底 / line 分隔线 / title 主标题 /
+ * sub 次要字 / card 卡片底 / card-line 卡片描边 / card-hover 悬停底 /
+ * accent 强调字 / tag 标签 / state-ok 正向态 / state-warn 占用态 /
+ * danger 破坏操作 / hint-bg 提示底 / hint-line 提示描边 / hint-text 提示字。
+ * ============================================================ */
+
+/* ---------- 餐饮桌台：暖米底 + 朱棕强调（默认场景） ---------- */
+.scene-dining {
+  --scene-surface: var(--p-ink-0);
+  --scene-line: var(--border);
+  --scene-title: var(--p-brand-800);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  /* 桌台卡片描边：ink-400 保证白底看板上卡片轮廓一眼可辨 */
+  --scene-card-line: var(--p-ink-400);
+  --scene-card-hover: var(--p-brand-50);
+  --scene-card-active-line: var(--p-brand-600);
+  --scene-card-active-ring: var(--p-brand-100);
+  --scene-card-occupied: var(--p-brand-50);
+  --scene-accent: var(--p-brand-700);
+  --scene-heading: var(--p-brand-900);
+  --scene-state-ok: var(--success-text);
+  --scene-state-warn: var(--p-brand-700);
+  --scene-soft-bg: var(--p-warning-50);
+  --scene-soft-line: var(--p-warning-100);
+  --scene-soft-text: var(--p-brand-800);
+  --scene-tag-bg: var(--success-subtle);
+  --scene-tag-text: var(--success-text);
+  --scene-link: var(--p-ink-500);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-ink-200);
+}
+/* 餐饮提示条专用：淡黄底、描边、字 */
+.scene-dining { --scene-hint-bg: var(--p-warning-50); --scene-hint-line: var(--p-warning-100); --scene-hint-text: var(--p-brand-800); }
+
+/* ---------- 母婴选购：玫瑰粉 ---------- */
+.scene-baby {
+  --scene-surface: var(--p-rose-50);
+  --scene-line: var(--p-rose-100);
+  --scene-title: var(--p-rose-600);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  --scene-card-line: var(--p-rose-100);
+  --scene-card-hover: var(--p-rose-600);
+  --scene-accent: var(--p-rose-600);
+  --scene-heading: var(--p-ink-800);
+  --scene-tag-bg: var(--p-sage-50);
+  --scene-tag-text: var(--p-sage-700);
+  --scene-empty-line: var(--p-rose-100);
+}
+
+/* ---------- 养生项目：鼠尾草绿 ---------- */
+.scene-wellness {
+  --scene-surface: var(--p-sage-50);
+  --scene-line: var(--p-sage-200);
+  --scene-title: var(--p-sage-700);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  --scene-card-line: var(--p-sage-100);
+  --scene-card-hover: var(--p-sage-600);
+  --scene-card-active-line: var(--p-sage-600);
+  --scene-accent: var(--p-sage-700);
+  --scene-heading: var(--p-sage-900);
+  --scene-soft-line: var(--p-sage-600);
+  --scene-state-ok: var(--p-sage-600);
+  --scene-empty-line: var(--p-sage-100);
+}
+
+/* ---------- 棋牌包间：松绿金深底（亮/暗主题下都保持深底浅字） ---------- */
+.scene-chess {
+  --scene-surface: var(--p-pine-900);
+  --scene-line: var(--p-pine-800);
+  --scene-title: var(--p-gold-300);
+  --scene-sub: var(--p-pine-300);
+  --scene-card: rgba(255, 255, 255, 0.05);
+  --scene-card-line: var(--p-pine-600);
+  --scene-card-hover: rgba(255, 255, 255, 0.09);
+  --scene-card-active-line: var(--p-gold-300);
+  --scene-card-active-ring: rgba(241, 211, 139, 0.35);
+  --scene-card-occupied: rgba(241, 211, 139, 0.08);
+  --scene-accent: var(--p-gold-300);
+  --scene-heading: var(--p-gold-300);
+  --scene-clock: var(--p-gold-100);
+  --scene-state-ok: var(--p-pine-300);
+  --scene-state-warn: var(--p-gold-300);
+  --scene-soft-bg: rgba(241, 211, 139, 0.12);
+  --scene-soft-line: var(--p-gold-700);
+  --scene-soft-text: var(--p-gold-300);
+  --scene-tag-bg: var(--scene-soft-bg);
+  --scene-tag-text: var(--scene-title);
+  --scene-link: var(--p-gold-300);
+  --scene-danger: #ffb4a8;
+  --scene-empty-line: var(--p-pine-600);
+  --scene-btn: var(--p-gold-300);
+  --scene-btn-line: var(--p-pine-600);
+}
+/* ---------- 养生包间：浅绿（与养生项目同色系，卡片语义独立） ---------- */
+.scene-wellness-room {
+  --scene-surface: var(--p-sage-50);
+  --scene-line: var(--p-sage-100);
+  --scene-title: var(--p-sage-700);
+  --scene-sub: var(--p-ink-500);
+  --scene-card: var(--p-ink-0);
+  /* 包间卡片描边：sage-300 保证浅绿底上卡片轮廓一眼可辨 */
+  --scene-card-line: var(--p-sage-300);
+  --scene-card-hover: var(--p-sage-50);
+  --scene-card-active-line: var(--p-sage-600);
+  --scene-card-active-ring: rgba(109, 155, 118, 0.35);
+  --scene-card-occupied: var(--p-sage-50);
+  --scene-accent: var(--p-sage-700);
+  --scene-heading: var(--p-sage-700);
+  --scene-clock: var(--p-sage-700);
+  --scene-state-ok: var(--p-sage-600);
+  --scene-state-warn: var(--p-sage-700);
+  --scene-soft-bg: var(--p-sage-50);
+  --scene-soft-line: var(--p-sage-200);
+  --scene-soft-text: var(--p-sage-700);
+  --scene-tag-bg: var(--p-sage-50);
+  --scene-tag-text: var(--p-sage-700);
+  --scene-link: var(--p-sage-700);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-sage-200);
+  --scene-btn: var(--p-sage-700);
+  --scene-btn-line: var(--p-sage-200);
+}
+
+/* ---------- 技师面板：天青蓝 ---------- */
+.scene-tech {
+  --scene-surface: var(--p-sky-50);
+  --scene-line: var(--p-sky-200);
+  --scene-title: var(--p-sky-600);
+  --scene-state-ok: var(--success-text);
+}
+
+/* ---------- 厨打路由：暖棕 ---------- */
+.scene-kitchen {
+  --scene-surface: var(--p-warning-50);
+  --scene-line: var(--border);
+  --scene-title: var(--p-brand-700);
+}
+
+/* ============================================================
+ * 暗色翻转：只翻语义层的场景色，组件与原料层不动。
+ * 棋牌深底场景刻意不翻（它本就是深底，亮暗主题下观感一致）。
+ * ============================================================ */
+:root[data-theme='dark'] .scene-dining {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-border-dark);
+  --scene-title: var(--p-brand-300);
+  --scene-sub: var(--p-ink-400);
+  --scene-card: var(--p-surface-dark-3);
+  --scene-card-line: var(--p-border-dark);
+  --scene-card-hover: var(--p-surface-dark-1);
+  --scene-card-active-line: var(--p-brand-400);
+  --scene-card-active-ring: var(--p-brand-900);
+  --scene-card-occupied: var(--p-brand-900);
+  --scene-accent: var(--p-brand-400);
+  --scene-heading: var(--p-brand-200);
+  --scene-state-ok: var(--success-text);
+  --scene-state-warn: var(--p-brand-400);
+  --scene-soft-bg: var(--p-warning-900);
+  --scene-soft-line: var(--p-warning-950);
+  --scene-soft-text: var(--p-warning-100);
+  --scene-tag-bg: var(--success-subtle);
+  --scene-tag-text: var(--success-text);
+  --scene-link: var(--p-ink-400);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-border-dark);
+  --scene-hint-bg: var(--p-warning-900);
+  --scene-hint-line: var(--p-warning-950);
+  --scene-hint-text: var(--p-warning-100);
+}
+:root[data-theme='dark'] .scene-baby {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-rose-900);
+  --scene-title: var(--p-rose-200);
+  --scene-sub: var(--p-ink-400);
+  --scene-card: var(--p-surface-dark-3);
+  --scene-card-line: var(--p-rose-900);
+  --scene-card-hover: var(--p-rose-900);
+  --scene-accent: var(--p-rose-200);
+  --scene-heading: var(--p-ink-100);
+  --scene-tag-bg: var(--p-sage-900);
+  --scene-tag-text: var(--p-sage-100);
+  --scene-empty-line: var(--p-rose-900);
+}
+:root[data-theme='dark'] .scene-wellness,
+:root[data-theme='dark'] .scene-wellness-room {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-sage-900);
+  --scene-title: var(--p-sage-200);
+  --scene-sub: var(--p-ink-400);
+  --scene-card: var(--p-surface-dark-3);
+  --scene-card-line: var(--p-sage-900);
+  --scene-card-hover: var(--p-sage-900);
+  --scene-card-active-line: var(--p-sage-300);
+  --scene-card-active-ring: rgba(109, 155, 118, 0.35);
+  --scene-card-occupied: var(--p-sage-900);
+  --scene-accent: var(--p-sage-200);
+  --scene-heading: var(--p-sage-100);
+  --scene-clock: var(--p-sage-200);
+  --scene-state-ok: var(--p-sage-200);
+  --scene-state-warn: var(--p-sage-200);
+  --scene-soft-bg: var(--p-sage-900);
+  --scene-soft-line: var(--p-sage-700);
+  --scene-soft-text: var(--p-sage-100);
+  --scene-tag-bg: var(--p-sage-900);
+  --scene-tag-text: var(--p-sage-100);
+  --scene-link: var(--p-sage-200);
+  --scene-danger: var(--danger);
+  --scene-empty-line: var(--p-sage-900);
+  --scene-btn: var(--p-sage-200);
+  --scene-btn-line: var(--p-sage-700);
+}
+:root[data-theme='dark'] .scene-tech {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-sky-900);
+  --scene-title: var(--p-sky-200);
+  --scene-state-ok: var(--success-text);
+}
+:root[data-theme='dark'] .scene-kitchen {
+  --scene-surface: var(--p-surface-dark-2);
+  --scene-line: var(--p-border-dark);
+  --scene-title: var(--p-warning-100);
+}

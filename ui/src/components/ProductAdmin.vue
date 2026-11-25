@@ -477,10 +477,6 @@ onMounted(reload)
 
 <style scoped>
 /* 组件特有样式；通用类（page-head/toolbar/tbl/form-grid/chip 等）已上移全局 styles.css */
-/* 表格操作列：td 保持 table-cell 以维持表格对齐，按钮组放在内层 div。
-   不复用全局 .actions（那是 POS 支付区双列 grid），避免覆盖导致表头与内容错位。 */
-.row-actions-cell { white-space: nowrap; }
-.row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 /* 商品缩略图：固定方形，缺图不撑表格 */
 .thumb {
   width: var(--control-thumb-size); height: var(--control-thumb-size);

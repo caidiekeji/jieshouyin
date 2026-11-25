@@ -294,7 +294,7 @@ onMounted(() => {
         <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
           <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
-          <span class="input" aria-label="收款方式">收款方式：现金</span>
+          <span class="input">收款方式：现金</span>
           <button class="btn primary" @click="submitRecharge">确认充值</button>
           <button class="btn ghost" @click="rechargeMemberId = null">取消</button>
         </div>

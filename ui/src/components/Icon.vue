@@ -112,7 +112,7 @@ const ICONS: Record<StrokeIconName, string[]> = {
     'M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
   ],
   receipt: [
-    'M5 3h14v18l-2-1-2 1-2-1-2 1-2-1-2 1V3Z',
+    'M5 3h14v18l-2-1-2 1-2-1-2 1-2-1-2 1-2-1V3Z',
     'M9 8h6',
     'M9 12h6',
     'M9 16h4',

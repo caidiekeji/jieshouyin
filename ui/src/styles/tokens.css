@@ -257,6 +257,12 @@
   /* 浮层专用反色底（亮色下深底白字，保证与卡片区分） */
   --toast-bg: var(--p-neutral-800);
   --toast-text: var(--p-neutral-0);
+
+  /* 小票预览：纸张与印字恒为白纸黑字，不随主题翻转；集中在此避免组件直连原料层 */
+  --receipt-paper: var(--p-ink-0);
+  --receipt-ink: var(--p-ink-900);
+  --receipt-subtle: var(--p-ink-500);
+  --receipt-divider: var(--p-ink-400);
 }
 
 /* ---------- semantic：暗色（只翻转本层，primitives 不动） ---------- */
@@ -329,6 +335,8 @@
   --layout-side-nav-width: 200px;
   /* 表单网格单列最小宽：低于它 auto-fit 降列，保证窄屏不挤 */
   --layout-form-col-min: 220px;
+  /* 统计卡最小宽：2~5 个指标同一行铺开，窄屏再降列，避免尾行单卡留白 */
+  --stats-col-min: 160px;
   /* 工具栏搜索框最小宽：防止按钮挤压输入框到不可用 */
   --control-search-min-width: 200px;
 

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "core-default",
+  "description": "最小权限：仅核心窗口能力，业务命令通过 invoke_handler 注册清单暴露",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}
