@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, formatMoney, type CouponRow, type MemberRow, type PromotionRow } from '../api'
-import HintTip from './HintTip.vue'
 import {
   CENTS_PER_YUAN,
   DISCOUNT_ZHE_FACTOR,
@@ -266,33 +265,28 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="card">
-        <table class="tbl">
-          <thead>
-            <tr><th>会员</th><th>手机号</th><th>会员号</th><th class="num-cell">储值本金</th><th class="num-cell">赠送金</th><th class="num-cell">积分</th><th class="num-cell">成长值</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="m in members" :key="m.member_id">
-              <td>{{ m.name || '—' }}</td>
-              <td class="mono">{{ m.phone || '—' }}</td>
-              <td class="mono">{{ m.member_code }}</td>
-              <td class="num-cell">{{ formatMoney(m.principal_cents) }}</td>
-              <td class="num-cell">{{ formatMoney(m.bonus_cents) }}</td>
-              <td class="num-cell">{{ m.points }}</td>
-              <td class="num-cell">{{ m.growth }}</td>
-              <td><button class="btn btn-sm" @click="openRecharge(m)">充值</button></td>
-            </tr>
-            <tr v-if="!members.length"><td colspan="8" class="empty">暂无会员，可先在前台收银时识别或到设置页新增</td></tr>
-          </tbody>
-        </table>
+      <!-- 触屏卡片化：8 列表格改会员卡，充值按钮整宽 48px 热区 -->
+      <div class="tcard-list">
+        <div v-for="m in members" :key="m.member_id" class="tcard">
+          <div class="tcard-head">
+            <span class="tcard-code">{{ m.name || '—' }}</span>
+            <span class="mono muted small">{{ m.member_code }}</span>
+          </div>
+          <div class="tcard-line"><span class="tcard-key">手机号</span><span class="tcard-value mono">{{ m.phone || '—' }}</span></div>
+          <div class="tcard-line"><span class="tcard-key">储值</span><span class="tcard-value">本金 ¥{{ formatMoney(m.principal_cents) }} · 赠金 ¥{{ formatMoney(m.bonus_cents) }}</span></div>
+          <div class="tcard-line"><span class="tcard-key">积分</span><span class="tcard-value">{{ m.points }} · 成长值 {{ m.growth }}</span></div>
+          <div class="tcard-actions">
+            <button class="btn primary" @click="openRecharge(m)">充值</button>
+          </div>
+        </div>
+        <div v-if="!members.length" class="empty">暂无会员，可先在前台收银时识别或到设置页新增</div>
       </div>
 
       <div v-if="rechargeMemberId != null" class="card">
         <h3>会员充值：{{ rechargeName }}</h3>
-        <HintTip text="实充金额进入本金，赠送金额进入赠送金账户；赠送金不可提现、不可找零。" />
         <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
-          <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
+          <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元，不可提现不可找零）" />
           <span class="input">收款方式：现金</span>
           <button class="btn primary" @click="submitRecharge">确认充值</button>
           <button class="btn ghost" @click="rechargeMemberId = null">取消</button>
@@ -325,7 +319,7 @@ onMounted(() => {
               <option value="FULL_CUT">满减</option>
             </select>
           </label>
-          <label v-if="pForm.mode === 'DISCOUNT'">折扣率<input v-model="pForm.discountRate" class="input" placeholder="0.85 = 8.5 折" /></label>
+          <label v-if="pForm.mode === 'DISCOUNT'">折扣率<input v-model="pForm.discountRate" class="input" placeholder="填 0–1 小数，0.85 = 8.5 折" /></label>
           <label v-else>满减金额（元）<input v-model="pForm.discountAmount" class="input" type="number" step="0.01" placeholder="如 5 = 减 5 元" /></label>
           <label>适用商品 SKU（逗号分隔）
             <input v-model="pForm.targetSkusText" class="input" placeholder="留空 = 全部商品；如 12,15" />
@@ -338,35 +332,32 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <HintTip text="折扣率填 0–1 之间的小数（0.85 即 8.5 折）；指定 SKU 后规则只作用于这些商品。" />
         <button class="btn primary" @click="addPromo">创建规则</button>
       </div>
 
-      <div class="card">
-        <table class="tbl">
-          <thead>
-            <tr><th>名称</th><th>范围</th><th>门槛</th><th>优惠</th><th class="num-cell">优先级</th><th>状态</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in promos" :key="p.promotion_id">
-              <td>{{ p.name }}</td>
-              <td>{{ p.scope === 'SINGLE_ITEM' ? '单品级' : '整单级' }}</td>
-              <td>
-                <span v-if="p.min_qty > 0">满 {{ p.min_qty }} 件</span>
-                <span v-if="p.min_amount_cents > 0">满 {{ formatMoney(p.min_amount_cents) }}</span>
-                <span v-if="p.min_qty === 0 && p.min_amount_cents === 0">无门槛</span>
-              </td>
-              <td>
-                <span v-if="p.discount_rate != null">{{ (p.discount_rate * DISCOUNT_ZHE_FACTOR).toFixed(1) }} 折</span>
-                <span v-else>减 {{ formatMoney(p.discount_cents ?? 0) }}</span>
-              </td>
-              <td class="num-cell">{{ p.priority }}</td>
-              <td><span class="badge" :class="p.status === 1 ? 'badge-ok' : 'badge-off'">{{ p.status === 1 ? '启用' : '停用' }}</span></td>
-              <td><button class="btn btn-sm ghost" @click="togglePromo(p)">{{ p.status === 1 ? '停用' : '启用' }}</button></td>
-            </tr>
-            <tr v-if="!promos.length"><td colspan="7" class="empty">暂无促销规则，用上方表单创建第一条</td></tr>
-          </tbody>
-        </table>
+      <!-- 触屏卡片化：促销规则卡，状态徽标进标题行，启停按钮整宽 -->
+      <div class="tcard-list">
+        <div v-for="p in promos" :key="p.promotion_id" class="tcard">
+          <div class="tcard-head">
+            <span class="tcard-code">{{ p.name }}</span>
+            <span class="badge" :class="p.status === 1 ? 'badge-ok' : 'badge-off'">{{ p.status === 1 ? '启用' : '停用' }}</span>
+          </div>
+          <div class="tcard-line"><span class="tcard-key">范围</span><span class="tcard-value">{{ p.scope === 'SINGLE_ITEM' ? '单品级' : '整单级' }}</span></div>
+          <div class="tcard-line"><span class="tcard-key">门槛</span><span class="tcard-value">
+            <span v-if="p.min_qty > 0">满 {{ p.min_qty }} 件 </span>
+            <span v-if="p.min_amount_cents > 0">满 {{ formatMoney(p.min_amount_cents) }}</span>
+            <span v-if="p.min_qty === 0 && p.min_amount_cents === 0">无门槛</span>
+          </span></div>
+          <div class="tcard-line"><span class="tcard-key">优惠</span><span class="tcard-value">
+            <span v-if="p.discount_rate != null">{{ (p.discount_rate * DISCOUNT_ZHE_FACTOR).toFixed(1) }} 折</span>
+            <span v-else>减 {{ formatMoney(p.discount_cents ?? 0) }}</span>
+          </span></div>
+          <div class="tcard-line"><span class="tcard-key">优先级</span><span class="tcard-value">{{ p.priority }}</span></div>
+          <div class="tcard-actions">
+            <button class="btn ghost" @click="togglePromo(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
+          </div>
+        </div>
+        <div v-if="!promos.length" class="empty">暂无促销规则，用上方表单创建第一条</div>
       </div>
     </template>
 
@@ -398,28 +389,24 @@ onMounted(() => {
             <input v-model="couponForm.validUntil" class="input" type="datetime-local" />
           </label>
         </div>
-        <HintTip text="专属券仅发放对象识别为会员后可用；通用券任何人可用。有效期留空表示不设截止。" />
         <button class="btn primary" @click="addCoupon">发券</button>
       </div>
 
       <div class="card">
         <h3>券列表</h3>
-        <table class="tbl">
-          <thead>
-            <tr><th>券码</th><th>发放对象</th><th class="num-cell">优惠额</th><th class="num-cell">门槛</th><th>有效期至</th><th>状态</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in coupons" :key="c.coupon_code">
-              <td class="mono">{{ c.coupon_code }}</td>
-              <td>{{ c.member_name ?? '通用券' }}</td>
-              <td class="num-cell">¥{{ formatMoney(c.discount_cents) }}</td>
-              <td class="num-cell">¥{{ formatMoney(c.min_order_cents) }}</td>
-              <td>{{ c.valid_until ?? '不限' }}</td>
-              <td>{{ c.status }}</td>
-            </tr>
-            <tr v-if="!coupons.length"><td colspan="6" class="empty">暂无优惠券，用上方表单发放第一张</td></tr>
-          </tbody>
-        </table>
+        <!-- 触屏卡片化：券卡只读展示，无行内操作 -->
+        <div class="tcard-list">
+          <div v-for="c in coupons" :key="c.coupon_code" class="tcard">
+            <div class="tcard-head">
+              <span class="mono tcard-code">{{ c.coupon_code }}</span>
+              <span class="muted small">{{ c.status }}</span>
+            </div>
+            <div class="tcard-line"><span class="tcard-key">对象</span><span class="tcard-value">{{ c.member_name ?? '通用券' }}</span></div>
+            <div class="tcard-line"><span class="tcard-key">优惠</span><span class="tcard-value">¥{{ formatMoney(c.discount_cents) }}<template v-if="c.min_order_cents > 0"> · 门槛 ¥{{ formatMoney(c.min_order_cents) }}</template><template v-else> · 无门槛</template></span></div>
+            <div class="tcard-line"><span class="tcard-key">有效期</span><span class="tcard-value">{{ c.valid_until ?? '不限' }}</span></div>
+          </div>
+          <div v-if="!coupons.length" class="empty">暂无优惠券，用上方表单发放第一张</div>
+        </div>
       </div>
     </template>
   </main>

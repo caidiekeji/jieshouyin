@@ -1,14 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import HintTip from '../components/HintTip.vue'
 import TableCreateDialog from '../components/TableCreateDialog.vue'
 import { useAppContext } from '../composables/useAppContext'
 import { useTableAdmin } from '../composables/useTableAdmin'
 
 const { atLeast } = useAppContext()
 const { tables, busy, showCreate, err, createBatch, remove, clear } = useTableAdmin('DINING', false, '桌台')
-const freeCount = computed(() => tables.value.filter((t) => t.status === 'FREE').length)
-const hint = computed(() => `共 ${tables.value.length} 张桌台 · 空闲 ${freeCount.value} · 使用中 ${tables.value.length - freeCount.value}。`)
 </script>
 
 <template>
@@ -16,7 +12,6 @@ const hint = computed(() => `共 ${tables.value.length} 张桌台 · 空闲 ${fr
     <div class="page-head">
       <div class="page-title">
         <h2>餐饮桌台管理</h2>
-        <HintTip :text="hint" />
       </div>
       <button v-if="atLeast('MANAGER')" class="btn primary" @click="showCreate = true">
         批量新增

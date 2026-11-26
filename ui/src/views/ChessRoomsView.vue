@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import HintTip from '../components/HintTip.vue'
 import TableCreateDialog from '../components/TableCreateDialog.vue'
 import { useAppContext } from '../composables/useAppContext'
 import { useTableAdmin } from '../composables/useTableAdmin'
@@ -8,8 +6,6 @@ import { useTableAdmin } from '../composables/useTableAdmin'
 const { atLeast } = useAppContext()
 const { tables, feeProducts, busy, showCreate, err, feeText, createBatch, remove, clear } =
   useTableAdmin('CHESS', true, '包间')
-const freeCount = computed(() => tables.value.filter((t) => t.status === 'FREE').length)
-const hint = computed(() => `共 ${tables.value.length} 间 · 空闲 ${freeCount.value} · 使用中 ${tables.value.length - freeCount.value}。房费按时长自动生成。`)
 </script>
 
 <template>
@@ -17,7 +13,6 @@ const hint = computed(() => `共 ${tables.value.length} 间 · 空闲 ${freeCoun
     <div class="page-head">
       <div class="page-title">
         <h2>棋牌包间管理</h2>
-        <HintTip :text="hint" />
       </div>
       <button v-if="atLeast('MANAGER')" class="btn primary" @click="showCreate = true">
         批量新增

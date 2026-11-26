@@ -110,7 +110,7 @@ function toggleQuick(p: ProductHit) {
         @focus="focusScan"
       />
       <span v-if="searchBusy" class="scan-spinner" role="status" aria-label="搜索中"></span>
-      <span v-else-if="products.length" class="scan-hint">{{ products.length }} 个候选 · 回车收第一条</span>
+      <span v-else-if="products.length" class="scan-hint">{{ products.length }} 个候选 · 点选收银</span>
     </div>
 
     <WeighEntryPanel v-if="weigh" />
@@ -188,10 +188,6 @@ function toggleQuick(p: ProductHit) {
         <div v-if="!posProducts.length" class="empty pos-empty">
           {{ posCatalogBusy ? '正在装载商品…' : '该分类暂无在售商品，可切分类或直接扫码' }}
         </div>
-      </div>
-      <div class="pos-shortcuts">
-        <span>F2 扫码</span><span>F3 会员</span><span>Ctrl+G 挂单</span><span>Ctrl+Q 取单</span><span>Ctrl+Z 清空</span>
-        <span>点商品右上角星标可加入常用</span>
       </div>
     </div>
   </div>

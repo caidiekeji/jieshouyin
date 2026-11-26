@@ -17,17 +17,142 @@ interface UserRowUI { user_id: number; username: string; role_name: string; stat
 
 const POINTS_CONFIG_KEYS = ['points_enabled', 'points_per_yuan', 'points_redeem_rate']
 const PAY_CHANNEL_CONFIG_KEYS = ['pay_channel_cash_enabled', 'pay_channel_wechat_enabled', 'pay_channel_alipay_enabled', 'pay_channel_sv_enabled']
-const SYSTEM_CONFIG_GROUPS: Array<{ title: string; hint: string; keys: string[] }> = [
-  { title: '营业规则', hint: '影响营业日切与收银基础规则', keys: ['store_timezone', 'business_day_cutoff', 'max_discount_ratio', 'allow_negative_stock_default'] },
-  { title: '支付时序', hint: '付款码 / 主扫的轮询与超时参数', keys: ['micropay_poll_ms', 'micropay_timeout_s', 'native_poll_ms', 'native_timeout_s'] },
-  { title: '收银设备', hint: '扫码枪等外设参数', keys: ['scan_gap_ms'] },
-  { title: '经营费用', hint: '利润报表按天均摊的月度固定费用', keys: ['expense_rent_yuan', 'expense_utility_yuan', 'expense_labor_yuan'] },
-  { title: '打印设置', hint: '网络打印机地址与结算自动打印', keys: ['print_host', 'print_port', 'print_auto'] },
-  { title: '行业规则', hint: '棋牌房费与桌台会员策略，默认值可被单包间覆盖', keys: ['chess_fee_unit', 'chess_min_minutes', 'chess_round_minutes', 'table_member_bind', 'table_allow_member_rebind'] },
-  { title: '激活服务', hint: '在线激活服务地址，留空使用内置服务', keys: ['activation_endpoint'] },
+const SYSTEM_CONFIG_GROUPS: Array<{ title: string; keys: string[] }> = [
+  { title: '营业规则', keys: ['store_timezone', 'business_day_cutoff', 'max_discount_ratio', 'allow_negative_stock_default'] },
+  { title: '支付时序', keys: ['micropay_poll_ms', 'micropay_timeout_s', 'native_poll_ms', 'native_timeout_s'] },
+  { title: '收银设备', keys: ['scan_gap_ms'] },
+  { title: '经营费用', keys: ['expense_rent_yuan', 'expense_utility_yuan', 'expense_labor_yuan'] },
+  { title: '打印设置', keys: ['print_host', 'print_port', 'print_auto'] },
+  { title: '行业规则', keys: ['chess_fee_unit', 'chess_min_minutes', 'chess_round_minutes', 'table_member_bind', 'table_allow_member_rebind'] },
+  { title: '激活服务', keys: ['activation_endpoint'] },
 ]
 
-type ReportTool = 'shift' | 'orderOp'
+type ReportTool = 'dashboard' | 'shift' | 'orderOp'
+
+/** 仪表盘聚合粒度：日 / 周（周一起算）/ 月 */
+export type DashGrain = 'day' | 'week' | 'month'
+/** 单个时间桶：桶首日（周/月桶）+ 净营业额 + 订单数 + 净利润（profit 缺行时为 null） */
+export interface DashDay { key: string; netCents: number; orders: number; profitCents: number | null }
+/** 一期快照：本期或对比期的聚合结果 */
+export interface DashSnapshot {
+  netCents: number
+  orders: number
+  /** 客单价 = 净营业额 / 订单数（订单数为 0 时取 0） */
+  avgCents: number
+  discountCents: number
+  refundCents: number
+  profitCents: number | null
+  topProducts: { name: string; qty: number; salesCents: number }[]
+  payments: { channel: string; amountCents: number; shareText: string }[]
+  daily: DashDay[]
+}
+export interface DashData {
+  grain: DashGrain
+  range: { from: string; to: string }
+  current: DashSnapshot
+  compare: DashSnapshot | null
+  compareRange: { from: string; to: string } | null
+}
+
+// ===== 仪表盘纯函数（无平台差异，两端逐字同步）=====
+
+/** 报表金额展示串（两位小数）→ 分整数。禁 parseFloat×100（浮点误差），按字符串拼整数。 */
+function parseMoney(s: string): number {
+  const m = /^(-?)(\d+)\.(\d{2})$/.exec(String(s).trim())
+  return m ? Number(`${m[1]}${m[2]}${m[3]}`) : 0
+}
+function strToDate(s: string): Date {
+  const [y, mo, d] = s.split('-').map(Number)
+  return new Date(Date.UTC(y, mo - 1, d))
+}
+function iso(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d)
+  x.setUTCDate(x.getUTCDate() + n)
+  return x
+}
+/** 周一索引（周一=0…周日=6），周桶以周一起算 */
+function mondayIndex(d: Date): number {
+  return (d.getUTCDay() + 6) % 7
+}
+
+/** 对比期映射：week→区间归一到周一~周日再整体前移 7 天；month→各月前移 1 个自然月；其余→等长前移（单日即前一天） */
+function cmpRange(grain: DashGrain, from: string, to: string): { from: string; to: string } {
+  const f = strToDate(from)
+  const t = strToDate(to)
+  if (grain === 'week') {
+    const monday = addDays(f, -mondayIndex(f))
+    const sunday = addDays(t, 6 - mondayIndex(t))
+    return { from: iso(addDays(monday, -7)), to: iso(addDays(sunday, -7)) }
+  }
+  if (grain === 'month') {
+    const prev = (y: number, mo: number) => (mo === 1 ? [y - 1, 12] : [y, mo - 1])
+    const [fy, fm] = prev(f.getUTCFullYear(), f.getUTCMonth() + 1)
+    const [ty, tm] = prev(t.getUTCFullYear(), t.getUTCMonth() + 1)
+    const lastDay = (y: number, mo: number) => new Date(Date.UTC(y, mo, 0)).getUTCDate()
+    return {
+      from: `${fy}-${String(fm).padStart(2, '0')}-01`,
+      to: `${ty}-${String(tm).padStart(2, '0')}-${String(lastDay(ty, tm)).padStart(2, '0')}`,
+    }
+  }
+  const days = Math.round((t.getTime() - f.getTime()) / 86400000) + 1
+  const shift = (d: Date) => addDays(d, -days)
+  return { from: iso(shift(f)), to: iso(shift(t)) }
+}
+
+/** 时间桶键：日=当日；周=桶内周一日期；月=YYYY-MM */
+function bucketKey(d: Date, grain: DashGrain): string {
+  if (grain === 'month') return iso(d).slice(0, 7)
+  if (grain === 'week') return iso(addDays(d, -mondayIndex(d)))
+  return iso(d)
+}
+
+/** 销售日报行 [日期,订单数,净额,优惠,退款] → 桶聚合序列（金额展示串先转分再相加） */
+function aggSalesDays(rows: string[][], grain: DashGrain): Map<string, { net: number; orders: number; discount: number; refund: number }> {
+  const out = new Map<string, { net: number; orders: number; discount: number; refund: number }>()
+  for (const r of rows) {
+    const k = bucketKey(strToDate(r[0]), grain)
+    const cur = out.get(k) ?? { net: 0, orders: 0, discount: 0, refund: 0 }
+    cur.net += parseMoney(r[2])
+    cur.orders += Number(r[1]) || 0
+    cur.discount += parseMoney(r[3])
+    cur.refund += parseMoney(r[4])
+    out.set(k, cur)
+  }
+  return out
+}
+
+/** 利润报表行 [日期,实收,退款,净额,成本,毛利,分摊费用,净利润] → 桶聚合净利润 */
+function aggProfitDays(rows: string[][], grain: DashGrain): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of rows) {
+    const k = bucketKey(strToDate(r[0]), grain)
+    out.set(k, (out.get(k) ?? 0) + parseMoney(r[7]))
+  }
+  return out
+}
+
+/** 商品排行行 [排名,名称,销量,销售额] → TOP5 */
+function ranking2top(r: ReportResult): DashSnapshot['topProducts'] {
+  return r.rows.slice(0, 5).map((row) => ({ name: row[1], qty: Number(row[2]) || 0, salesCents: parseMoney(row[3]) }))
+}
+
+/** 支付渠道行 [渠道,笔数,金额,占比,收讫,找零] → 占比列表（渠道码转中文，未知渠道显示原码） */
+const PAY_CHANNEL_LABELS: Record<string, string> = {
+  CASH: '现金',
+  WECHAT: '微信',
+  ALIPAY: '支付宝',
+  STORED_VALUE: '储值',
+}
+function pay2list(r: ReportResult): DashSnapshot['payments'] {
+  return r.rows.map((row) => ({
+    channel: PAY_CHANNEL_LABELS[row[0]] ?? row[0],
+    amountCents: parseMoney(row[2]),
+    shareText: row[3],
+  }))
+}
 
 export const useOpsStore = defineStore('ops', {
   state: () => ({
@@ -44,6 +169,10 @@ export const useOpsStore = defineStore('ops', {
     centerFrom: today(),
     centerTo: today(),
     reportTool: null as ReportTool | null,
+    // 经营总览（仪表盘）：前端聚合 sales_daily/profit/product_ranking/payment_summary
+    dashGrain: 'day' as DashGrain,
+    dashData: null as DashData | null,
+    dashLoading: false,
     // 系统配置
     configs: [] as ConfigRow[],
     configDraft: {} as Record<string, string>,
@@ -103,10 +232,9 @@ export const useOpsStore = defineStore('ops', {
         .map((key) => state.configs.find((c) => c.config_key === key))
         .filter((c): c is ConfigRow => !!c)
     },
-    systemConfigGroups(state): Array<{ title: string; hint: string; items: ConfigRow[] }> {
+    systemConfigGroups(state): Array<{ title: string; items: ConfigRow[] }> {
       const grouped = SYSTEM_CONFIG_GROUPS.map((g) => ({
         title: g.title,
-        hint: g.hint,
         items: g.keys
           .map((k) => state.configs.find((c) => c.config_key === k))
           .filter((c): c is ConfigRow => !!c && c.editable),
@@ -116,7 +244,7 @@ export const useOpsStore = defineStore('ops', {
         (c) => c.editable && !assigned.includes(c.config_key) &&
           !POINTS_CONFIG_KEYS.includes(c.config_key) && !PAY_CHANNEL_CONFIG_KEYS.includes(c.config_key)
       )
-      if (orphans.length) grouped.push({ title: '其他', hint: '尚未归类的配置项', items: orphans })
+      if (orphans.length) grouped.push({ title: '其他', items: orphans })
       return grouped
     },
     currentCredFields(state): Array<{ key: string; label: string; multiline?: boolean }> {
@@ -193,21 +321,120 @@ export const useOpsStore = defineStore('ops', {
     },
     openTool(t: ReportTool) {
       this.reportTool = t
+      if (t === 'dashboard') void this.runDashboard()
     },
-    exportActiveReport() {
+    /** 切换仪表盘粒度并重查 */
+    setDashGrain(g: DashGrain) {
+      this.dashGrain = g
+      void this.runDashboard()
+    },
+    /** 快捷区间预设：同时确定区间与粒度（今日/昨日/近N天→日；本周→周；本月/上月→月） */
+    applyDashPreset(preset: string) {
+      const t = strToDate(today())
+      const yday = addDays(t, -1)
+      const mon = addDays(t, -mondayIndex(t))
+      const sun = addDays(mon, 6)
+      const monthFirst = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+      const monthLast = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))
+      const prevMonth = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1))
+      const table: Record<string, { from: Date; to: Date; grain: DashGrain }> = {
+        today: { from: t, to: t, grain: 'day' },
+        yesterday: { from: yday, to: yday, grain: 'day' },
+        last7: { from: addDays(t, -6), to: t, grain: 'day' },
+        last30: { from: addDays(t, -29), to: t, grain: 'day' },
+        thisWeek: { from: mon, to: sun, grain: 'week' },
+        thisMonth: { from: monthFirst(t), to: monthLast(t), grain: 'month' },
+        lastMonth: { from: monthFirst(prevMonth), to: monthLast(prevMonth), grain: 'month' },
+      }
+      const hit = table[preset]
+      if (!hit) return
+      this.centerFrom = iso(hit.from)
+      this.centerTo = iso(hit.to)
+      this.dashGrain = hit.grain
+      void this.runDashboard()
+    },
+    /** 日期条/快捷区间变更后重查当前视图 */
+    refreshReportView() {
+      if (this.reportTool === 'dashboard') void this.runDashboard()
+      else void this.runActiveReport()
+    },
+
+    /** 经营总览：本期 + 对比期并发取数，纯函数聚合出环比（口径全部复用现有报表） */
+    async runDashboard() {
+      this.dashLoading = true
+      try {
+        const grain = this.dashGrain
+        const from = this.centerFrom
+        const to = this.centerTo
+        const cmp = cmpRange(grain, from, to)
+        const [curSales, cmpSales, curProfit, cmpProfit, ranking, payments] = await Promise.all([
+          api.genericReport('sales_daily', from, to),
+          api.genericReport('sales_daily', cmp.from, cmp.to),
+          api.genericReport('profit', from, to),
+          api.genericReport('profit', cmp.from, cmp.to),
+          api.genericReport('product_ranking', from, to),
+          api.genericReport('payment_summary', from, to),
+        ])
+        const buildSnap = (sales: ReportResult, profit: ReportResult): DashSnapshot => {
+          const salesBuckets = aggSalesDays(sales.rows, grain)
+          const profitBuckets = aggProfitDays(profit.rows, grain)
+          let net = 0, orders = 0, discount = 0, refund = 0, profitTotal = 0
+          const daily: DashDay[] = []
+          for (const [k, v] of salesBuckets) {
+            const hasProfit = profitBuckets.has(k)
+            const p = profitBuckets.get(k) ?? 0
+            net += v.net
+            orders += v.orders
+            discount += v.discount
+            refund += v.refund
+            profitTotal += p
+            daily.push({ key: k, netCents: v.net, orders: v.orders, profitCents: hasProfit ? p : null })
+          }
+          daily.sort((a, b) => a.key.localeCompare(b.key))
+          return {
+            netCents: net,
+            orders,
+            avgCents: orders > 0 ? Math.round(net / orders) : 0,
+            discountCents: discount,
+            refundCents: refund,
+            profitCents: profit.rows.length ? profitTotal : null,
+            topProducts: ranking2top(ranking),
+            payments: pay2list(payments),
+            daily,
+          }
+        }
+        this.dashData = {
+          grain,
+          range: { from, to },
+          current: buildSnap(curSales, curProfit),
+          compare: buildSnap(cmpSales, cmpProfit),
+          compareRange: cmp,
+        }
+      } catch (e) {
+        this.showToast(String(e), true)
+      } finally {
+        this.dashLoading = false
+      }
+    },
+
+    /** 利润报表费用引导：跳设置页系统配置（权限由设置页守卫统一拦截） */
+    goExpenseConfig() {
+      const app = useAppStore()
+      app.settingsTab = 'system'
+      app.view = 'settings'
+    },
+    /** 报表导出：后端生成 CSV 并落盘（桌面另存为对话框 / Android 应用数据目录）。
+        Blob+<a> 下载在 Tauri WebView（尤其 Android）不生效，必须走原生命令。 */
+    async exportActiveReport() {
       const r = this.activeReport
       if (!r) return
-      const esc = (s: string) => `"${s.replace(/"/g, '""')}"`
-      const lines = [r.columns.map((c) => esc(c.label)).join(',')]
-      for (const row of r.rows) lines.push(row.map(esc).join(','))
-      const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${r.id}-${this.centerFrom}_${this.centerTo}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
-      this.showToast('报表已导出')
+      try {
+        const path = await api.exportReport(r.id, this.centerFrom, this.centerTo)
+        if (!path) return // 用户取消保存对话框
+        this.showToast(`已导出：${path}`)
+      } catch (e) {
+        this.showToast(String(e), true)
+      }
     },
     goReport() {
       const app = useAppStore()

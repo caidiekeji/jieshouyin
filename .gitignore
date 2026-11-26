@@ -14,5 +14,8 @@ keys/
 # 闭源的激活服务（官网 + Worker），不随收银软件开源
 /jihuo/
 
+# Trae IDE 本地目录，非项目源码
+/.trae/
+
 # Tauri android init 生成的 Gradle 工程，由 CI 现场生成
 **/gen/android/

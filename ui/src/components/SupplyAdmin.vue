@@ -11,7 +11,6 @@ import {
   type StocktakeItemRow
 } from '../api'
 import Icon from './Icon.vue'
-import HintTip from './HintTip.vue'
 import {
   CENTS_PER_YUAN,
   CURRENCY_DECIMALS,
@@ -386,7 +385,6 @@ onMounted(() => {
 
       <div v-if="receivePo" class="card">
         <h3>验收：{{ receivePo }}</h3>
-        <HintTip text="逐行录入本次实收数量（累计入账），与订购数的差异将留痕记录；已部分收货的单据可多次验收，收齐后自动置为已验收" />
         <table class="tbl">
           <thead><tr><th>商品</th><th class="num-cell">订购</th><th class="num-cell">已收</th><th class="num-cell">本次实收</th></tr></thead>
           <tbody>
@@ -481,7 +479,6 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-        <HintTip :text="`共 ${countRows.length} 行，其中差异行 ${countRows.filter((r) => (r.diff_qty ?? 0) !== 0).length} 行，差异合计 ${countRows.reduce((s, r) => s + (r.diff_qty ?? 0), 0)} 件。审批后按差异生成库存调整流水。`" />
         <div class="form-row">
           <button class="btn primary" @click="submitApprove">确认审批</button>
           <button class="btn ghost" @click="approveTask = null">取消</button>

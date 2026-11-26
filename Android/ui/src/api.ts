@@ -939,6 +939,9 @@ export const api = {
   reportCatalog: () => invoke<ReportMeta[]>('report_catalog'),
   genericReport: (id: string, from: string, to: string) =>
     invoke<ReportResult>('generic_report', { reportId: id, from, to }),
+  // 报表导出：桌面弹另存为对话框 / Android 写应用数据目录，返回落盘路径；空串=用户取消
+  exportReport: (id: string, from: string, to: string) =>
+    invoke<string>('export_report_csv', { reportId: id, from, to }),
   reconcileCsv: (date: string) => invoke<string>('reconcile_csv', { date }),
   // 交班闭环（§5.4）
   openShift: (openingFloatCents: number) =>

@@ -158,7 +158,7 @@ onUnmounted(() => {
     <!-- 认证流程：启动中 / 行业选择 / 在线激活 / 登录 -->
     <AuthView v-else-if="isAuthStage" />
 
-    <!-- 主界面 -->
+    <!-- 主界面：移动端骨架——左侧图标导航栏（竖屏转底部栏）+ 顶栏（店名/账户）+ 内容区 -->
     <div v-else class="shell">
       <header class="topbar">
         <div class="logo">
@@ -166,24 +166,6 @@ onUnmounted(() => {
           <span>{{ storeProfile?.store_name || 'Checkout-R' }}</span>
           <span v-if="storeProfile?.industry_name" class="badge">{{ storeProfile.industry_name }}</span>
         </div>
-        <nav class="nav">
-          <button :class="['nav-btn', { active: view === 'pos' }]" @click="goPOS">收银</button>
-          <template v-if="atLeast('MANAGER')">
-            <button :class="['nav-btn', { active: view === 'products' || view === 'categories' }]" @click="goProducts">商品</button>
-            <!-- 桌台/包间管理：台位的批量创建与删除集中在此，收银看板保持纯净 -->
-            <button
-              v-if="industryUi.navTables"
-              :class="['nav-btn', { active: view === 'tables' }]"
-              @click="view = 'tables'"
-            >{{ industryUi.navTables }}</button>
-            <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'">采购盘点</button>
-            <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'">会员营销</button>
-            <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()">退款</button>
-            <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)">订单</button>
-            <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport">报表</button>
-            <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings">设置</button>
-          </template>
-        </nav>
         <div class="user">
           <button
             class="user-chip"
@@ -197,70 +179,112 @@ onUnmounted(() => {
           </button>
           <!-- 账户菜单：交班为收银员日常动作（接班收银员或店长二次授权），锁机/改密/退出为个人操作 -->
           <div v-if="userMenuOpen" class="user-menu" role="menu">
-            <button class="user-menu-item" role="menuitem" @click="pickMenu(goShift)">交班</button>
-            <button class="user-menu-item" role="menuitem" @click="pickMenu(lockScreen)">锁机</button>
-            <button class="user-menu-item" role="menuitem" @click="pickMenu(openPwdDialog)">修改密码</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(goShift)"><Icon name="refresh" :size="ICON_SIZE.sm" />交班</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(lockScreen)"><Icon name="lock" :size="ICON_SIZE.sm" />锁机</button>
+            <button class="user-menu-item" role="menuitem" @click="pickMenu(openPwdDialog)"><Icon name="key" :size="ICON_SIZE.sm" />修改密码</button>
             <div class="user-menu-sep" role="separator"></div>
-            <button class="user-menu-item danger" role="menuitem" @click="pickMenu(doLogout)">退出登录</button>
+            <button class="user-menu-item danger" role="menuitem" @click="pickMenu(doLogout)"><Icon name="logout" :size="ICON_SIZE.sm" />退出登录</button>
           </div>
         </div>
       </header>
 
-      <div v-if="banner" class="banner">{{ banner }}</div>
-
-      <!-- 收银 -->
-      <PosView v-if="view === 'pos'" />
-
-      <!-- 商品与分类：页签与内容同处统一管理骨架，左对齐 -->
-      <main v-else-if="view === 'products' || view === 'categories'" class="main-simple">
-        <div class="page-head">
-          <h2>{{ goodsTab === 'category' ? '分类管理' : '商品管理' }}</h2>
-          <div class="seg" role="tablist">
-            <button :class="['seg-btn', { active: goodsTab === 'list' }]" role="tab" :aria-selected="goodsTab === 'list'" @click="goodsTab = 'list'; view = 'products'">
-              商品列表
+      <div class="shell-body">
+        <!-- 图标导航栏：触屏拇指级热区，入口「图标 + 小字」，桌面式顶部文字导航不适用于触屏 -->
+        <nav class="nav-rail" aria-label="主导航">
+          <button :class="['nav-rail-item', { active: view === 'pos' }]" @click="goPOS">
+            <Icon name="wallet" :size="ICON_SIZE.md" /><span class="rail-label">收银</span>
+          </button>
+          <template v-if="atLeast('MANAGER')">
+            <button :class="['nav-rail-item', { active: view === 'products' || view === 'categories' }]" @click="goProducts">
+              <Icon name="package" :size="ICON_SIZE.md" /><span class="rail-label">商品</span>
             </button>
-            <button :class="['seg-btn', { active: goodsTab === 'category' }]" role="tab" :aria-selected="goodsTab === 'category'" @click="goodsTab = 'category'; view = 'categories'">
-              分类管理
+            <!-- 桌台/包间管理：台位的批量创建与删除集中在此，收银看板保持纯净 -->
+            <button
+              v-if="industryUi.navTables"
+              :class="['nav-rail-item', { active: view === 'tables' }]"
+              @click="view = 'tables'"
+            >
+              <Icon name="clipboard" :size="ICON_SIZE.md" /><span class="rail-label">{{ industryUi.navTables }}</span>
             </button>
-          </div>
+            <button :class="['nav-rail-item', { active: view === 'supply' }]" @click="view = 'supply'">
+              <Icon name="truck" :size="ICON_SIZE.md" /><span class="rail-label">采购</span>
+            </button>
+            <button :class="['nav-rail-item', { active: view === 'member' }]" @click="view = 'member'">
+              <Icon name="heart" :size="ICON_SIZE.md" /><span class="rail-label">会员</span>
+            </button>
+            <button :class="['nav-rail-item', { active: view === 'refund' }]" @click="gotoRefund()">
+              <Icon name="undo" :size="ICON_SIZE.md" /><span class="rail-label">退款</span>
+            </button>
+            <button :class="['nav-rail-item', { active: view === 'order' }]" @click="gotoOrder(orderNo)">
+              <Icon name="receipt" :size="ICON_SIZE.md" /><span class="rail-label">订单</span>
+            </button>
+            <button :class="['nav-rail-item', { active: view === 'report' }]" @click="goReport">
+              <Icon name="report" :size="ICON_SIZE.md" /><span class="rail-label">报表</span>
+            </button>
+            <button :class="['nav-rail-item', { active: view === 'settings' }]" @click="goSettings">
+              <Icon name="settings" :size="ICON_SIZE.md" /><span class="rail-label">设置</span>
+            </button>
+          </template>
+        </nav>
+
+        <div class="shell-main">
+          <div v-if="banner" class="banner">{{ banner }}</div>
+
+          <!-- 收银 -->
+          <PosView v-if="view === 'pos'" />
+
+          <!-- 商品与分类：页签与内容同处统一管理骨架，左对齐 -->
+          <main v-else-if="view === 'products' || view === 'categories'" class="main-simple">
+            <div class="page-head">
+              <h2>{{ goodsTab === 'category' ? '分类管理' : '商品管理' }}</h2>
+              <div class="seg" role="tablist">
+                <button :class="['seg-btn', { active: goodsTab === 'list' }]" role="tab" :aria-selected="goodsTab === 'list'" @click="goodsTab = 'list'; view = 'products'">
+                  商品列表
+                </button>
+                <button :class="['seg-btn', { active: goodsTab === 'category' }]" role="tab" :aria-selected="goodsTab === 'category'" @click="goodsTab = 'category'; view = 'categories'">
+                  分类管理
+                </button>
+              </div>
+            </div>
+            <ProductAdmin v-if="goodsTab === 'list'" />
+            <CategoryAdmin v-else />
+          </main>
+
+          <!-- 台位管理按行业拆成独立页面，互不复用 -->
+          <RestaurantTablesView v-else-if="view === 'tables' && industry === 'RESTAURANT'" />
+          <ChessRoomsView v-else-if="view === 'tables' && industry === 'BOARD_GAME'" />
+          <WellnessRoomsView v-else-if="view === 'tables' && industry === 'WELLNESS'" />
+
+          <!-- 采购与盘点 -->
+          <SupplyAdmin v-else-if="view === 'supply'" :request-auth="requireSensitiveAuth" />
+
+          <!-- 会员营销 -->
+          <MemberAdmin v-else-if="view === 'member'" />
+
+          <!-- 报表 -->
+          <ReportView v-else-if="view === 'report' || view === 'shift'" />
+
+
+          <!-- 退款 -->
+          <RefundPanel
+            v-else-if="view === 'refund'"
+            :initial-order-no="refundOrderNo"
+            :request-auth="requireSensitiveAuth"
+            @detail="gotoOrder"
+          />
+
+          <!-- 订单详情 -->
+          <OrderDetailPanel
+            v-else-if="view === 'order'"
+            :order-no="orderNo"
+            @refund="gotoRefund"
+            @search="gotoOrder"
+          />
+
+          <!-- 设置中心：后台管理式布局，左栏贴左全高，右侧内容独立滚动 -->
+          <SettingsView v-else />
         </div>
-        <ProductAdmin v-if="goodsTab === 'list'" />
-        <CategoryAdmin v-else />
-      </main>
-
-      <!-- 台位管理按行业拆成独立页面，互不复用 -->
-      <RestaurantTablesView v-else-if="view === 'tables' && industry === 'RESTAURANT'" />
-      <ChessRoomsView v-else-if="view === 'tables' && industry === 'BOARD_GAME'" />
-      <WellnessRoomsView v-else-if="view === 'tables' && industry === 'WELLNESS'" />
-
-      <!-- 采购与盘点 -->
-      <SupplyAdmin v-else-if="view === 'supply'" :request-auth="requireSensitiveAuth" />
-
-      <!-- 会员营销 -->
-      <MemberAdmin v-else-if="view === 'member'" />
-
-      <!-- 报表 -->
-      <ReportView v-else-if="view === 'report' || view === 'shift'" />
-
-
-      <!-- 退款 -->
-      <RefundPanel
-        v-else-if="view === 'refund'"
-        :initial-order-no="refundOrderNo"
-        :request-auth="requireSensitiveAuth"
-        @detail="gotoOrder"
-      />
-
-      <!-- 订单详情 -->
-      <OrderDetailPanel
-        v-else-if="view === 'order'"
-        :order-no="orderNo"
-        @refund="gotoRefund"
-        @search="gotoOrder"
-      />
-
-      <!-- 设置中心：后台管理式布局，左栏贴左全高，右侧内容独立滚动 -->
-      <SettingsView v-else />
+      </div>
 
       <!-- 全局弹窗与状态提示 -->
       <DialogLayer />

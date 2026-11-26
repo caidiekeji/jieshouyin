@@ -13,7 +13,6 @@ import {
   type SkuVariant,
   type SpecGroup,
 } from '../api'
-import HintTip from './HintTip.vue'
 
 const props = defineProps<{
   skuId: number
@@ -104,13 +103,6 @@ async function generateVariants() {
 <template>
   <div class="card industry-attrs">
     <strong>行业属性 · 当前商品</strong>
-    <HintTip
-      :text="isApparel
-        ? '先建规格组（颜色/尺码）与规格值，再按组合生成 SKU；POS 会按规格快照筛选，价格以所选 SKU 为准。'
-        : isBaby
-          ? '维护适用月龄与保质期，并登记批次效期。批次为登记台账，不参与库存自动出库扣减。'
-          : '套餐与加料都引用真实商品 SKU，价格由商品档案维护；套餐登记明细只用于厨打备餐，不参与计价。'"
-    />
 
     <template v-if="isApparel">
       <div class="op-form">

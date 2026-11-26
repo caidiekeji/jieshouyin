@@ -14,7 +14,6 @@ import {
   TOAST_DURATION_MS,
 } from '../constants'
 import { useAppContext } from '../composables/useAppContext'
-import HintTip from './HintTip.vue'
 import IndustryAttributesPanel from './IndustryAttributesPanel.vue'
 
 const ctx = useAppContext()
@@ -347,7 +346,6 @@ onMounted(reload)
       <h3>{{ editSku != null ? `编辑商品 · ${editingProduct?.name ?? ''}` : '新增商品' }}</h3>
       <!-- 计时行业：项目按时间计费，不计库存、无条码 -->
       <template v-if="timedIndustry">
-        <HintTip text="当前为计时行业：项目按时间计费（单价 × 时长），不计库存；房费绑定在对应的包间或服务间管理页维护。" />
         <div class="form-grid">
           <label>名称<input v-model="form.name" class="input" placeholder="如 棋牌房费 / 按摩理疗" /></label>
           <label>分类
@@ -395,10 +393,6 @@ onMounted(reload)
         </label>
         <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
       </div>
-      <HintTip
-        v-if="editSku != null && !timedIndustry"
-        text="编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。"
-      />
       <div class="op-form">
         <button class="btn primary" @click="submitProduct">{{ editSku != null ? '保存修改' : '创建商品' }}</button>
         <button class="btn ghost" @click="closeForm">取消</button>
@@ -474,9 +468,8 @@ onMounted(reload)
 
     <div v-if="adjustSku != null" class="card">
       <h3>库存调整（SKU {{ adjustSku }}）</h3>
-      <HintTip text="正数为盘盈/入账，负数为盘亏/报损；原因将记入库存台账" />
       <div class="form-row">
-        <input v-model="adjustQty" class="input" type="number" placeholder="变化数量，如 5 或 -3" />
+        <input v-model="adjustQty" class="input" type="number" placeholder="变化数量（正数盘盈，负数盘亏），如 5 或 -3" />
         <input v-model="adjustReason" class="input" placeholder="原因（必填），如 破损报废" />
         <button class="btn primary" @click="saveAdjust">确认调整</button>
         <button class="btn ghost" @click="adjustSku = null">取消</button>

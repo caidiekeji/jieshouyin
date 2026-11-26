@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, formatMoney, type CouponRow, type MemberRow, type PromotionRow } from '../api'
-import HintTip from './HintTip.vue'
 import {
   CENTS_PER_YUAN,
   DISCOUNT_ZHE_FACTOR,
@@ -289,10 +288,9 @@ onMounted(() => {
 
       <div v-if="rechargeMemberId != null" class="card">
         <h3>会员充值：{{ rechargeName }}</h3>
-        <HintTip text="实充金额进入本金，赠送金额进入赠送金账户；赠送金不可提现、不可找零。" />
         <div class="form-row">
           <input v-model="principal" class="input" type="number" placeholder="实充金额（元）" />
-          <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元）" />
+          <input v-model="bonus" class="input" type="number" placeholder="赠送金额（元，不可提现不可找零）" />
           <span class="input">收款方式：现金</span>
           <button class="btn primary" @click="submitRecharge">确认充值</button>
           <button class="btn ghost" @click="rechargeMemberId = null">取消</button>
@@ -325,7 +323,7 @@ onMounted(() => {
               <option value="FULL_CUT">满减</option>
             </select>
           </label>
-          <label v-if="pForm.mode === 'DISCOUNT'">折扣率<input v-model="pForm.discountRate" class="input" placeholder="0.85 = 8.5 折" /></label>
+          <label v-if="pForm.mode === 'DISCOUNT'">折扣率<input v-model="pForm.discountRate" class="input" placeholder="填 0–1 小数，0.85 = 8.5 折" /></label>
           <label v-else>满减金额（元）<input v-model="pForm.discountAmount" class="input" type="number" step="0.01" placeholder="如 5 = 减 5 元" /></label>
           <label>适用商品 SKU（逗号分隔）
             <input v-model="pForm.targetSkusText" class="input" placeholder="留空 = 全部商品；如 12,15" />
@@ -338,7 +336,6 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <HintTip text="折扣率填 0–1 之间的小数（0.85 即 8.5 折）；指定 SKU 后规则只作用于这些商品。" />
         <button class="btn primary" @click="addPromo">创建规则</button>
       </div>
 
@@ -398,7 +395,6 @@ onMounted(() => {
             <input v-model="couponForm.validUntil" class="input" type="datetime-local" />
           </label>
         </div>
-        <HintTip text="专属券仅发放对象识别为会员后可用；通用券任何人可用。有效期留空表示不设截止。" />
         <button class="btn primary" @click="addCoupon">发券</button>
       </div>
 

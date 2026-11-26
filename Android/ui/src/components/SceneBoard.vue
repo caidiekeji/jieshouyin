@@ -4,11 +4,8 @@
  * 行业配色由宿主传入 .scene-* class（tokens.css 语义层，暗色只翻语义层）；
  * 卡片本体用全局 .scene-card 类（styles.css），行业密度用 minCard 设定。
  */
-import HintTip from './HintTip.vue'
-
 defineProps<{
   title: string
-  hint?: string
   /** 网格最小卡片宽：按行业密度设定（餐饮 140 / 包间 150 / 母婴 132 / 养生项目 210） */
   minCard?: number
   /** 列表为空时显示的引导文案 */
@@ -24,7 +21,6 @@ const emit = defineEmits<{ cancel: [] }>()
     <div class="scene-board-head">
       <div class="scene-board-title">
         <strong>{{ title }}</strong>
-        <HintTip v-if="hint" :text="hint" />
       </div>
       <slot name="action" />
     </div>

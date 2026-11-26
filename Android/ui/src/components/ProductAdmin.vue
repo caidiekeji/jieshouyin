@@ -14,7 +14,6 @@ import {
   TOAST_DURATION_MS,
 } from '../constants'
 import { useAppContext } from '../composables/useAppContext'
-import HintTip from './HintTip.vue'
 import IndustryAttributesPanel from './IndustryAttributesPanel.vue'
 
 const ctx = useAppContext()
@@ -347,7 +346,6 @@ onMounted(reload)
       <h3>{{ editSku != null ? `编辑商品 · ${editingProduct?.name ?? ''}` : '新增商品' }}</h3>
       <!-- 计时行业：项目按时间计费，不计库存、无条码 -->
       <template v-if="timedIndustry">
-        <HintTip text="当前为计时行业：项目按时间计费（单价 × 时长），不计库存；房费绑定在对应的包间或服务间管理页维护。" />
         <div class="form-grid">
           <label>名称<input v-model="form.name" class="input" placeholder="如 棋牌房费 / 按摩理疗" /></label>
           <label>分类
@@ -395,10 +393,6 @@ onMounted(reload)
         </label>
         <label>商品图片（在线地址）<input v-model="form.imageUrl" class="input" placeholder="https://…（可选）" /></label>
       </div>
-      <HintTip
-        v-if="editSku != null && !timedIndustry"
-        text="编辑模式：期初库存与「服务项目」类型不可在此修改——库存调整请用列表的「库存」按钮，项目类型请用「设为服务 / 转实体」按钮。"
-      />
       <div class="op-form">
         <button class="btn primary" @click="submitProduct">{{ editSku != null ? '保存修改' : '创建商品' }}</button>
         <button class="btn ghost" @click="closeForm">取消</button>
@@ -412,52 +406,37 @@ onMounted(reload)
       />
     </div>
 
-    <div class="card">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>图片</th>
-            <th>名称</th>
-            <th>条码</th>
-            <th>分类</th>
-            <th class="num-cell">售价</th>
-            <th class="num-cell">库存</th>
-            <th>状态</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="p in products" :key="p.sku_id" :class="{ 'row-disabled': p.status === 0 }">
-            <td>
-              <img v-if="imageSrc(p)" :src="imageSrc(p)!" class="thumb" alt="" />
-              <span v-else class="muted small">无</span>
-            </td>
-            <td>{{ p.name }}<span v-if="p.is_weighed" class="muted small">（称重/{{ p.unit }}）</span><span v-else-if="p.is_service" class="muted small">（服务/{{ p.unit }}）</span></td>
-            <td class="mono">{{ p.barcode || '—' }}</td>
-            <td>{{ p.category_name }}</td>
-            <td class="num-cell">{{ formatMoney(p.sale_price_cents) }}</td>
-            <td class="num-cell" :class="{ 'warning-text': !p.is_service && p.qty <= p.alert_qty }">
-              <span v-if="p.is_service">—</span>
-              <template v-else>
-                {{ p.qty }} {{ p.unit }}<span v-if="p.qty <= p.alert_qty" class="muted small">（低于预警 {{ p.alert_qty }}）</span>
-              </template>
-            </td>
-            <td>{{ p.status === 1 ? '在售' : '停用' }}</td>
-            <td class="row-actions-cell">
-              <div class="row-actions">
-                <button class="btn btn-sm" @click="startEdit(p)">编辑</button>
-                <button v-if="!p.is_service" class="btn btn-sm" @click="startAdjust(p)">库存</button>
-                <button class="btn btn-sm ghost" @click="toggleService(p)">{{ p.is_service ? '转实体' : '设为服务' }}</button>
-                <button class="btn btn-sm" @click="startImage(p)">图片</button>
-                <button class="btn btn-sm ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="products.length === 0">
-            <td colspan="8" class="empty">暂无商品，点击上方「新增商品」创建第一个商品</td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- 触屏卡片化：8 列表格改商品卡，五个行内操作改为卡底整宽按钮 -->
+    <div class="tcard-list">
+      <div v-for="p in products" :key="p.sku_id" class="tcard" :class="{ 'row-disabled': p.status === 0 }">
+        <div class="tcard-head">
+          <img v-if="imageSrc(p)" :src="imageSrc(p)!" class="thumb" alt="" />
+          <span v-else class="thumb"></span>
+          <span class="tcard-code">
+            {{ p.name }}
+            <span v-if="p.is_weighed" class="muted small">（称重/{{ p.unit }}）</span>
+            <span v-else-if="p.is_service" class="muted small">（服务/{{ p.unit }}）</span>
+          </span>
+          <span class="badge" :class="p.status === 1 ? 'badge-ok' : 'badge-off'">{{ p.status === 1 ? '在售' : '停用' }}</span>
+        </div>
+        <div class="tcard-line"><span class="tcard-key">条码</span><span class="tcard-value mono">{{ p.barcode || '—' }}</span></div>
+        <div class="tcard-line"><span class="tcard-key">分类</span><span class="tcard-value">{{ p.category_name }}</span></div>
+        <div class="tcard-line"><span class="tcard-key">售价</span><span class="tcard-value">{{ formatMoney(p.sale_price_cents) }}</span></div>
+        <div class="tcard-line"><span class="tcard-key">库存</span><span class="tcard-value" :class="{ 'warning-text': !p.is_service && p.qty <= p.alert_qty }">
+          <span v-if="p.is_service">—</span>
+          <template v-else>
+            {{ p.qty }} {{ p.unit }}<span v-if="p.qty <= p.alert_qty" class="muted small">（低于预警 {{ p.alert_qty }}）</span>
+          </template>
+        </span></div>
+        <div class="tcard-actions">
+          <button class="btn" @click="startEdit(p)">编辑</button>
+          <button v-if="!p.is_service" class="btn" @click="startAdjust(p)">库存</button>
+          <button class="btn ghost" @click="toggleService(p)">{{ p.is_service ? '转实体' : '设为服务' }}</button>
+          <button class="btn" @click="startImage(p)">图片</button>
+          <button class="btn ghost" @click="toggleStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</button>
+        </div>
+      </div>
+      <div v-if="products.length === 0" class="empty">暂无商品，点击上方「新增商品」创建第一个商品</div>
     </div>
 
     <div v-if="imageSku != null" class="card">
@@ -474,9 +453,8 @@ onMounted(reload)
 
     <div v-if="adjustSku != null" class="card">
       <h3>库存调整（SKU {{ adjustSku }}）</h3>
-      <HintTip text="正数为盘盈/入账，负数为盘亏/报损；原因将记入库存台账" />
       <div class="form-row">
-        <input v-model="adjustQty" class="input" type="number" placeholder="变化数量，如 5 或 -3" />
+        <input v-model="adjustQty" class="input" type="number" placeholder="变化数量（正数盘盈，负数盘亏），如 5 或 -3" />
         <input v-model="adjustReason" class="input" placeholder="原因（必填），如 破损报废" />
         <button class="btn primary" @click="saveAdjust">确认调整</button>
         <button class="btn ghost" @click="adjustSku = null">取消</button>

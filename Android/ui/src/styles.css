@@ -70,7 +70,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .setup-step-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .setup-step.active { color: var(--brand); font-weight: 600; }
 .setup-step.active .setup-step-no {
-  border-color: var(--brand); background: var(--brand); color: var(--text-on-brand);
+  border-color: var(--brand); background: var(--brand); color: var(--brand-contrast);
 }
 .setup-step.done { color: var(--success-text); }
 .setup-step.done .setup-step-no {
@@ -159,17 +159,17 @@ h2 { font-size: var(--font-lg); }
   white-space: nowrap;
 }
 .btn:hover { border-color: var(--brand); }
-.btn.primary { background: var(--brand); color: var(--text-on-brand); border-color: var(--brand); }
+.btn.primary { background: var(--brand); color: var(--brand-contrast); border-color: var(--brand); }
 .btn.primary:hover { background: var(--brand-hover); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--brand); }
 .btn.full { width: 100%; }
 .link { background: none; border: none; color: var(--brand); cursor: pointer; }
 .link:hover { text-decoration: underline; }
 /* 交互控件统一键盘焦点反馈；已有独立 focus-visible 规则的组件不在此列 */
-.btn:focus-visible, .nav-btn:focus-visible, .user-chip:focus-visible, .user-menu-item:focus-visible,
+.btn:focus-visible, .nav-rail-item:focus-visible, .user-chip:focus-visible, .user-menu-item:focus-visible,
 .link:focus-visible, .product-item:focus-visible, .pos-card:focus-visible, .pos-cat:focus-visible,
 .report-nav-item:focus-visible, .seg-btn:focus-visible, .pay-method-btn:focus-visible,
-.industry-item:focus-visible, .quick-cash-btn:focus-visible, .cash-key:focus-visible,
+.industry-item:focus-visible, .cash-key:focus-visible,
 .qty-ctrl button:focus-visible {
   outline: 2px solid var(--brand); outline-offset: 2px;
 }
@@ -184,26 +184,50 @@ h2 { font-size: var(--font-lg); }
 .error { color: var(--danger); margin: var(--space-0); font-size: var(--font-xs); }
 
 .shell { height: 100%; display: flex; flex-direction: column; }
+/* 移动端骨架：顶栏（店名/账户）+ 主体行（图标导航栏 + 内容区） */
 .topbar {
   height: var(--layout-topbar-height);
   background: var(--panel);
   color: var(--text);
   border-bottom: var(--border-width) solid var(--border);
   display: flex; align-items: center;
-  padding: var(--space-0) var(--space-4); gap: var(--space-6);
+  justify-content: space-between;
+  padding: var(--space-0) var(--space-4); gap: var(--space-4);
 }
-.logo { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--text); flex-shrink: 0; }
+.logo { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--text); flex-shrink: 1; min-width: 0; }
+.logo > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logo-img { width: var(--space-6); height: var(--space-6); border-radius: var(--radius-md); flex-shrink: 0; }
-/* 导航项多且不可折行：窄屏由导航自身横向滚动，不挤压两侧品牌与账户区 */
-.nav { display: flex; gap: var(--space-1); flex: 1; min-width: 0; overflow-x: auto; }
-.nav-btn {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+
+/* 主体行：左侧图标导航 + 内容区；竖屏窄屏时导航转底部栏（见 portrait 媒体查询） */
+.shell-body { flex: 1; min-height: 0; display: flex; }
+.shell-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.nav-rail {
+  width: var(--nav-rail-width);
+  flex: 0 0 auto;
+  background: var(--panel); color: var(--text);
+  border-right: var(--border-width) solid var(--border);
+  display: flex; flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-1);
+  padding-left: max(var(--space-1), env(safe-area-inset-left));
+  overflow-y: auto;
+}
+.nav-rail-item {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-0_5);
+  min-height: var(--touch-target-min);
+  padding: var(--space-1) var(--space-0_5);
   border: none; border-radius: var(--radius-sm);
   background: transparent; color: var(--text-muted); cursor: pointer;
+  flex: 0 0 auto;
 }
-.nav-btn:hover { background: var(--surface-subtle); color: var(--text); }
-.nav-btn.active { background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
+.rail-label {
+  font-size: var(--nav-rail-label-size);
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nav-rail-item.active { background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
 /* 用户区：账户下拉菜单容器，定位锚点 */
 .user { position: relative; display: flex; align-items: center; color: var(--text); flex-shrink: 0; }
 .user-chip {
@@ -352,7 +376,7 @@ h2 { font-size: var(--font-lg); }
 /* 按钮内加载：与文字同行，宽度由文字撑开防抖 */
 .btn-spinner {
   width: var(--control-inline-spinner-size); height: var(--control-inline-spinner-size);
-  border: 2px solid var(--text-on-brand);
+  border: 2px solid var(--brand-contrast);
   border-top-color: transparent;
   border-radius: var(--radius-circle);
   animation: spin var(--duration-spin) linear infinite;
@@ -375,7 +399,7 @@ h2 { font-size: var(--font-lg); }
   border-radius: 0; padding: var(--space-2) var(--space-3);
   white-space: nowrap; cursor: pointer; font-size: var(--font-sm);
 }
-.pos-cat.active { background: var(--brand); border-color: var(--brand); color: var(--text-on-brand); }
+.pos-cat.active { background: var(--brand); border-color: var(--brand); color: var(--brand-contrast); }
 .pos-grid {
   flex: 1; min-height: 0; overflow-y: auto;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
@@ -397,7 +421,6 @@ h2 { font-size: var(--font-lg); }
 .pos-card-name { font-weight: 600; line-height: 1.25; }
 .pos-card-meta { color: var(--muted); font-size: var(--font-xs); }
 .pos-empty { grid-column: 1 / -1; }
-.pos-shortcuts { display: flex; gap: var(--space-3); flex-wrap: wrap; color: var(--muted); font-size: var(--font-xs); padding-top: var(--space-2); flex: none; }
 
 /* 收银页通用页头与组件骨架：行业页各自写文案，这里只管对齐与触控尺度 */
 .pos-page-head {
@@ -471,7 +494,7 @@ h2 { font-size: var(--font-lg); }
 }
 .qty-input::-webkit-outer-spin-button, .qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .badge {
-  background: var(--brand); color: var(--text-on-brand);
+  background: var(--brand); color: var(--brand-contrast);
   border-radius: var(--radius-pill);
   padding: var(--space-0_5) var(--space-2);
   font-size: var(--font-xs);
@@ -878,7 +901,6 @@ h2 { font-size: var(--font-lg); }
 .pay-method-btn:hover { border-color: var(--brand); }
 .pay-method-btn.active { border-color: var(--brand); background: var(--brand-subtle); color: var(--brand); font-weight: 600; }
 .pay-panel { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-1); }
-.quick-cash { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .change-due {
   display: flex; justify-content: space-between; align-items: center;
   padding: var(--space-3);
@@ -1011,15 +1033,6 @@ h2 { font-size: var(--font-lg); }
 .cash-cell.change.ok strong { color: var(--success-text); }
 .cash-cell.change.short strong { color: var(--text-muted); }
 .cash-short { color: var(--danger); font-size: var(--font-2xs); line-height: 1.2; }
-.quick-cash .quick-cash-btn {
-  flex: 1 1 0; min-width: 0; min-height: 30px;
-  padding: var(--space-0_5) 0; font-size: var(--font-xs);
-  background: var(--surface-subtle);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.quick-cash .quick-cash-btn:hover { border-color: var(--brand); background: var(--brand-subtle); }
-.quick-cash .quick-cash-btn.exact { color: var(--brand); font-weight: 600; }
 /* 数字键盘：3 列 4 行，退格弱化为文字键，避免与金额键抢视觉 */
 .cash-keypad {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1091,17 +1104,28 @@ body {
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
 }
+/* 提示条只做反馈：悬在底部时会盖住「收款」等按钮，必须让点击穿透 */
+.toast { pointer-events: none; }
 
-/* 触控元素不参与双击缩放判定：点按立即生效，滑动照常滚动 */
-button, .btn, .nav-btn, .user-chip, .seg-btn, .segmented button, .report-nav-item,
-.pos-card, .pos-cat, .pos-quick-chip, .product-item, .pay-method-btn, .quick-cash-btn,
-.cash-key, .scene-card, .industry-item, input, select, textarea, .link {
+/* 触控元素不参与双击缩放判定：点按立即生效，滑动照常滚动。
+   用元素类型而非逐个类名白名单——新增的行内按钮不会漏掉，避免再出现「点了要等一拍」。 */
+button, a, [role='button'], input, select, textarea, label, summary {
   touch-action: manipulation;
 }
 
+/* 长按不弹系统菜单/不拖拽图标：收银连点时不会打断下一次点按 */
+button, a, [role='button'], .btn, .nav-rail-item, .user-chip, .seg-btn, .segmented button,
+.report-nav-item, .pos-card, .pos-cat, .pos-quick-chip, .pos-pin, .product-item,
+.pay-method-btn, .cash-key, .scene-card, .industry-item,
+.link, .qty-ctrl button {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
 /* 工具栏不参与文字选择：快速连点时不出现选区与放大镜；输入框保持可选 */
-.topbar, .nav, .pos-page-head, .pos-cat-row, .pay-methods, .pay-quick-row,
-.admin-side, .seg, .segmented, .modal h3 {
+.topbar, .nav-rail, .pos-page-head, .page-title, .report-head, .pos-cat-row, .pay-methods,
+.pay-quick-row, .cart-line, .admin-side, .seg, .segmented, .modal h3,
+.scene-card, .pos-card, .btn {
   -webkit-user-select: none;
   user-select: none;
 }
@@ -1111,28 +1135,33 @@ input, textarea, select {
   font-size: var(--font-input-mobile);
 }
 
-/* 触屏没有 hover：悬停态让位给按下态，避免点完仍亮着的假状态 */
-@media (hover: none) {
-  .btn:hover, .pos-card:hover, .product-item:hover, .pos-cat:hover,
-  .pos-quick-chip:hover, .pay-method-btn:hover, .quick-cash-btn:hover,
-  .cash-key:hover, .industry-item:hover, .scene-card:hover,
-  .report-nav-item:hover, .seg-btn:hover {
-    border-color: var(--border);
-    background: var(--panel);
-    color: var(--text);
+/* 触屏没有 hover：悬停态让位给按下态，避免点完仍亮着的假状态。
+   Android WebView 个别机型只稳定上报 pointer: coarse，两个条件任一命中即按触屏处理 */
+@media (hover: none), (pointer: coarse) {
+  /* 点按后 :hover 会残留在刚点的控件上：只清未选中项，保留 .active 高亮，
+     否则导航/页签点完看起来像没生效 */
+  .btn:not(.primary):not(.ghost):hover { border-color: var(--border); }
+  .btn.ghost:hover { border-color: transparent; background: transparent; }
+  .btn.primary:hover { border-color: var(--brand); background: var(--brand); color: var(--brand-contrast); }
+  .nav-rail-item:not(.active):hover { background: transparent; color: var(--text-muted); }
+  .seg-btn:not(.active):hover, .segmented button:not(.active):hover,
+  .report-nav-item:not(.active):hover { background: transparent; color: var(--text-muted); }
+  .pay-method-btn:not(.active):hover, .pos-cat:not(.active):hover {
+    border-color: var(--border); background: var(--panel); color: var(--text);
   }
-  .btn.primary:hover {
-    border-color: var(--brand);
-    background: var(--brand);
-    color: var(--text-on-brand);
-  }
-  .nav-btn:hover { background: transparent; color: var(--text-muted); }
+  .pos-card:hover, .product-item:hover { border-color: var(--border); background: var(--panel); }
+  .pos-quick-chip:hover { border-color: var(--border); background: var(--surface-subtle); }
+  .industry-item:not(.active):hover { border-color: var(--border); background: var(--surface-subtle); }
+  .cash-key:hover { border-color: var(--border); background: var(--panel); }
+  .scene-card:not(.active):hover { background: var(--scene-card); border-color: var(--scene-card-line); }
+  .scene-card.occupied:hover { background: var(--scene-card-occupied); }
 
+  /* 按下即反馈：不依赖 hover，触屏也能看到即时状态 */
   .btn:active { border-color: var(--brand); background: var(--surface-subtle); }
   .btn.primary:active { border-color: var(--brand-hover); background: var(--brand-hover); }
-  .nav-btn:active { background: var(--surface-subtle); color: var(--text); }
+  .nav-rail-item:active { background: var(--surface-subtle); color: var(--text); }
   .pos-card:active, .product-item:active, .pos-cat:active,
-  .quick-cash-btn:active, .cash-key:active {
+  .cash-key:active, .pos-pin:active, .qty-ctrl button:active {
     border-color: var(--brand);
     background: var(--brand-subtle);
   }
@@ -1140,20 +1169,33 @@ input, textarea, select {
 
 /* 手指热区：桌面 28~34px 的控件在触屏偏小，统一抬到 48px */
 @media (pointer: coarse) {
-  .btn, .nav-btn, .user-chip, .seg-btn, .segmented button,
+  .btn, .nav-rail-item, .user-chip, .seg-btn, .segmented button,
   .pos-cat, .pos-quick-chip, .pay-quick, .split-remove {
     min-height: var(--touch-target-min);
   }
   .btn-sm { min-height: var(--touch-target-min); }
-  .qty-ctrl button, .qty-input, .pos-pin, .quick-cash-btn, .cash-key,
+  .qty-ctrl button, .qty-input, .pos-pin, .cash-key,
   .pay-method-btn, .scan-input { min-height: var(--touch-target-min); }
+  /* 数量步进：24px 宽手指点不中；按钮 44、输入 36，320px 侧栏里仍给商品名留够位置 */
+  .qty-ctrl { gap: var(--space-1); }
+  .qty-ctrl button { width: 44px; }
+  .qty-input { width: 36px; }
+  /* 输入框/下拉同样抬高一档：点边缘不再落到空白处，扫码与金额录入更稳 */
+  .input, select { min-height: var(--touch-target-min); }
   .pos-pin { width: var(--touch-target-min); height: var(--touch-target-min); }
   .split-remove { width: var(--touch-target-min); }
   /* 滚动容器切到触屏惯性滚动，并阻止滚到边界后带动整页 */
   .cart-list, .pos-grid, .product-list, .modal, .admin-main, .admin-side,
-  .nav, .pos-cat-row, .pay-methods, .pay-quick-row, .scene-home-panel {
+  .nav-rail, .pos-cat-row, .pay-methods, .pay-quick-row, .scene-home-panel,
+  .report-table-wrap {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+  }
+  /* 报表是天然二维数据，保留表格；横向滑动时首列（名称/单号）固定，扫读不迷路 */
+  .report-table-wrap .tbl th:first-child,
+  .report-table-wrap .tbl td:first-child {
+    position: sticky; left: 0;
+    background: var(--panel);
   }
 }
 
@@ -1167,9 +1209,9 @@ input, textarea, select {
   .logo { font-size: var(--font-sm); gap: var(--space-1); }
   .logo-img { width: var(--space-5); height: var(--space-5); }
   .logo .badge { display: none; }
-  .nav { gap: 0; scrollbar-width: none; }
-  .nav::-webkit-scrollbar { display: none; }
-  .nav-btn { padding: 0 var(--space-2); font-size: var(--font-sm); }
+  /* 横屏矮屏：导航栏收窄为纯图标，把宽度还给内容区 */
+  .nav-rail { width: var(--nav-rail-width-compact); padding: var(--space-1) var(--space-0_5); gap: var(--space-0_5); }
+  .rail-label { display: none; }
   .user-name { max-width: calc(var(--space-8) * 2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .role-tag { display: none; }
 
@@ -1188,7 +1230,7 @@ input, textarea, select {
   .pos-card { min-height: var(--pos-card-min-height-compact); padding: var(--space-2); }
   .pos-card-img { height: var(--pos-card-img-height-compact); }
   .pos-card-name { font-size: var(--font-sm); }
-  .pos-card-meta, .pos-shortcuts, .scan-hint { display: none; }
+  .pos-card-meta, .scan-hint { display: none; }
   .scan-search .input { padding-right: var(--space-3); }
 
   .cart-panel h3 { font-size: var(--font-sm); }
@@ -1208,19 +1250,37 @@ input, textarea, select {
   .admin-main { padding: var(--space-3); }
   .admin-side { padding: var(--space-2); }
 
-  .modal { padding: var(--space-3); gap: var(--space-2); max-height: 94vh; }
+  .modal { padding: var(--space-3); gap: var(--space-2); max-height: 94vh; max-width: 94vw; }
   .cash-modal, .pwd-modal { width: min(var(--layout-modal-sm), 92vw); }
   .cash-key { height: var(--touch-target-min); }
   .qr-box { width: min(var(--layout-qr-size), 52vh); height: min(var(--layout-qr-size), 52vh); }
 }
 
-/* 竖屏（平板竖放/单手操作）：收银两栏改上下堆叠，后台侧栏改横向标签条 */
+/* 竖屏（平板竖放/单手操作）：收银两栏改上下堆叠，后台侧栏改横向标签条，
+   导航栏从左侧转到底部（拇指热区，触屏单手操作的拇指可达范围在下半屏） */
 @media (orientation: portrait) and (max-width: 640px) {
   .topbar { height: var(--layout-topbar-height-compact); padding: 0 var(--space-2); gap: var(--space-2); }
   .logo { font-size: var(--font-sm); }
   .logo-img { width: var(--space-5); height: var(--space-5); }
   .logo .badge, .role-tag { display: none; }
-  .nav-btn { padding: 0 var(--space-2); font-size: var(--font-sm); }
+
+  /* 导航栏转底部栏：DOM 在内容之前，用 order 压到末行；不再是侧栏形态 */
+  .shell-body { flex-direction: column; }
+  .nav-rail {
+    order: 2;
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    border-right: 0;
+    border-top: var(--border-width) solid var(--border);
+    padding: var(--space-1) var(--space-1) max(var(--space-1), env(safe-area-inset-bottom));
+    padding-left: max(var(--space-1), env(safe-area-inset-left));
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .nav-rail::-webkit-scrollbar { display: none; }
+  .nav-rail-item { flex: 0 0 auto; min-width: var(--touch-target-min); }
+  .shell-main { order: 1; flex: 1; }
 
   .pos-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1234,7 +1294,7 @@ input, textarea, select {
     gap: var(--space-2);
   }
   .pos-card { min-height: var(--pos-card-min-height-compact); }
-  .pos-card-meta, .pos-shortcuts, .scan-hint { display: none; }
+  .pos-card-meta, .scan-hint { display: none; }
 
   .admin-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .admin-side {
@@ -1248,7 +1308,14 @@ input, textarea, select {
   .admin-side-title { display: none; }
   .admin-main { padding: var(--space-3); }
 
-  .modal { width: 100%; min-width: 0; max-width: 94vw; }
+  /* 竖屏弹窗改底部 sheet：贴底全宽，单手可达；顶部小圆角非大圆角 */
+  .modal-mask { align-items: flex-end; }
+  .modal {
+    width: 100%; min-width: 0; max-width: 94vw;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border-bottom: none;
+    max-height: 88vh;
+  }
   .auth-card, .lock-card { width: 100%; max-width: 94vw; }
 }
 
@@ -1262,10 +1329,34 @@ input, textarea, select {
     .pos-layout, .admin-main {
       padding-left: max(var(--space-2), env(safe-area-inset-left));
       padding-right: max(var(--space-2), env(safe-area-inset-right));
-      padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+      /* 底部手势条：主操作（收款）不能被系统手势抢走落点，基础留白也抬到 space-3 */
+      padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
     }
   }
 }
+
+/* ---------- 后台列表卡片化（触屏专用形态）：桌面表格 + 行内小按钮在触屏上是误触重灾区。
+   每张卡片 = 标题行（编号 + 状态）+ 字段行 + 底部整宽操作按钮；仅 Android 端模板使用。 ---------- */
+.tcard-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--tcard-min-width), 1fr));
+  gap: var(--space-3);
+}
+.tcard-list > .empty { grid-column: 1 / -1; }
+.tcard {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--panel); color: var(--text);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.tcard-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.tcard-code { font-weight: 600; font-size: var(--font-md); }
+.tcard-line { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--font-sm); min-width: 0; }
+.tcard-key { color: var(--text-muted); flex: 0 0 auto; min-width: 4em; }
+.tcard-value { min-width: 0; overflow-wrap: anywhere; }
+.tcard-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: auto; padding-top: var(--space-2); }
+.tcard-actions .btn { flex: 1 1 40%; }
 
 /* 授权状态：日期作为明文字段直接可读，不再藏进图标提示里 */
 .license-facts {
@@ -1280,3 +1371,112 @@ input, textarea, select {
   font-size: var(--font-base);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- 日期区间选择器（自研，Android 分叉：单月 + 48px 日历热区）---------- */
+.dtp { position: relative; }
+.dtp-trigger {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel); color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.dtp-trigger:hover { border-color: var(--brand); }
+.dtp-panel {
+  position: absolute; top: calc(100% + var(--space-2)); left: 0; z-index: var(--z-popover);
+  display: flex; flex-direction: column; gap: var(--space-3);
+  width: max-content; max-width: min(94vw, 480px);
+  padding: var(--space-3);
+  background: var(--panel); color: var(--text);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+}
+.dtp-presets { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.dtp-chip {
+  min-height: var(--touch-target-min);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent; color: var(--text);
+}
+.dtp-chip:hover { border-color: var(--brand); color: var(--brand); }
+.dtp-month { display: flex; flex-direction: column; gap: var(--space-2); }
+.dtp-month-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.dtp-nav {
+  min-width: var(--touch-target-min); min-height: var(--touch-target-min);
+  border: none; background: transparent; color: var(--text-muted);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dtp-nav--prev svg { transform: rotate(90deg); }
+.dtp-nav--next svg { transform: rotate(-90deg); }
+.dtp-nav:hover { color: var(--text); }
+.dtp-grid {
+  display: grid; grid-template-columns: repeat(7, var(--touch-target-min));
+  gap: var(--space-0_5); justify-items: center;
+}
+.dtp-week { font-size: var(--font-xs); color: var(--text-muted); }
+.dtp-day {
+  width: var(--touch-target-min); height: var(--touch-target-min); padding: 0;
+  border: none; border-radius: var(--radius-xs);
+  background: transparent; color: var(--text);
+  font-size: var(--font-md);
+  font-variant-numeric: tabular-nums;
+}
+.dtp-day:not(.in-month) { color: var(--text-muted); opacity: 0.55; }
+.dtp-day:hover { background: var(--surface-subtle); }
+.dtp-day.edge { background: var(--brand); color: var(--panel); font-weight: 600; }
+.dtp-day.in-range { background: var(--brand-subtle); color: var(--brand); }
+.dtp-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.dtp-foot .btn { min-height: var(--touch-target-min); }
+
+/* ---------- 经营总览仪表盘（Android：指标卡 2 列、内容单列堆叠）---------- */
+.rpt-dash { display: flex; flex-direction: column; gap: var(--space-4); }
+.rpt-dash-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.rpt-grain .seg-btn { min-height: var(--touch-target-min); min-width: 56px; }
+.rpt-kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
+.rpt-kpi {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--panel); color: var(--text);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.rpt-kpi-label { color: var(--text-muted); font-size: var(--font-sm); }
+.rpt-kpi-row { display: flex; align-items: baseline; gap: var(--space-2); }
+.rpt-kpi-value { font-size: var(--font-kpi); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.rpt-delta {
+  padding: var(--space-0_5) var(--space-1);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+}
+.rpt-delta.up { background: var(--success-subtle); color: var(--success-text); }
+.rpt-delta.down { background: var(--danger-subtle); color: var(--danger); }
+.rpt-delta.none { color: var(--text-muted); background: var(--surface-subtle); }
+.rpt-side { display: flex; flex-direction: column; gap: var(--space-3); }
+.rpt-trend h4, .rpt-pay h4, .rpt-top h4 { margin: 0 0 var(--space-3); }
+.rpt-bars { display: flex; flex-direction: column; gap: var(--space-2); max-height: 300px; overflow-y: auto; }
+.rpt-bar-row { display: grid; grid-template-columns: 72px 1fr 88px; align-items: center; gap: var(--space-2); }
+.rpt-bar-label { font-size: var(--font-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rpt-bar-track { display: flex; flex-direction: column; gap: 3px; }
+.rpt-bar { height: 12px; border-radius: var(--radius-xs); transition: width 120ms ease; }
+.rpt-bar.cur { background: var(--brand); }
+.rpt-bar.cmp { background: var(--border); }
+.rpt-bar-value { text-align: right; font-size: var(--font-sm); font-variant-numeric: tabular-nums; }
+.rpt-pay-list { display: flex; flex-direction: column; }
+.rpt-pay-row { display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: var(--border-width) solid var(--border); }
+.rpt-pay-row:last-child { border-bottom: none; }
+.rpt-top-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.rpt-top-list li { display: grid; grid-template-columns: 20px 1fr auto auto; gap: var(--space-2); align-items: baseline; padding: var(--space-2) 0; border-bottom: var(--border-width) solid var(--border); }
+.rpt-top-list li:last-child { border-bottom: none; }
+.rpt-top-rank { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rpt-top-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rpt-empty { padding: var(--space-6); text-align: center; }
+.rpt-skeleton .rpt-skeleton-label { width: 40%; height: 14px; background: var(--surface-subtle); border-radius: var(--radius-xs); }
+.rpt-skeleton .rpt-skeleton-value { width: 70%; height: 28px; background: var(--surface-subtle); border-radius: var(--radius-xs); }
+/* 利润报表费用卡 */
+.rpt-expense { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3); margin-bottom: var(--space-3); }
+.rpt-expense-text { margin: 0; flex: 1 1 100%; font-size: var(--font-sm); color: var(--text-muted); }

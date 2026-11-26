@@ -4210,6 +4210,29 @@ pub fn generic_report(
     checkout_core::report_catalog::run_report(&conn, &report_id, &from, &to)
 }
 
+/// 报表导出（Android）：CSV 写入应用专属外部数据目录 reports/（免存储权限，
+/// Android 10+ scoped storage 下外部 Download 直写不可靠）。返回完整路径，
+/// 前端 toast 展示，用户可用系统文件管理器打开。
+#[tauri::command]
+pub fn export_report_csv(
+    report_id: String,
+    from: String,
+    to: String,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let (_op, conn) = admin_guard(&state, PERM_REPORT_EXPORT)?;
+    let result = checkout_core::report_catalog::run_report(&conn, &report_id, &from, &to)?;
+    let csv = checkout_core::report_catalog::report_to_csv(&result);
+
+    let dir = state.data_dir.join("reports");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| CoreError::Other(format!("创建导出目录失败: {e}")))?;
+    let path = dir.join(format!("{report_id}_{from}_{to}.csv"));
+    std::fs::write(&path, &csv)
+        .map_err(|e| CoreError::Other(format!("写入导出文件失败: {e}")))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 // ===== 交班闭环（§5.4 / F-09）=====
 
 /// 开班：创建班次并设为当前班次，收银结算引用其 shift_id。
@@ -6047,6 +6070,7 @@ pub fn run() {
             cashier_report,
             report_catalog,
             generic_report,
+            export_report_csv,
             reconcile_csv,
             print_receipt,
             get_print_auto,

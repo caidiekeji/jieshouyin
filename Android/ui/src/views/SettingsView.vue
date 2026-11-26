@@ -5,7 +5,6 @@ import TechnicianPanel from '../components/TechnicianPanel.vue'
 import ReceiptPreview from '../components/ReceiptPreview.vue'
 import Switch from '../components/Switch.vue'
 import { useAppContext } from '../composables/useAppContext'
-import HintTip from '../components/HintTip.vue'
 
 const ctx = useAppContext()
 const {
@@ -27,8 +26,6 @@ const {
 
 /** 小票模板 JSON 高级编辑区默认折叠，默认展示所见即所得预览 */
 const showTemplateJson = ref(false)
-/** 模板变量说明（含双花括号，放脚本里避免被 Vue 当作插值解析） */
-const templateVarHint = '模板 sections：header / items / summary / footer。可用变量：{{store_name}}、{{created_at}}、{{items}}、{{pay_total}}、{{table_code}} 等。修改后点「保存模板」，再点「刷新预览」查看渲染结果。'
 /** 系统配置分组顶部 tab：当前选中的分组标题（营业规则/支付时序/…/安全） */
 const activeConfigGroup = ref('')
 /** 分组标签 + 固定的「安全」卡片，前者随配置加载动态变化 */
@@ -82,7 +79,6 @@ watch(configGroupTabs, (tabs) => {
                 <button class="btn primary" @click="saveStoreName">保存店名</button>
                 <button class="btn" @click="confirmIndustry">应用行业分类</button>
               </div>
-              <HintTip :text="`当前：${storeProfile?.industry_name || '未设置'} · ${storeProfile?.store_name || '未命名门店'}。切换行业会新增模板分类并隐藏旧行业里没有商品的空分类；有商品的分类会保留。`" />
             </div>
             <div class="card wide">
               <h3>授权状态</h3>
@@ -174,11 +170,11 @@ watch(configGroupTabs, (tabs) => {
               class="card wide"
             >
               <h3>{{ g.title }}</h3>
-              <HintTip :text="g.hint" />
               <div v-for="c in g.items" :key="c.config_key" class="config-row config-row-stacked">
                 <div class="config-label">
                   <strong>{{ c.label }}</strong>
-                  <span class="muted small">{{ c.description }}</span>
+                  <!-- 激活服务地址只保留输入框，不再用副标题解释 -->
+                  <span v-if="c.config_key !== 'activation_endpoint'" class="muted small">{{ c.description }}</span>
                 </div>
                 <div class="config-control">
                   <Switch
@@ -202,6 +198,7 @@ watch(configGroupTabs, (tabs) => {
                     class="input"
                     :type="c.kind === 'text' ? 'text' : 'number'"
                     :step="c.kind === 'decimal' ? '0.01' : '1'"
+                    :placeholder="c.config_key === 'activation_endpoint' ? '留空使用内置服务' : undefined"
                   />
                 </div>
               </div>
@@ -216,7 +213,6 @@ watch(configGroupTabs, (tabs) => {
             </div>
             <div v-show="activeConfigGroup === '安全'" class="card wide">
               <h3>安全</h3>
-              <HintTip text="离岗锁屏、关闭窗口隐藏到托盘后需输入此码解锁（仅存本机）。" />
               <div class="config-row config-row-stacked">
                 <div class="config-label">
                   <strong>锁机码</strong>
@@ -257,7 +253,6 @@ watch(configGroupTabs, (tabs) => {
           <!-- 积分配置 -->
           <div v-else-if="settingsTab === 'points'" class="card wide">
             <h3>积分配置</h3>
-            <HintTip text="识别会员收款后自动累计积分：按实付整元数 × 每元赠送积分计算，赠送金抵扣部分不计分；退款时按原单积分扣回。修改后对新订单生效。" />
             <div v-for="c in pointsConfigs" :key="c.config_key" class="config-row config-row-stacked">
               <div class="config-label">
                 <strong>{{ c.label }}</strong>
@@ -295,7 +290,6 @@ watch(configGroupTabs, (tabs) => {
               <input v-model="reconDate" class="input" type="date" />
               <button class="btn" @click="loadReconDiffs">查询差异</button>
             </div>
-            <HintTip text="微信粘贴交易账单 CSV；支付宝粘贴对账单 CSV。差异只告警冻结，绝不自动抹平。" />
             <textarea v-model="reconText" class="input mono" rows="5" placeholder="粘贴渠道账单文本"></textarea>
             <div class="op-form">
               <button class="btn" @click="importBill('WECHAT')">导入微信账单</button>
@@ -340,8 +334,7 @@ watch(configGroupTabs, (tabs) => {
               </div>
               <ReceiptPreview :store-name="storeProfile?.store_name || ''" :paper-width-mm="receiptPaperWidth" />
               <div v-if="showTemplateJson" class="receipt-advanced">
-                <HintTip :text="templateVarHint" />
-                <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12"></textarea>
+                <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12" placeholder="sections：header / items / summary / footer；变量用双大括号包裹，如 store_name、created_at、items、pay_total、table_code 等"></textarea>
                 <div class="op-form">
                   <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="previewReceipt">刷新预览</button>
                   <button class="btn btn-sm primary" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存模板</button>
@@ -352,7 +345,6 @@ watch(configGroupTabs, (tabs) => {
               <template v-if="industry === 'RESTAURANT'">
                 <div class="print-section-divider"></div>
                 <h4 class="print-subtitle">厨打档口路由</h4>
-                <HintTip text="按菜品分类把厨房小票分发到指定档口打印机；未配置的分类走主打印机。" />
                 <KitchenRoutePanel :can-manage="atLeast('MANAGER')" />
               </template>
             </div>

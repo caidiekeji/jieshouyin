@@ -43,6 +43,18 @@ pub struct ReportMeta {
     pub group: String,
 }
 
+/// ReportResult → CSV 文本（UTF-8 BOM + CRLF），供两端导出命令写文件。
+/// 单元格统一双引号包裹并转义内部引号，兼容 Excel 直接打开。
+pub fn report_to_csv(r: &ReportResult) -> String {
+    let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+    let mut lines = Vec::with_capacity(r.rows.len() + 2);
+    lines.push(r.columns.iter().map(|c| esc(&c.label)).collect::<Vec<_>>().join(","));
+    for row in &r.rows {
+        lines.push(row.iter().map(|c| esc(c)).collect::<Vec<_>>().join(","));
+    }
+    format!("\u{feff}{}\r\n", lines.join("\r\n"))
+}
+
 fn cols(specs: &[(&str, &str, &str)]) -> Vec<ReportColumn> {
     specs
         .iter()
@@ -2274,6 +2286,23 @@ mod tests {
             groups.insert(r.group.as_str());
         }
         assert_eq!(groups.len(), 5);
+    }
+
+    #[test]
+    fn report_to_csv_escapes_and_carries_bom() {
+        let r = ReportResult {
+            id: "t".into(),
+            title: "测试".into(),
+            description: String::new(),
+            columns: cols(&[("a", "含,逗号", "text"), ("b", "含\"引号", "text")]),
+            rows: vec![vec!["x".into(), "y,\"z\"".into()]],
+            metrics: vec![],
+        };
+        let csv = report_to_csv(&r);
+        assert!(csv.starts_with('\u{feff}'));
+        assert!(csv.contains("\"含,逗号\",\"含\"\"引号\""));
+        assert!(csv.contains("\"y,\"\"z\"\"\"\r\n"));
+        assert!(csv.ends_with("\r\n"));
     }
 
     #[test]

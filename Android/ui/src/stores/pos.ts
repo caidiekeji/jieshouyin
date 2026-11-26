@@ -692,9 +692,6 @@ export const usePosStore = defineStore('pos', {
       if (cur.includes('.') && (cur.split('.')[1]?.length ?? 0) >= 2) return
       this.cashTendered = this.sanitizeCashInput(cur === '0' ? key : cur + key)
     },
-    exactCash() {
-      this.cashTendered = (this.payableAmount / CENTS_PER_YUAN).toFixed(2)
-    },
     async submitCheckout() {
       if (!this.cart.length) {
         this.showToast('购物车为空', true)

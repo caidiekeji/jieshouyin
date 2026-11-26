@@ -7,7 +7,6 @@ import TableCreateDialog from './TableCreateDialog.vue'
 /** 棋牌包间独立页面：卡片看板 + 计时钟 + 转台，仅复用通用组件。 */
 const props = defineProps<{
   title: string
-  hint: string
   defaultPrefix: string
   activeTableId: number | null
   cart: CartLine[]
@@ -39,7 +38,6 @@ const {
   <SceneBoard
     class="scene-chess"
     :title="title"
-    :hint="hint"
     :min-card="150"
     :empty-text="rooms.length ? '' : '还没有棋牌包间。先在商品里建“房费”分类和房费商品，再批量新增包间并绑定。'"
     :notice="transferSource ? `转台：点击空闲包间，当前 ${transferSource.code} 的计时与消费会迁过去` : ''"

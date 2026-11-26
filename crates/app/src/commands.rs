@@ -4207,6 +4207,45 @@ pub fn generic_report(
     checkout_core::report_catalog::run_report(&conn, &report_id, &from, &to)
 }
 
+/// 报表导出（桌面）：生成 CSV 后弹系统「另存为」对话框。
+/// 必须是 async 命令：blocking_save_file 不能在主线程调用，async 命令运行在线程池。
+/// 用户取消对话框返回空串，前端按「已取消」静默处理，不当作错误。
+#[tauri::command]
+pub async fn export_report_csv(
+    app: tauri::AppHandle,
+    report_id: String,
+    from: String,
+    to: String,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let (_op, conn) = admin_guard(&state, PERM_REPORT_EXPORT)?;
+    let result = checkout_core::report_catalog::run_report(&conn, &report_id, &from, &to)?;
+    let csv = checkout_core::report_catalog::report_to_csv(&result);
+
+    let (tx, rx) = std::sync::mpsc::channel::<Result<String>>();
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        let picked = app
+            .dialog()
+            .file()
+            .add_filter("CSV 文件", &["csv"])
+            .set_file_name(format!("{report_id}_{from}_{to}.csv"))
+            .blocking_save_file();
+        let out = match picked {
+            None => Ok(String::new()),
+            Some(p) => match p.into_path() {
+                Ok(path) => std::fs::write(&path, &csv)
+                    .map(|_| path.to_string_lossy().to_string())
+                    .map_err(|e| CoreError::Other(format!("写入导出文件失败: {e}"))),
+                Err(e) => Err(CoreError::Other(format!("导出路径无效: {e}"))),
+            },
+        };
+        let _ = tx.send(out);
+    });
+    rx.recv()
+        .map_err(|e| CoreError::Other(format!("导出线程失败: {e}")))?
+}
+
 // ===== 交班闭环（§5.4 / F-09）=====
 
 /// 开班：创建班次并设为当前班次，收银结算引用其 shift_id。
@@ -5898,6 +5937,7 @@ pub fn set_service_table_fee_cap(
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -6109,6 +6149,7 @@ pub fn run() {
             cashier_report,
             report_catalog,
             generic_report,
+            export_report_csv,
             reconcile_csv,
             print_receipt,
             get_print_auto,

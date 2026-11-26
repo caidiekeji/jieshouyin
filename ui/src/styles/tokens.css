@@ -6,28 +6,27 @@
  * component  组件层：在组件 <style> 内声明局部变量，引用语义层。
  *
  * 推导依据：B 端收银工作台——操作密集、扫读为主、色彩克制、动效极低。
- * 配色范式：对标 Square「黑白极简 + 单一撞色强调」的零售 POS 语言：
- *   - 主体近黑石墨（slate）：顶栏、导航、品牌承载信息密度，Square 式克制；
- *   - 撞色天蓝（brand #006aff）：收款/金额/选中/主行动一眼跳出，全站唯一彩色事件；
- *   - 中性面为冷灰（ink）：内容区背景与正文走纯中性灰，不用暖调杂色；
- *   - 语义色沿用 Square 口径：success #008060 / warning #cc4b00 / danger #c01a1f。
+ * 配色范式：暖橙撞色 + 中性承载（2026-11-26 用户裁决弃蓝，回到本仓原始性格「有温度」）：
+ *   - 撞色朱橙（brand #ea580c）：收款/金额/选中/主行动一眼跳出，全站唯一彩色事件；
+ *   - 主体石墨（slate）：顶栏、导航、品牌标识的承载色，克制中性；
+ *   - 中性面为纯中性灰（ink）：内容区背景与正文不带色相；
+ *   - 语义色三件套：success #008060 / warning 琥珀 #ca8a04（从橙 #cc4b00 调整，与品牌橙拉开）/ danger #c01a1f。
  *   - 全程纯色，避开蓝紫渐变。
  * ============================================================ */
 
 /* ---------- primitives：色阶 ---------- */
 :root {
-  /* 撞色强调阶：天蓝（brand），以 Square 强调色 #006aff 为 600 纯色派生。
-     hover 走 #0050c8，淡底 #e6efff，与 Square 官方口径一致。 */
-  --p-brand-50: #f0f6ff;
-  --p-brand-100: #e6efff;
-  --p-brand-200: #bcd6ff;
-  --p-brand-300: #8ab8ff;
-  --p-brand-400: #4a94ff;
-  --p-brand-500: #1e78ff;
-  --p-brand-600: #006aff;
-  --p-brand-700: #0050c8;
-  --p-brand-800: #0043a6;
-  --p-brand-900: #0a2d5e;
+  /* 撞色强调阶：朱橙（brand），600 #ea580c 为基准纯色，50-900 等比派生。 */
+  --p-brand-50: #fff7ed;
+  --p-brand-100: #ffedd5;
+  --p-brand-200: #fed7aa;
+  --p-brand-300: #fdba74;
+  --p-brand-400: #fb923c;
+  --p-brand-500: #f97316;
+  --p-brand-600: #ea580c;
+  --p-brand-700: #c2410c;
+  --p-brand-800: #9a3412;
+  --p-brand-900: #7c2d12;
 
   /* 主体石墨阶（slate）：顶栏、导航、品牌标识的承载色，冷调近黑（Square #1c1c1c 口径）。 */
   --p-slate-50: #f7f7f7;
@@ -83,16 +82,17 @@
   --p-success-600: #006650;
   --p-success-900: #0a3328;
 
-  /* 警示： 试用期、到期提醒；Square warning #cc4b00，与天蓝强调、危险红都拉开 */
-  --p-warning-50: #fdf2ec;
-  --p-warning-100: #f7dcc8;
-  --p-warning-500: #cc4b00;
-  --p-warning-700: #a63c02;
-  --p-warning-900: #4a2408;
-  --p-warning-950: #582b0a;
+  /* 警示： 试用期、到期提醒；琥珀黄 #ca8a04——与品牌朱橙拉开色相与明度（黄亮橙深），
+     避免警示与主行动混色；900/950 供暗底文字与描边。 */
+  --p-warning-50: #fefce8;
+  --p-warning-100: #fef9c3;
+  --p-warning-500: #ca8a04;
+  --p-warning-700: #a16207;
+  --p-warning-900: #422006;
+  --p-warning-950: #3f2d04;
 
   /* 行业强调色原料：每个行业一组，供场景语义层引用。
-     只在各自行业的看板/面板内出现，不进入全局 chrome，避免冲垮天蓝主体。 */
+     只在各自行业的看板/面板内出现，不进入全局 chrome，避免冲垮朱橙主体。 */
   /* 母婴玫瑰 rose */
   --p-rose-50: #fff5f8;
   --p-rose-100: #fde8ef;
@@ -160,6 +160,8 @@
   --p-font-md: 16px;
   --p-font-lg: 18px;
   --p-font-xl: 20px;
+  /* 仪表盘 KPI 展示级数字：报表核心数值是首屏唯一主角，跳出 1.2 刻度（30/14 ≈ 2.14 倍） */
+  --p-font-kpi: 30px;
   --p-font-2xl: 22px;
 
   /* 行高 */
@@ -193,6 +195,8 @@
   /* 层级：按谁该盖住谁排成链，禁止裸数字 */
   --p-z-base: 0;
   --p-z-raised: 10;
+  /* 悬浮面板（日期选择器等）：高于内容低于 overlay 遮罩 */
+  --p-z-popover: 30;
   --p-z-overlay: 100;
   --p-z-modal: 200;
   --p-z-toast: 300;
@@ -220,11 +224,14 @@
   --border: var(--p-neutral-200);
   --border-strong: var(--p-neutral-300);
 
-  /* 撞色强调（天蓝）：收款、金额、主行动、选中态，全站唯一彩色事件 */
+  /* 撞色强调（朱橙）：收款、金额、主行动、选中态，全站唯一彩色事件 */
   --brand: var(--p-brand-600);
-  --brand-hover: var(--p-brand-700);
+  /* hover 提亮一档（暖橙家族惯例：亮底黑字，hover 更亮），不压暗以免贴近危险红 */
+  --brand-hover: var(--p-brand-500);
   --brand-subtle: var(--p-brand-50);
   --brand-border: var(--p-brand-300);
+  /* 品牌场合文字：朱橙 #ea580c 上白字仅 ≈3.0:1 不达标，黑字 ≈4.9:1 ✓（dark 400 橙上黑字 ≈11:1） */
+  --brand-contrast: var(--p-neutral-900);
 
   /* 支付渠道品牌色：第三方品牌固定色，明暗主题均不翻转 */
   --brand-wechat: #07C160;
@@ -288,6 +295,7 @@
   --brand-hover: var(--p-brand-300);
   --brand-subtle: var(--p-brand-900);
   --brand-border: var(--p-brand-700);
+  --brand-contrast: var(--p-neutral-900);
 
   /* 主体色：暗底下提亮保证顶栏与内容区可辨 */
   --chrome: var(--p-slate-700);
@@ -393,6 +401,7 @@
   --font-md: var(--p-font-md);
   --font-lg: var(--p-font-lg);
   --font-xl: var(--p-font-xl);
+  --font-kpi: var(--p-font-kpi);
   --font-2xl: var(--p-font-2xl);
   --line-tight: var(--p-line-tight);
   --line-normal: var(--p-line-normal);
@@ -413,6 +422,7 @@
 
   --z-base: var(--p-z-base);
   --z-raised: var(--p-z-raised);
+  --z-popover: var(--p-z-popover);
   --z-overlay: var(--p-z-overlay);
   --z-modal: var(--p-z-modal);
   --z-toast: var(--p-z-toast);

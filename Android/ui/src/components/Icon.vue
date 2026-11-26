@@ -13,7 +13,7 @@ type StrokeIconName =
   | 'scan' | 'search' | 'cart' | 'package' | 'box' | 'clipboard' | 'park'
   | 'heart' | 'users' | 'user' | 'undo' | 'receipt' | 'print' | 'report'
   | 'settings' | 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'cash' | 'star'
-  | 'ticket' | 'pause' | 'image' | 'truck' | 'alert' | 'info' | 'scale'
+  | 'ticket' | 'pause' | 'image' | 'truck' | 'alert' | 'scale'
   | 'chat' | 'phone' | 'qr'
   | 'plus' | 'minus' | 'check' | 'close' | 'refresh' | 'edit' | 'trash'
   | 'lock' | 'logout' | 'key' | 'chevron-down'
@@ -216,11 +216,6 @@ const ICONS: Record<StrokeIconName, string[]> = {
     'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z',
     'M12 9v4',
     'M12 17h.01',
-  ],
-  info: [
-    'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z',
-    'M12 16v-4',
-    'M12 8h.01',
   ],
   plus: ['M12 5v14', 'M5 12h14'],
   minus: ['M5 12h14'],

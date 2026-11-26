@@ -2,7 +2,6 @@
 import Icon from '../components/Icon.vue'
 import SetupSteps from '../components/SetupSteps.vue'
 import { useAppContext } from '../composables/useAppContext'
-import HintTip from '../components/HintTip.vue'
 const ctx = useAppContext()
 const {
   ICON_SIZE, view, onboarding, authStep, needAdmin, storeProfile, industries,
@@ -51,7 +50,6 @@ const {
         <button class="btn primary btn-lg" @click="finishIndustrySetup">
           {{ needsActivation ? '下一步：激活设备' : '进入收银' }}
         </button>
-        <HintTip text="行业分类可在设置页随时调整，切换只新增分类不删除已有商品。" />
       </div>
     </div>
 

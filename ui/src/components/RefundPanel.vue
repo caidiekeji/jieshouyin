@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { api, formatMoney, today, type OrderDetail, type OrderSummary } from '../api'
-import HintTip from './HintTip.vue'
 import {
   ERROR_DURATION_MS,
   ORDER_LIST_LIMIT,
@@ -230,7 +229,6 @@ onMounted(async () => {
         <span v-if="submitting" class="btn-spinner" aria-label="退款处理中"></span>
         {{ submitting ? '退款处理中…' : '确认退款（需授权）' }}
       </button>
-      <HintTip text="退款按原单行优惠还原金额；扫码支付订单退至原渠道，需店长授权。" />
     </div>
   </main>
 </template>

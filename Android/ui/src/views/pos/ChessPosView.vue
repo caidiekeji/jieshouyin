@@ -5,7 +5,6 @@ import { useAppContext } from '../../composables/useAppContext'
 import ChessRoomBoard from '../../components/ChessRoomBoard.vue'
 import PosCatalogPanel from '../../components/PosCatalogPanel.vue'
 import PosCartPanel from '../../components/PosCartPanel.vue'
-import HintTip from '../../components/HintTip.vue'
 
 const {
   view,
@@ -26,7 +25,6 @@ const ui = INDUSTRY_UI.BOARD_GAME
     <section v-if="sceneBoardStage" class="panel scene-home-panel">
       <ChessRoomBoard
         :title="ui.boardTitle"
-        :hint="ui.boardHint"
         :default-prefix="ui.defaultPrefix"
         :active-table-id="null"
         :cart="[]"
@@ -51,7 +49,6 @@ const ui = INDUSTRY_UI.BOARD_GAME
         </div>
         <div class="pos-page-head">
           <strong>{{ activeTable ? `${activeTable.code} 计时点单` : ui.boardTitle }}</strong>
-          <HintTip :text="ui.boardHint" />
         </div>
         <PosCatalogPanel />
       </section>

@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import Icon from '../components/Icon.vue'
 import { useAppContext } from '../composables/useAppContext'
-import HintTip from '../components/HintTip.vue'
 
 const ctx = useAppContext()
 const {
   CASH_KEYPAD,
   CENTS_PER_YUAN,
   ICON_SIZE,
-  QUICK_CASH_YUAN,
   applyCouponDialog,
   authDialog,
   authError,
@@ -39,7 +37,6 @@ const {
   credDraft,
   credSaved,
   currentCredFields,
-  exactCash,
   formatMoney,
   isLocalGateway,
   lockCodeDraft,
@@ -82,7 +79,6 @@ const {
       <div v-if="authDialog" class="modal-mask">
         <div class="modal" role="dialog" aria-modal="true" aria-label="二次授权">
           <h3>{{ authDialog?.title }}</h3>
-          <HintTip text="此项操作需店长或管理员二次授权" />
           <input v-model="authUser" class="input" placeholder="授权人用户名" />
           <input v-model="authPass" class="input" type="password" placeholder="授权人密码" @keyup.enter="confirmSensitiveAuth" />
           <p v-if="authError" class="err-text">{{ authError }}</p>
@@ -175,17 +171,6 @@ const {
               <small v-if="cashShort > 0" class="cash-short">还差 ¥{{ formatMoney(cashShort) }}</small>
             </div>
           </div>
-          <div class="quick-cash">
-            <button
-              v-for="v in QUICK_CASH_YUAN"
-              :key="v"
-              class="btn ghost quick-cash-btn"
-              :disabled="v * CENTS_PER_YUAN < payableAmount"
-              :title="v * CENTS_PER_YUAN < payableAmount ? `小于应收 ¥${formatMoney(payableAmount)}` : `实收 ¥${v}`"
-              @click="cashTendered = String(v)"
-            >¥{{ v }}</button>
-            <button class="btn ghost quick-cash-btn exact" @click="exactCash">刚好</button>
-          </div>
           <div class="cash-keypad" role="group" aria-label="现金数字键盘">
             <button
               v-for="k in CASH_KEYPAD"
@@ -219,7 +204,6 @@ const {
           <div v-if="memberBalances" class="member-balance">
             本金 ¥{{ formatMoney(memberBalances.principal_cents) }} · 赠金 ¥{{ formatMoney(memberBalances.bonus_cents) }} · 积分 {{ memberBalances.points }}
           </div>
-          <HintTip text="识别后本单按会员价结算，并在收款成功后自动累计积分（赠送金抵扣部分不计分）。" />
           <div class="actions">
             <button class="btn" @click="memberDialogOpen = false">关闭</button>
             <button class="btn primary" @click="confirmMemberDialog">识别会员</button>
@@ -247,7 +231,6 @@ const {
       <div v-if="lockSetupOpen" class="modal-mask" @click.self="cancelLockSetup">
         <div class="modal" role="dialog" aria-modal="true" aria-label="设置锁机码">
           <h3>设置锁机码</h3>
-          <HintTip text="离岗锁屏、或关闭窗口隐藏到托盘后，输入此码解锁。摘要仅保存在本机，清空浏览器数据会一并清除。" />
           <input
             v-model="lockCodeDraft"
             class="input mono"
@@ -269,7 +252,6 @@ const {
             <h3>商户凭据 · {{ credChannel === 'WECHAT' ? '微信支付' : '支付宝' }}</h3>
             <button class="btn btn-sm ghost" aria-label="关闭" @click="closeCredDialog"><Icon name="close" :size="ICON_SIZE.md" /></button>
           </div>
-          <HintTip text="凭据存 Windows 凭据库，不落库、不回显。留空表示不修改该项；保存后需重启应用生效。" />
           <label v-for="f in currentCredFields" :key="f.key" class="field-label cred-field">
             <span class="cred-field-head">
               {{ f.label }}
@@ -294,9 +276,8 @@ const {
       <div v-if="pwdDialogOpen" class="modal-mask" @click.self="closePwdDialog">
         <div class="modal pwd-modal" role="dialog" aria-modal="true" aria-label="修改密码">
           <h3>修改密码</h3>
-          <HintTip text="新密码须 ≥8 位且同时包含字母和数字，修改后立即生效。" />
           <input v-model="pwdDraft.old" class="input" type="password" autocomplete="current-password" placeholder="原密码" />
-          <input v-model="pwdDraft.next" class="input" type="password" autocomplete="new-password" placeholder="新密码" />
+          <input v-model="pwdDraft.next" class="input" type="password" autocomplete="new-password" placeholder="新密码（至少 8 位，含字母和数字）" />
           <input v-model="pwdDraft.confirm" class="input" type="password" autocomplete="new-password" placeholder="确认新密码" @keyup.enter="submitChangePassword" />
           <p v-if="pwdError" class="form-error" role="alert"><Icon name="alert" :size="ICON_SIZE.sm" />{{ pwdError }}</p>
           <div class="actions">

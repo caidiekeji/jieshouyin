@@ -1,14 +1,14 @@
 <script setup lang="ts">
+import DateRangePicker from '../components/DateRangePicker.vue'
+import ReportDashboard from '../components/ReportDashboard.vue'
 import { useAppContext } from '../composables/useAppContext'
-import HintTip from '../components/HintTip.vue'
 
 const ctx = useAppContext()
 const {
   activeReport,
   activeReportId,
   actualCash,
-  centerFrom,
-  centerTo,
+  atLeast,
   currentShiftId,
   differenceReason,
   doCloseShift,
@@ -17,6 +17,7 @@ const {
   doVoid,
   exportActiveReport,
   formatMoney,
+  goExpenseConfig,
   gotoOrder,
   loadOrderItems,
   loadShift,
@@ -25,10 +26,10 @@ const {
   opQty,
   openTool,
   openingFloat,
+  refreshReportView,
   reportGroups,
   reportLoading,
   reportTool,
-  runActiveReport,
   selectReport,
   shiftId,
   shiftRows,
@@ -47,9 +48,10 @@ function openOrderNo(ci: number, cell: unknown) {
 
 <template>
       <main v-if="view === 'report' || view === 'shift'" :class="['admin-shell', { 'shift-only': view === 'shift' }]">
-        <!-- 交班视图（收银员）：不展示报表目录，避免触及 report.view 权限；仅班次管理内容 -->
+        <!-- 报表中心：经营总览置顶，明细报表按域分组；收银员交班视图不展示目录 -->
         <aside v-if="view === 'report'" class="admin-side report-side">
           <div class="admin-side-title">报表中心</div>
+          <button :class="['report-nav-item', { active: reportTool === 'dashboard' }]" @click="openTool('dashboard')">经营总览</button>
           <div v-for="g in reportGroups" :key="g.name" class="report-nav-group">
             <div class="report-nav-title">{{ g.name }}</div>
             <button
@@ -66,13 +68,14 @@ function openOrderNo(ci: number, cell: unknown) {
           </div>
         </aside>
         <section class="admin-main">
-          <!-- 报表查询 -->
-          <template v-if="!reportTool">
+          <!-- 经营总览（仪表盘）：环比对比 + 趋势 + 支付/TOP5 -->
+          <ReportDashboard v-if="reportTool === 'dashboard'" />
+
+          <!-- 报表查询：统一骨架 = 日期条 + 指标卡 + 表格 -->
+          <template v-else-if="!reportTool">
             <div class="toolbar report-toolbar">
-              <input v-model="centerFrom" class="input" type="date" />
-              <span class="muted small">至</span>
-              <input v-model="centerTo" class="input" type="date" />
-              <button class="btn primary" :disabled="reportLoading" @click="runActiveReport">
+              <DateRangePicker />
+              <button class="btn primary" :disabled="reportLoading" @click="refreshReportView">
                 {{ reportLoading ? '查询中…' : '查询' }}
               </button>
               <button class="btn" :disabled="!activeReport" @click="exportActiveReport">导出CSV</button>
@@ -80,7 +83,12 @@ function openOrderNo(ci: number, cell: unknown) {
             <template v-if="activeReport">
               <div class="report-head">
                 <h3>{{ activeReport.title }}</h3>
-                <HintTip :text="activeReport.description" />
+              </div>
+              <!-- 利润报表：房租/水电/人工按天均摊已参与核算，费用值与口径在此明示 -->
+              <div v-if="activeReportId === 'profit'" class="card rpt-expense">
+                <p class="rpt-expense-text">{{ activeReport.description }}</p>
+                <button v-if="atLeast('ADMIN')" class="btn btn-sm" @click="goExpenseConfig">调整月度费用</button>
+                <p v-else class="muted small">月度费用由管理员在「设置 → 系统配置」维护</p>
               </div>
               <div v-if="activeReport.metrics.length" class="stats">
                 <div v-for="(mt, i) in activeReport.metrics" :key="i" class="stat">
@@ -115,7 +123,6 @@ function openOrderNo(ci: number, cell: unknown) {
           <template v-else-if="reportTool === 'shift'">
             <div class="report-head">
               <h3>班次管理 <span v-if="currentShiftId" class="badge">当前班次 #{{ currentShiftId }}</span></h3>
-              <HintTip text="开班设置备用金；关班需接班收银员或店长授权，并核对现金差额。" />
             </div>
 
             <!-- 开班 -->
@@ -171,7 +178,6 @@ function openOrderNo(ci: number, cell: unknown) {
           <template v-else>
             <div class="report-head">
               <h3>订单作废 / 退货</h3>
-              <HintTip text="作废：仅待支付单或当日现金单；扫码已支付订单只能退货退款。退货受角色限额约束。" />
             </div>
             <div class="toolbar">
               <input v-model="opOrderNo" class="input" placeholder="输入订单号" />

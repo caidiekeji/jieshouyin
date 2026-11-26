@@ -11,7 +11,6 @@ import {
   type StocktakeItemRow
 } from '../api'
 import Icon from './Icon.vue'
-import HintTip from './HintTip.vue'
 import {
   CENTS_PER_YUAN,
   CURRENCY_DECIMALS,
@@ -364,29 +363,25 @@ onMounted(() => {
 
       <div class="card">
         <h3>采购单</h3>
-        <table class="tbl">
-          <thead>
-            <tr><th>单号</th><th>供应商</th><th class="num-cell">明细</th><th class="num-cell">金额</th><th>状态</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="o in pos" :key="o.po_no">
-              <td class="mono">{{ o.po_no }}</td>
-              <td>{{ o.supplier_name }}</td>
-              <td class="num-cell">{{ o.item_count }} 行</td>
-              <td class="num-cell">{{ formatMoney(o.total_cents) }}</td>
-              <td>{{ o.status === 'RECEIVED' ? '已验收' : o.status === 'PARTIAL_RECEIVED' ? '部分收货' : '待验收' }}</td>
-              <td>
-                <button v-if="o.status === 'DRAFT' || o.status === 'PARTIAL_RECEIVED'" class="btn btn-sm" @click="openReceive(o.po_no)">验收</button>
-              </td>
-            </tr>
-            <tr v-if="!pos.length"><td colspan="6" class="empty">暂无采购单，用上方表单录入第一笔采购</td></tr>
-          </tbody>
-        </table>
+        <!-- 触屏卡片化：单号 + 状态进标题行，验收按钮整宽 -->
+        <div class="tcard-list">
+          <div v-for="o in pos" :key="o.po_no" class="tcard">
+            <div class="tcard-head">
+              <span class="mono tcard-code">{{ o.po_no }}</span>
+              <span>{{ o.status === 'RECEIVED' ? '已验收' : o.status === 'PARTIAL_RECEIVED' ? '部分收货' : '待验收' }}</span>
+            </div>
+            <div class="tcard-line"><span class="tcard-key">供应商</span><span class="tcard-value">{{ o.supplier_name }}</span></div>
+            <div class="tcard-line"><span class="tcard-key">明细</span><span class="tcard-value">{{ o.item_count }} 行 · 金额 ¥{{ formatMoney(o.total_cents) }}</span></div>
+            <div v-if="o.status === 'DRAFT' || o.status === 'PARTIAL_RECEIVED'" class="tcard-actions">
+              <button class="btn" @click="openReceive(o.po_no)">验收</button>
+            </div>
+          </div>
+          <div v-if="!pos.length" class="empty">暂无采购单，用上方表单录入第一笔采购</div>
+        </div>
       </div>
 
       <div v-if="receivePo" class="card">
         <h3>验收：{{ receivePo }}</h3>
-        <HintTip text="逐行录入本次实收数量（累计入账），与订购数的差异将留痕记录；已部分收货的单据可多次验收，收齐后自动置为已验收" />
         <table class="tbl">
           <thead><tr><th>商品</th><th class="num-cell">订购</th><th class="num-cell">已收</th><th class="num-cell">本次实收</th></tr></thead>
           <tbody>
@@ -431,23 +426,21 @@ onMounted(() => {
 
       <div class="card">
         <h3>盘点任务</h3>
-        <table class="tbl">
-          <thead>
-            <tr><th>任务号</th><th class="num-cell">商品数</th><th>状态</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="t in stocktakes" :key="t.task_no">
-              <td class="mono">{{ t.task_no }}</td>
-              <td class="num-cell">{{ t.item_count }}</td>
-              <td>{{ t.status === 'DRAFT' ? '待录数' : t.status === 'DIFF_REVIEW' ? '待审批' : '已调整' }}</td>
-              <td>
-                <button v-if="t.status === 'DRAFT'" class="btn btn-sm" @click="openCount(t.task_no)">录实盘</button>
-                <button v-if="t.status === 'DIFF_REVIEW'" class="btn btn-sm" @click="openApprove(t.task_no)">审批调账</button>
-              </td>
-            </tr>
-            <tr v-if="!stocktakes.length"><td colspan="4" class="empty">暂无盘点任务，点击上方「新建盘点任务」开始</td></tr>
-          </tbody>
-        </table>
+        <!-- 触屏卡片化：任务号 + 状态进标题行，录实盘/审批按钮整宽 -->
+        <div class="tcard-list">
+          <div v-for="t in stocktakes" :key="t.task_no" class="tcard">
+            <div class="tcard-head">
+              <span class="mono tcard-code">{{ t.task_no }}</span>
+              <span>{{ t.status === 'DRAFT' ? '待录数' : t.status === 'DIFF_REVIEW' ? '待审批' : '已调整' }}</span>
+            </div>
+            <div class="tcard-line"><span class="tcard-key">商品数</span><span class="tcard-value">{{ t.item_count }}</span></div>
+            <div v-if="t.status === 'DRAFT' || t.status === 'DIFF_REVIEW'" class="tcard-actions">
+              <button v-if="t.status === 'DRAFT'" class="btn" @click="openCount(t.task_no)">录实盘</button>
+              <button v-if="t.status === 'DIFF_REVIEW'" class="btn" @click="openApprove(t.task_no)">审批调账</button>
+            </div>
+          </div>
+          <div v-if="!stocktakes.length" class="empty">暂无盘点任务，点击上方「新建盘点任务」开始</div>
+        </div>
       </div>
 
       <div v-if="countTask" class="card">
@@ -481,7 +474,6 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-        <HintTip :text="`共 ${countRows.length} 行，其中差异行 ${countRows.filter((r) => (r.diff_qty ?? 0) !== 0).length} 行，差异合计 ${countRows.reduce((s, r) => s + (r.diff_qty ?? 0), 0)} 件。审批后按差异生成库存调整流水。`" />
         <div class="form-row">
           <button class="btn primary" @click="submitApprove">确认审批</button>
           <button class="btn ghost" @click="approveTask = null">取消</button>

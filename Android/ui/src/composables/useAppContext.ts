@@ -7,7 +7,6 @@ import { usePosStore } from '../stores/pos'
 import { useOpsStore } from '../stores/ops'
 
 // 现金弹窗展示常量：界面固有，随视图层保留
-const QUICK_CASH_YUAN = [10, 20, 50, 100]
 const CASH_KEYPAD = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '退格'] as const
 
 export function useAppContext() {
@@ -45,6 +44,7 @@ const {
 const {
   shiftRows, openingFloat, actualCash, differenceReason,
   reportMetas, activeReportId, activeReport, reportLoading, centerFrom, centerTo, reportTool,
+  dashGrain, dashData, dashLoading,
   configs, configDraft, credChannel, credDraft, credSaved, credBusy, credDialogOpen, channelDraft,
   pwdDialogOpen, pwdDraft, pwdError, pwdBusy,
   reconDate, reconText, reconSummary, reconDiffs, printQueue,
@@ -170,7 +170,6 @@ const selectPayChannel = (id: Parameters<typeof pos.selectPayChannel>[0]) => pos
 const sanitizeCashInput = (raw: string) => pos.sanitizeCashInput(raw)
 const onCashInput = (e: Event) => pos.onCashInput(e)
 const pressCashKey = (key: string) => pos.pressCashKey(key)
-const exactCash = () => pos.exactCash()
 const submitCheckout = () => pos.submitCheckout()
 const startNativePolling = (no: string) => pos.startNativePolling(no)
 const stopNativePolling = () => pos.stopNativePolling()
@@ -195,6 +194,11 @@ const selectReport = (id: string) => ops.selectReport(id)
 const openTool = (t: Parameters<typeof ops.openTool>[0]) => ops.openTool(t)
 const exportActiveReport = () => ops.exportActiveReport()
 const goReport = () => ops.goReport()
+/** 仪表盘：粒度切换 / 快捷区间预设 / 日历选区变更后的重查 / 费用配置跳转 */
+const setDashGrain = (g: Parameters<typeof ops.setDashGrain>[0]) => ops.setDashGrain(g)
+const applyDashPreset = (p: string) => ops.applyDashPreset(p)
+const refreshReportView = () => ops.refreshReportView()
+const goExpenseConfig = () => ops.goExpenseConfig()
 /** 顶部交班入口：收银员动作，进入独立班次管理视图（不依赖 report.view 权限） */
 const goShift = () => {
   const app = useAppStore()
@@ -242,7 +246,6 @@ const goProducts = () => app.goProducts()
     ICON_SIZE,
     CENTS_PER_YUAN,
     formatMoney,
-    QUICK_CASH_YUAN,
     CASH_KEYPAD,
     activateCustomer,
     activateError,
@@ -263,6 +266,7 @@ const goProducts = () => app.goProducts()
     adminUser,
     applyCouponDialog,
     applyCurrentSession,
+    applyDashPreset,
     applyPaymentCode,
     applyTheme,
     atLeast,
@@ -319,6 +323,9 @@ const goProducts = () => app.goProducts()
     currentRole,
     currentShiftId,
     currentUser,
+    dashData,
+    dashGrain,
+    dashLoading,
     differenceReason,
     sceneBoardStage,
     sceneCatalogOnly,
@@ -331,7 +338,6 @@ const goProducts = () => app.goProducts()
     effectivePrice,
     enterMixedMode,
     enterTrial,
-    exactCash,
     exportActiveReport,
     findMember,
     finishIndustrySetup,
@@ -343,6 +349,7 @@ const goProducts = () => app.goProducts()
     goReport,
     goShift,
     goSettings,
+    goExpenseConfig,
     goodsTab,
     gotoOrder,
     gotoRefund,
@@ -456,6 +463,7 @@ const goProducts = () => app.goProducts()
     refreshLicense,
     refreshQuote,
     refundOrderNo,
+    refreshReportView,
     releaseActiveTable,
     removeCredential,
     removePaySplit,
@@ -481,6 +489,7 @@ const goProducts = () => app.goProducts()
     returnTableLine,
     routeAfterLogin,
     runActiveReport,
+    runDashboard,
     sanitizeCashInput,
     saveConfig,
     configGroupChanged,
@@ -498,6 +507,7 @@ const goProducts = () => app.goProducts()
     selectReport,
     selectSceneTable,
     setActivationPending,
+    setDashGrain,
     setLineQty,
     settingsTab,
     settingsTabs,
