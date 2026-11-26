@@ -16,7 +16,7 @@ const {
   lockCode, lockCodeDraft, openCredDialog, openOfficialSite, pendingIndustry, pointsConfigs,
   previewReceipt, printQueue, receiptPaperWidth, receiptPreview,
   receiptTemplateJson, reconDate, reconDiffs, reconSummary, trialDaysLeft,
-  reconText, refreshLicense,
+  reconText, refreshLicense, printTesting, runTestPrint, savePrintConnection,
   configGroupChanged, saveConfigGroup, savePointsConfigs,
   saveLockCode, saveReceiptTemplate, saveStoreName, search,
   settingsTab, storeNameDraft, storeProfile, systemConfigGroups,
@@ -317,37 +317,76 @@ watch(configGroupTabs, (tabs) => {
             </table>
           </div>
 
-          <!-- 打印设置：小票样式 + 厨打档口路由统一在同一张卡片内分节展示 -->
+          <!-- 打印机（页面级布局）：连接（含测试页/份数）→ 小票（编辑+预览并排，窄屏回退上下）→ 厨打路由（仅餐饮）→ 重试队列 -->
           <template v-else-if="settingsTab === 'print'">
             <div class="card wide">
-              <h3>打印机设置</h3>
-              <h4 class="print-subtitle">小票设置与预览</h4>
-              <div class="receipt-toolbar">
-                <label>纸张宽度
-                  <select v-model.number="receiptPaperWidth" class="input input-sm">
-                    <option :value="58">58mm</option>
-                    <option :value="80">80mm</option>
-                  </select>
+              <h3>打印机连接</h3>
+              <div class="form-grid">
+                <label>打印机 IP / 主机名
+                  <input v-model="configDraft['print_host']" class="input mono" maxlength="64" placeholder="192.168.1.100" />
                 </label>
-                <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存纸张设置</button>
-                <button class="link" @click="showTemplateJson = !showTemplateJson">{{ showTemplateJson ? '收起模板源码' : '高级：编辑模板源码' }}</button>
-              </div>
-              <ReceiptPreview :store-name="storeProfile?.store_name || ''" :paper-width-mm="receiptPaperWidth" />
-              <div v-if="showTemplateJson" class="receipt-advanced">
-                <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12" placeholder="sections：header / items / summary / footer；变量用双大括号包裹，如 store_name、created_at、items、pay_total、table_code 等"></textarea>
-                <div class="op-form">
-                  <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="previewReceipt">刷新预览</button>
-                  <button class="btn btn-sm primary" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存模板</button>
+                <label>端口
+                  <input v-model="configDraft['print_port']" class="input mono" type="number" min="1" max="65535" placeholder="9100" />
+                </label>
+                <label>小票份数（1–5）
+                  <input v-model="configDraft['print_copies']" class="input mono" type="number" min="1" max="5" />
+                </label>
+                <div class="field">
+                  <span class="field-label">结算后自动打印</span>
+                  <Switch
+                    :model-value="configDraft['print_auto'] === '1'"
+                    label="结算后自动打印"
+                    @update:model-value="toggleConfigSwitch('print_auto')"
+                  />
                 </div>
-                <pre v-if="receiptPreview" class="receipt-raw">{{ receiptPreview }}</pre>
               </div>
-              <!-- 餐饮行业：档口路由并入本卡片，不再单独成块 -->
+              <div class="op-form">
+                <button class="btn" :disabled="printTesting" @click="runTestPrint">
+                  <span v-if="printTesting" class="btn-spinner" aria-label="发送中"></span>
+                  {{ printTesting ? '发送中…' : '打印测试页' }}
+                </button>
+                <button class="btn primary" :disabled="!atLeast('MANAGER')" @click="savePrintConnection">保存连接设置</button>
+              </div>
+            </div>
+
+            <div class="card wide">
+              <h3>小票设置</h3>
+              <div class="receipt-editor-grid">
+                <div class="receipt-editor-col">
+                  <div class="receipt-toolbar">
+                    <label>纸张宽度
+                      <select v-model.number="receiptPaperWidth" class="input input-sm">
+                        <option :value="58">58mm</option>
+                        <option :value="80">80mm</option>
+                      </select>
+                    </label>
+                    <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存纸张设置</button>
+                  </div>
+                  <div class="receipt-toolbar">
+                    <button class="link" @click="showTemplateJson = !showTemplateJson">{{ showTemplateJson ? '收起模板源码' : '高级：编辑模板源码' }}</button>
+                  </div>
+                  <div v-if="showTemplateJson" class="receipt-advanced">
+                    <textarea v-model="receiptTemplateJson" class="input receipt-template-input" spellcheck="false" rows="12" placeholder="sections：header / items / summary / footer；变量用双大括号包裹，如 store_name、created_at、items、pay_total、table_code 等"></textarea>
+                    <div class="op-form">
+                      <button class="btn btn-sm" :disabled="!atLeast('MANAGER')" @click="previewReceipt">刷新预览</button>
+                      <button class="btn btn-sm primary" :disabled="!atLeast('MANAGER')" @click="saveReceiptTemplate">保存模板</button>
+                    </div>
+                    <pre v-if="receiptPreview" class="receipt-raw">{{ receiptPreview }}</pre>
+                  </div>
+                </div>
+                <div class="receipt-preview-col">
+                  <ReceiptPreview :store-name="storeProfile?.store_name || ''" :paper-width-mm="receiptPaperWidth" />
+                </div>
+              </div>
+              <!-- 行业分支：厨打路由仅餐饮；其它行业统一主打印机输出 -->
               <template v-if="industry === 'RESTAURANT'">
                 <div class="print-section-divider"></div>
                 <h4 class="print-subtitle">厨打档口路由</h4>
                 <KitchenRoutePanel :can-manage="atLeast('MANAGER')" />
               </template>
+              <p v-else class="muted small print-route-note">厨打档口路由仅餐饮行业可用；本行业小票统一从主打印机输出。</p>
             </div>
+
             <div class="card wide">
               <h3>打印重试队列</h3>
               <div v-if="printQueue.length" class="print-queue">

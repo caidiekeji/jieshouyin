@@ -804,6 +804,7 @@ export const api = {
   saveReceiptTemplate: (contentJson: string, paperWidthMm: number) =>
     invoke<string>('save_receipt_template', { contentJson, paperWidthMm }),
   previewReceipt: (contentJson: string) => invoke<string>('preview_receipt', { contentJson }),
+  testPrint: () => invoke<string>('test_print'),
   createProduct: (p: {
     name: string
     barcode: string | null

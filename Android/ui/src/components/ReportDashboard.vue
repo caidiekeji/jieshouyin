@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { api } from '../api'
+import { parseMoney } from '../stores/ops'
 import { useAppContext } from '../composables/useAppContext'
 
 /**
  * 经营总览仪表盘（Android 分叉）：指标卡用触屏卡片形态（复用 .tcard 视觉），
- * 单列堆叠布局适配横屏矮屏与竖屏；数据由 ops.runDashboard 前端聚合。
+ * 单列堆叠布局适配横屏矮屏与竖屏；数据由 ops.runDashboard 前端聚合；时段销售另拉 sales_hourly。
  * 环比口径：delta = (本期−对比期)/对比期；对比期 ≤0 时无意义，显示「—」。
  */
 const { dashData, dashGrain, dashLoading, setDashGrain, formatMoney } = useAppContext()
@@ -26,12 +28,19 @@ const kpis = computed(() => {
   const c = d.current
   const p = d.compare
   return [
-    { label: '净营业额', value: formatMoney(c.netCents), delta: delta(c.netCents, p?.netCents) },
-    { label: '订单数', value: String(c.orders), delta: delta(c.orders, p?.orders) },
-    { label: '客单价', value: formatMoney(c.avgCents), delta: delta(c.avgCents, p?.avgCents) },
-    { label: '净利润', value: c.profitCents == null ? '—' : formatMoney(c.profitCents), delta: delta(c.profitCents, p?.profitCents) },
+    { label: '净营业额', value: formatMoney(c.netCents), delta: delta(c.netCents, p?.netCents), showDelta: true },
+    { label: '订单数', value: String(c.orders), delta: delta(c.orders, p?.orders), showDelta: true },
+    { label: '客单价', value: formatMoney(c.avgCents), delta: delta(c.avgCents, p?.avgCents), showDelta: true },
+    { label: '净利润', value: c.profitCents == null ? '—' : formatMoney(c.profitCents), delta: delta(c.profitCents, p?.profitCents), showDelta: true },
+    { label: '毛利率', value: ratePct(c.profitCents ?? 0, c.netCents), delta: null, showDelta: false },
+    { label: '退款率', value: ratePct(c.refundCents, c.netCents), delta: null, showDelta: false },
   ]
 })
+/** 比率卡：part/whole 百分比，保留 1 位小数；whole ≤0 时无意义显示「—」 */
+function ratePct(part: number, whole: number): string {
+  if (whole <= 0) return '—'
+  return `${Math.round((part / whole) * 1000) / 10}%`
+}
 
 const buckets = computed(() => {
   const d = dashData.value
@@ -51,11 +60,52 @@ function bucketLabel(key: string, grain: string): string {
   return grain === 'week' ? `${d} 周` : d
 }
 function barPct(v: number): string {
-  return `${Math.max(2, Math.round((v / maxBar.value) * 100))}%`
+  return pctOf(v, maxBar.value)
 }
+function pctOf(v: number, max: number): string {
+  return `${Math.max(2, Math.round((v / max) * 100))}%`
+}
+
+/** 时段销售（sales_hourly）：随仪表盘区间联动；仅本期不做环比（时段结构跨期对比噪声大） */
+const hours = ref<{ hour: string; orders: number; cents: number; amount: string }[]>([])
+const hoursLoading = ref(false)
+async function loadHours() {
+  const d = dashData.value
+  if (!d) return
+  hoursLoading.value = true
+  try {
+    const r = await api.genericReport('sales_hourly', d.range.from, d.range.to)
+    const oi = r.columns.findIndex((c) => c.kind === 'qty')
+    const ai = r.columns.findIndex((c) => c.kind === 'money')
+    hours.value = r.rows.map((row) => ({
+      hour: String(row[0]),
+      orders: oi >= 0 ? Number(row[oi]) : 0,
+      cents: ai >= 0 ? parseMoney(String(row[ai])) : 0,
+      amount: ai >= 0 ? String(row[ai]) : '0.00',
+    }))
+  } catch {
+    hours.value = [] // 时段图失败不阻塞主仪表盘，块内空态兜底
+  } finally {
+    hoursLoading.value = false
+  }
+}
+watch(dashData, loadHours, { immediate: true })
+
+const maxHourBar = computed(() => Math.max(1, ...hours.value.map((h) => h.cents)))
+const peakHour = computed(() => {
+  let best: { hour: string; cents: number } | null = null
+  for (const h of hours.value) {
+    if (!best || h.cents > best.cents) best = { hour: h.hour, cents: h.cents }
+  }
+  return best && best.cents > 0 ? best.hour : null
+})
 
 const topProducts = computed(() => dashData.value?.current.topProducts ?? [])
 const payments = computed(() => (dashData.value?.current.payments ?? []).filter((p) => p.amountCents > 0))
+const payTotal = computed(() => payments.value.reduce((s, p) => s + p.amountCents, 0))
+function payPct(amountCents: number): string {
+  return payTotal.value > 0 ? pctOf(amountCents, payTotal.value) : '0%'
+}
 const isEmpty = computed(() => {
   const d = dashData.value
   return !!d && d.current.orders === 0 && (d.compare?.orders ?? 0) === 0
@@ -83,7 +133,7 @@ const isEmpty = computed(() => {
 
     <!-- 加载骨架：形状对齐真实指标卡（标签条 + 大数字条），禁通用转圈 -->
     <div v-if="dashLoading" class="rpt-kpis" aria-label="加载中">
-      <div v-for="i in 4" :key="i" class="rpt-kpi rpt-skeleton"><span class="rpt-skeleton-label"></span><span class="rpt-skeleton-value"></span></div>
+      <div v-for="i in 6" :key="i" class="rpt-kpi rpt-skeleton"><span class="rpt-skeleton-label"></span><span class="rpt-skeleton-value"></span></div>
     </div>
 
     <template v-else-if="dashData">
@@ -106,7 +156,7 @@ const isEmpty = computed(() => {
                 :class="k.delta >= 0 ? 'up' : 'down'"
                 :aria-label="`${k.label}环比${k.delta >= 0 ? '增' : '降'}${Math.abs(k.delta)}%`"
               >{{ k.delta >= 0 ? '▲' : '▼' }}{{ Math.abs(k.delta) }}%</span>
-              <span v-else class="rpt-delta none">—</span>
+              <span v-else-if="k.showDelta" class="rpt-delta none">—</span>
             </div>
           </div>
         </div>
@@ -127,7 +177,22 @@ const isEmpty = computed(() => {
         </div>
 
         <div class="rpt-side">
-          <!-- 支付占比 -->
+          <!-- 时段销售：sales_hourly 横条，高峰时段打标；失败/空态块内兜底 -->
+          <div class="card rpt-hours">
+            <h4>时段销售 <span v-if="peakHour" class="muted small">（高峰 {{ peakHour }}）</span></h4>
+            <div v-if="hoursLoading" class="empty">时段数据加载中…</div>
+            <div v-else-if="hours.length" class="rpt-bars rpt-bars--compact">
+              <div v-for="h in hours" :key="h.hour" class="rpt-bar-row">
+                <span class="rpt-bar-label">{{ h.hour }}</span>
+                <div class="rpt-bar-track">
+                  <div class="rpt-bar cur" :style="{ width: pctOf(h.cents, maxHourBar) }"></div>
+                </div>
+                <span class="rpt-bar-value">{{ h.amount }}</span>
+              </div>
+            </div>
+            <div v-else class="empty">区间内无分时段销售</div>
+          </div>
+          <!-- 支付占比：金额 + 占比条 -->
           <div class="card rpt-pay">
             <h4>支付方式</h4>
             <div v-if="payments.length" class="rpt-pay-list">
@@ -135,6 +200,7 @@ const isEmpty = computed(() => {
                 <span>{{ p.channel }}</span>
                 <span class="mono">{{ formatMoney(p.amountCents) }}</span>
                 <span class="muted small">{{ p.shareText }}</span>
+                <div class="rpt-bar-track rpt-pay-track"><div class="rpt-bar cur" :style="{ width: payPct(p.amountCents) }"></div></div>
               </div>
             </div>
             <div v-else class="empty">区间内无支付记录</div>

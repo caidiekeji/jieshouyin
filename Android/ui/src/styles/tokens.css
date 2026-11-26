@@ -232,6 +232,9 @@
   --brand-border: var(--p-brand-300);
   /* 品牌场合文字：朱橙 #ea580c 上白字仅 ≈3.0:1 不达标，黑字 ≈4.9:1 ✓（dark 400 橙上黑字 ≈11:1） */
   --brand-contrast: var(--p-neutral-900);
+  /* 品牌场合小字文字：brand-600 白底仅 ≈3.55:1 不达 4.5，小号文字（链接/价格/选中态）统一用 700 #c2410c ≈5.2:1；
+     大号金额数字（≥20px 加粗）仍用 --brand 走大字 3:1 档 */
+  --text-brand: var(--p-brand-700);
 
   /* 支付渠道品牌色：第三方品牌固定色，明暗主题均不翻转 */
   --brand-wechat: #07C160;
@@ -296,6 +299,8 @@
   --brand-subtle: var(--p-brand-900);
   --brand-border: var(--p-brand-700);
   --brand-contrast: var(--p-neutral-900);
+  /* 暗底小字：brand-300 #fdba74 对深底 ≈10:1 ✓ */
+  --text-brand: var(--p-brand-300);
 
   /* 主体色：暗底下提亮保证顶栏与内容区可辨 */
   --chrome: var(--p-slate-700);
@@ -335,6 +340,10 @@
   --layout-modal-sm: 440px;
   --layout-modal-md: 560px;
   --layout-modal-lg: 680px;
+  /* 按钮高度三档：触屏抬到 48px 热区 */
+  --btn-h-sm: 32px;
+  --btn-h-md: 48px;
+  --btn-h-lg: 48px;
   --layout-content-width: 900px;
   --layout-cart-width: 400px;
   /* 管理页内容上限：1280 收银屏减两侧 24px 页边距可用 1232px，取 1200 留呼吸边；

@@ -22,7 +22,6 @@ const SYSTEM_CONFIG_GROUPS: Array<{ title: string; keys: string[] }> = [
   { title: '支付时序', keys: ['micropay_poll_ms', 'micropay_timeout_s', 'native_poll_ms', 'native_timeout_s'] },
   { title: '收银设备', keys: ['scan_gap_ms'] },
   { title: '经营费用', keys: ['expense_rent_yuan', 'expense_utility_yuan', 'expense_labor_yuan'] },
-  { title: '打印设置', keys: ['print_host', 'print_port', 'print_auto'] },
   { title: '行业规则', keys: ['chess_fee_unit', 'chess_min_minutes', 'chess_round_minutes', 'table_member_bind', 'table_allow_member_rebind'] },
   { title: '激活服务', keys: ['activation_endpoint'] },
 ]
@@ -57,7 +56,7 @@ export interface DashData {
 // ===== 仪表盘纯函数（无平台差异，两端逐字同步）=====
 
 /** 报表金额展示串（两位小数）→ 分整数。禁 parseFloat×100（浮点误差），按字符串拼整数。 */
-function parseMoney(s: string): number {
+export function parseMoney(s: string): number {
   const m = /^(-?)(\d+)\.(\d{2})$/.exec(String(s).trim())
   return m ? Number(`${m[1]}${m[2]}${m[3]}`) : 0
 }
@@ -201,6 +200,10 @@ export const useOpsStore = defineStore('ops', {
     }[],
     // 打印队列
     printQueue: [] as string[],
+    /** 打印测试页进行中：测试按钮 disabled + 文案切换 */
+    printTesting: false,
+    /** 报表导出进行中：导出按钮 disabled + 文案切换 */
+    exporting: false,
     // 小票模板设置
     receiptTemplateJson: '',
     receiptPaperWidth: 58,
@@ -427,13 +430,16 @@ export const useOpsStore = defineStore('ops', {
         Blob+<a> 下载在 Tauri WebView（尤其 Android）不生效，必须走原生命令。 */
     async exportActiveReport() {
       const r = this.activeReport
-      if (!r) return
+      if (!r || this.exporting) return
+      this.exporting = true
       try {
         const path = await api.exportReport(r.id, this.centerFrom, this.centerTo)
         if (!path) return // 用户取消保存对话框
         this.showToast(`已导出：${path}`)
       } catch (e) {
         this.showToast(String(e), true)
+      } finally {
+        this.exporting = false
       }
     },
     goReport() {
@@ -469,6 +475,9 @@ export const useOpsStore = defineStore('ops', {
         for (const c of this.configs) draft[c.config_key] = c.config_value
         this.configDraft = draft
         this.configBaseline = { ...draft }
+        // 打印页默认值：端口/份数从未配置时给行业惯例默认，输入框不留空
+        if (!this.configDraft['print_port']) this.configDraft['print_port'] = '9100'
+        if (!this.configDraft['print_copies']) this.configDraft['print_copies'] = '1'
         const gap = Number(draft['scan_gap_ms'])
         if (Number.isFinite(gap) && gap > 0) usePosStore().setScanGapMs(gap)
       } catch (e) {
@@ -823,6 +832,34 @@ export const useOpsStore = defineStore('ops', {
       } catch (e) {
         this.showToast(String(e), true)
         return false
+      }
+    },
+    /** 打印机连接统一保存：地址/端口/份数/自动打印一次提交，与打印页「连接」节绑定 */
+    async savePrintConnection(): Promise<boolean> {
+      const keys = ['print_host', 'print_port', 'print_copies', 'print_auto']
+      for (const k of keys) {
+        try {
+          await api.setConfig(k, this.configDraft[k] ?? '')
+        } catch (e) {
+          this.showToast(String(e), true)
+          return false
+        }
+      }
+      useAppStore().printAuto = (this.configDraft['print_auto'] ?? '') === '1'
+      this.showToast('打印机连接设置已保存')
+      await this.loadConfigs()
+      return true
+    },
+    /** 打印测试页：模板示例数据渲染真实字节发送，结果原样反馈（失败不入重打队列） */
+    async runTestPrint() {
+      if (this.printTesting) return
+      this.printTesting = true
+      try {
+        this.showToast(await api.testPrint())
+      } catch (e) {
+        this.showToast(String(e), true)
+      } finally {
+        this.printTesting = false
       }
     },
     goSettings() {

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import Icon from './Icon.vue'
 import { ICON_SIZE } from '../constants'
@@ -51,41 +51,56 @@ function flash(msg: string) {
   setTimeout(() => (okMsg.value = ''), TOAST_DURATION_MS)
 }
 
-/** 新建一级分类：轻输入用系统 prompt，避免为单字段建弹窗 */
-async function createRoot() {
-  const next = window.prompt('分类名称')?.trim()
-  if (!next) return
-  try {
-    await api.createCategory(null, next)
-    flash('分类已创建')
-    await reload()
-  } catch (e) {
-    err.value = String(e)
-  }
-}
+// ===== 原位编辑：所有命名输入都在布局原位完成，不弹窗 =====
+/** 改名中的分类（id + 当前草稿） */
+const editing = ref<{ id: number; value: string } | null>(null)
+/** 新建中的分类（parentId=null 为一级；value 为草稿） */
+const creating = ref<{ parentId: number | null; value: string } | null>(null)
 
-/** 在一级分类下添加子分类 */
-async function addChild(root: CategoryNode) {
-  const next = window.prompt('子分类名称')?.trim()
-  if (!next) return
-  try {
-    await api.createCategory(root.category_id, next)
-    flash('子分类已创建')
-    await reload()
-  } catch (e) {
-    err.value = String(e)
-  }
-}
+/** 原位输入自动聚焦（v-for 内 ref 会数组化，用指令最稳） */
+const vFocus = { mounted: (el: HTMLInputElement) => el.focus() }
 
-async function rename(c: Category) {
-  const next = window.prompt('新的分类名称', c.name)?.trim()
-  if (!next || next === c.name) return
-  try {
-    await api.updateCategory(c.category_id, c.parent_id, next)
-    flash('分类已改名')
-    await reload()
-  } catch (e) {
-    err.value = String(e)
+function startEdit(node: Category) {
+  creating.value = null
+  editing.value = { id: node.category_id, value: node.name }
+}
+function startCreate(parentId: number | null) {
+  editing.value = null
+  creating.value = { parentId, value: '' }
+}
+function cancelEdit() {
+  editing.value = null
+  creating.value = null
+}
+/** 回车与失焦都会触发；提交后 editing/creating 置空，guard 防止重复提交 */
+async function commitEdit() {
+  if (editing.value) {
+    const { id, value } = editing.value
+    const node = categories.value.find((c) => c.category_id === id)
+    editing.value = null
+    const next = value.trim()
+    if (!node || !next || next === node.name) return
+    try {
+      await api.updateCategory(id, node.parent_id, next)
+      flash('分类已改名')
+      await reload()
+    } catch (e) {
+      err.value = String(e)
+    }
+    return
+  }
+  if (creating.value) {
+    const { parentId, value } = creating.value
+    creating.value = null
+    const next = value.trim()
+    if (!next) return
+    try {
+      await api.createCategory(parentId, next)
+      flash(parentId == null ? '分类已创建' : '子分类已创建')
+      await reload()
+    } catch (e) {
+      err.value = String(e)
+    }
   }
 }
 
@@ -108,12 +123,26 @@ onMounted(reload)
     <div class="card wide cat-board">
       <div class="cat-head">
         <h3>分类结构</h3>
-        <button class="btn primary" @click="createRoot">
+        <button class="btn primary" @click="startCreate(null)">
           <Icon name="plus" :size="ICON_SIZE.sm" />新建分类
         </button>
       </div>
       <p v-if="err" class="error">{{ err }}</p>
       <p v-if="okMsg" class="ok-msg">{{ okMsg }}</p>
+
+      <!-- 新建中的一级分类：原位虚线区块输入行 -->
+      <div v-if="creating && creating.parentId === null" class="cat-block cat-block--creating">
+        <input
+          v-focus
+          v-model="creating!.value"
+          class="cat-edit cat-edit--title"
+          placeholder="输入一级分类名称，回车确认"
+          maxlength="30"
+          @keyup.enter="commitEdit"
+          @keyup.esc="cancelEdit"
+          @blur="commitEdit"
+        />
+      </div>
 
       <!-- 未分类：系统保留区块，锁定不可改删，标签用透明虚线特殊样式 -->
       <div class="cat-block cat-block--locked">
@@ -129,34 +158,68 @@ onMounted(reload)
       <!-- 一级分类区块：纵向排列，区块间浅灰细线分隔 -->
       <div v-for="root in tree" :key="root.category_id" class="cat-block">
         <div class="cat-block-head">
-          <strong>{{ root.name }}</strong>
-          <span class="cat-ops">
-            <button class="icon-ghost" aria-label="改名" @click="rename(root)"><Icon name="edit" :size="ICON_SIZE.sm" /></button>
+          <!-- 标题原位改名 -->
+          <input
+            v-focus
+            v-if="editing?.id === root.category_id"
+            v-model="editing.value"
+            class="cat-edit cat-edit--title"
+            @keyup.enter="commitEdit"
+            @keyup.esc="cancelEdit"
+            @blur="commitEdit"
+          />
+          <strong v-else>{{ root.name }}</strong>
+          <span v-if="editing?.id !== root.category_id" class="cat-ops">
+            <button class="icon-ghost" aria-label="改名" @click="startEdit(root)"><Icon name="edit" :size="ICON_SIZE.sm" /></button>
             <button class="icon-ghost cat-danger" aria-label="删除" @click="remove(root)"><Icon name="trash" :size="ICON_SIZE.sm" /></button>
           </span>
         </div>
         <div class="cat-tags">
-          <span v-for="t in tagsOf(root)" :key="t.node.category_id" class="cat-tag">
-            {{ t.label }}
-            <button class="icon-ghost cat-op" aria-label="改名" @click="rename(t.node)"><Icon name="edit" :size="ICON_SIZE.xs" /></button>
-            <button class="icon-ghost cat-op cat-danger" aria-label="删除" @click="remove(t.node)"><Icon name="trash" :size="ICON_SIZE.xs" /></button>
-          </span>
-          <button class="cat-add" @click="addChild(root)">+ 添加</button>
+          <template v-for="t in tagsOf(root)" :key="t.node.category_id">
+            <!-- 标签原位改名：输入态即标签本体变形 -->
+            <input
+              v-focus
+              v-if="editing?.id === t.node.category_id"
+              v-model="editing.value"
+              class="cat-edit cat-edit--tag"
+              @keyup.enter="commitEdit"
+              @keyup.esc="cancelEdit"
+              @blur="commitEdit"
+            />
+            <span v-else class="cat-tag">
+              {{ t.label }}
+              <button class="icon-ghost cat-op" aria-label="改名" @click="startEdit(t.node)"><Icon name="edit" :size="ICON_SIZE.xs" /></button>
+              <button class="icon-ghost cat-op cat-danger" aria-label="删除" @click="remove(t.node)"><Icon name="trash" :size="ICON_SIZE.xs" /></button>
+            </span>
+          </template>
+          <!-- 添加子分类：标签群尾原位虚线输入 -->
+          <input
+            v-focus
+            v-if="creating?.parentId === root.category_id"
+            v-model="creating.value"
+            class="cat-edit cat-edit--tag cat-edit--new"
+            placeholder="子分类名，回车确认"
+            maxlength="30"
+            @keyup.enter="commitEdit"
+            @keyup.esc="cancelEdit"
+            @blur="commitEdit"
+          />
+          <button v-else class="cat-add" @click="startCreate(root.category_id)">+ 添加</button>
         </div>
       </div>
 
-      <p v-if="!tree.length" class="empty">还没有自建分类，点右上角「新建分类」开始</p>
+      <p v-if="!tree.length && creating?.parentId !== null" class="empty">还没有自建分类，点右上角「新建分类」开始</p>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 区块卡片 + 标签群平铺（用户规格映射：680px 容器 / 16px 区块标题 / 13px 标签 / 6px 圆角 / 主题橙） */
-.cat-board { max-width: 680px; }
+/* 区块卡片 + 标签群平铺；全宽跟随内容区（用户裁决：680px 限宽在宽屏上留白失衡） */
 .cat-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 .cat-head h3 { margin: 0; }
 .cat-block { padding: var(--space-4) 0; border-bottom: var(--border-width) solid var(--border); }
 .cat-block:last-of-type { border-bottom: none; }
+.cat-block--creating { border-bottom-style: dashed; }
 .cat-block-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
 .cat-block-head strong { font-size: var(--font-md); }
 .cat-block-head .muted { margin-left: auto; }
@@ -182,10 +245,21 @@ onMounted(reload)
   padding: var(--space-1) var(--space-3);
   border: var(--border-width) dashed var(--brand-border);
   border-radius: var(--radius-sm);
-  background: transparent; color: var(--brand);
+  background: transparent; color: var(--text-brand);
   font-size: var(--font-sm);
 }
 .cat-add:hover { background: var(--brand-subtle); border-color: var(--brand); }
+/* 原位编辑输入：标题态/标签态两种宽度，虚线提示编辑中 */
+.cat-edit {
+  border: var(--border-width) dashed var(--brand-border);
+  border-radius: var(--radius-sm);
+  background: var(--panel); color: var(--text);
+  padding: var(--space-1) var(--space-2);
+}
+.cat-edit:focus { outline: none; border-color: var(--brand); border-style: solid; }
+.cat-edit--title { width: min(320px, 100%); font-size: var(--font-md); font-weight: 600; }
+.cat-edit--tag { width: 160px; font-size: var(--font-sm); }
+.cat-edit--new { border-style: dashed; }
 .icon-ghost {
   display: inline-flex; align-items: center; justify-content: center;
   border: none; background: transparent; color: var(--text-muted);

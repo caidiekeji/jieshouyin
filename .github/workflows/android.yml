@@ -69,6 +69,22 @@ jobs:
         working-directory: Android/crates/app
         run: npx -y @tauri-apps/cli@2 android init --ci
 
+      # 强制横屏（手机横竖屏切换不影响收银布局）：Tauri 2.12 无 orientation API，
+      # 只能在 init 生成的 AndroidManifest 上注入；sensorLandscape 允许两个横屏方向（跟随重力翻转 180°）。
+      - name: Lock orientation to landscape
+        working-directory: Android/crates/app
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path("gen/android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          assert "<activity" in s, "activity 标签未找到，模板结构可能已变化"
+          if "screenOrientation" not in s:
+              s = s.replace("<activity", '<activity\n            android:screenOrientation="sensorLandscape"', 1)
+          p.write_text(s)
+          print("orientation locked:", "sensorLandscape" in s)
+          PY
+
       # 第一步用 debug 构建：Gradle 默认 debug 密钥自动签名，产物可直接安装。
       # release 正式签名需在 gen/android/app/build.gradle.kts 配置 signingConfigs，留待发布阶段。
       - name: Build APK (debug, auto-signed)

@@ -80,6 +80,7 @@ export const useAppStore = defineStore('app', {
     channelEnabled: {} as Record<string, boolean>,
     gatewayModes: { wechat: 'LOCAL', alipay: 'LOCAL' } as { wechat: string; alipay: string },
     orderNo: '',
+    orderListDate: '',
     refundOrderNo: '',
     toast: '',
     toastKind: 'info' as 'info' | 'error',
@@ -269,6 +270,12 @@ export const useAppStore = defineStore('app', {
     },
     gotoOrder(no: string) {
       this.orderNo = no
+      this.view = 'order'
+    },
+    /** 订单列表：orderNo 置空让订单页进入列表模式；date 为报表跳转带入的过滤日 */
+    gotoOrderList(date?: string) {
+      this.orderListDate = date ?? ''
+      this.orderNo = ''
       this.view = 'order'
     },
     async probeActivationService() {

@@ -352,6 +352,20 @@ fn sales_hourly(conn: &Connection, from: &str, to: &str) -> Result<ReportResult>
     })
 }
 
+/// 订单状态英文枚举 → 报表中文展示；未知值原样返回（向后兼容新增状态）
+pub(crate) fn status_zh(s: &str) -> String {
+    match s {
+        "PENDING_PAYMENT" => "待支付",
+        "COMPLETED" => "已完成",
+        "PARTIAL_REFUND" => "部分退款",
+        "REFUNDED" => "已退款",
+        "VOIDED" => "已作废",
+        "CANCELED" => "已取消",
+        other => return other.to_string(),
+    }
+    .to_string()
+}
+
 fn order_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
     let mut stmt = conn.prepare(
         "SELECT order_no, created_at, cashier_id, total_cents, discount_cents, pay_cents, status
@@ -389,7 +403,7 @@ fn order_flow(conn: &Connection, from: &str, to: &str) -> Result<ReportResult> {
                 money(*g),
                 money(*d),
                 money(*p),
-                s.clone(),
+                status_zh(s),
             ]
         })
         .collect();
@@ -2271,6 +2285,17 @@ fn profit_report(conn: &Connection, from: &str, to: &str) -> Result<ReportResult
 mod tests {
     use super::*;
     use crate::db::{open_in_memory, run_migrations};
+
+    #[test]
+    fn status_zh_maps_known_and_passes_through_unknown() {
+        assert_eq!(status_zh("PENDING_PAYMENT"), "待支付");
+        assert_eq!(status_zh("COMPLETED"), "已完成");
+        assert_eq!(status_zh("PARTIAL_REFUND"), "部分退款");
+        assert_eq!(status_zh("REFUNDED"), "已退款");
+        assert_eq!(status_zh("VOIDED"), "已作废");
+        assert_eq!(status_zh("CANCELED"), "已取消");
+        assert_eq!(status_zh("FUTURE_STATUS"), "FUTURE_STATUS");
+    }
 
     fn setup() -> Connection {
         let mut c = open_in_memory().unwrap();

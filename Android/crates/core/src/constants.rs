@@ -125,6 +125,8 @@ pub const CFG_PRINT_HOST: &str = "print_host";
 pub const CFG_PRINT_PORT: &str = "print_port";
 /// 结算成功后是否自动打印小票（0 关 / 1 开）。
 pub const CFG_PRINT_AUTO: &str = "print_auto";
+/// 小票打印份数（1–5），默认 1；每次结算按该份数循环发送。
+pub const CFG_PRINT_COPIES: &str = "print_copies";
 /// 棋牌房费计价单位：MINUTE（单价按分钟）/ HOUR（单价按小时）。默认 MINUTE。
 pub const CFG_CHESS_FEE_UNIT: &str = "chess_fee_unit";
 /// 棋牌最低计费分钟数，默认 60；0 表示不设最低。

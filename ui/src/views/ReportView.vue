@@ -9,6 +9,7 @@ const {
   activeReportId,
   actualCash,
   atLeast,
+  centerFrom,
   currentShiftId,
   differenceReason,
   doCloseShift,
@@ -16,9 +17,11 @@ const {
   doRefund,
   doVoid,
   exportActiveReport,
+  exporting,
   formatMoney,
   goExpenseConfig,
   gotoOrder,
+  gotoOrderList,
   loadOrderItems,
   loadShift,
   opItems,
@@ -36,13 +39,30 @@ const {
   view,
 } = ctx
 
-/** 订单号单元格才可跳转；同一判断供 class、焦点与键盘共用，避免规则分叉 */
+/** 订单号单元格才可跳详情；「订单数」单元格跳订单列表；同一判断供 class、焦点与键盘共用，避免规则分叉 */
 function orderNoOf(ci: number, cell: unknown): string | null {
   return activeReport.value?.columns[ci]?.key === 'order_no' && cell ? String(cell) : null
 }
-function openOrderNo(ci: number, cell: unknown) {
-  const no = orderNoOf(ci, cell)
-  if (no) gotoOrder(no)
+/** 订单数列：点击跳订单列表并按该行营业日期过滤（行无日期列时用报表起始日） */
+function orderCountOf(ci: number): boolean {
+  return activeReport.value?.columns[ci]?.key === 'orders'
+}
+function rowDateOf(row: string[]): string {
+  const di = activeReport.value?.columns.findIndex((c) => c.key === 'date') ?? -1
+  return di >= 0 && row[di] ? row[di] : centerFrom.value
+}
+function cellLinkOf(ci: number, cell: unknown): boolean {
+  return !!orderNoOf(ci, cell) || orderCountOf(ci)
+}
+function openCell(ci: number, row: string[]) {
+  const cell = row[ci]
+  if (orderNoOf(ci, cell)) gotoOrder(String(cell))
+  else if (orderCountOf(ci)) gotoOrderList(rowDateOf(row))
+}
+/** 指标卡「订单数」：点击跳订单列表（报表起始日起） */
+const isOrderCountMetric = (mt: { label: string }) => mt.label === '订单数'
+function openOrderMetric() {
+  gotoOrderList(centerFrom.value)
 }
 </script>
 
@@ -78,7 +98,10 @@ function openOrderNo(ci: number, cell: unknown) {
               <button class="btn primary" :disabled="reportLoading" @click="refreshReportView">
                 {{ reportLoading ? '查询中…' : '查询' }}
               </button>
-              <button class="btn" :disabled="!activeReport" @click="exportActiveReport">导出CSV</button>
+              <button class="btn" :disabled="!activeReport || exporting" @click="exportActiveReport">
+                <span v-if="exporting" class="btn-spinner" aria-label="导出中"></span>
+                {{ exporting ? '导出中…' : '导出CSV' }}
+              </button>
             </div>
             <template v-if="activeReport">
               <div class="report-head">
@@ -91,7 +114,17 @@ function openOrderNo(ci: number, cell: unknown) {
                 <p v-else class="muted small">月度费用由管理员在「设置 → 系统配置」维护</p>
               </div>
               <div v-if="activeReport.metrics.length" class="stats">
-                <div v-for="(mt, i) in activeReport.metrics" :key="i" class="stat">
+                <div
+                  v-for="(mt, i) in activeReport.metrics"
+                  :key="i"
+                  class="stat"
+                  :class="{ 'stat-link': isOrderCountMetric(mt) }"
+                  :role="isOrderCountMetric(mt) ? 'button' : undefined"
+                  :tabindex="isOrderCountMetric(mt) ? 0 : undefined"
+                  @click="isOrderCountMetric(mt) && openOrderMetric()"
+                  @keydown.enter="isOrderCountMetric(mt) && openOrderMetric()"
+                  @keydown.space.prevent="isOrderCountMetric(mt) && openOrderMetric()"
+                >
                   <span>{{ mt.label }}</span><strong>{{ mt.value }}</strong>
                 </div>
               </div>
@@ -105,11 +138,11 @@ function openOrderNo(ci: number, cell: unknown) {
                       <td
                         v-for="(cell, ci) in row"
                         :key="ci"
-                        :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent', 'cell-link': !!orderNoOf(ci, cell) }"
-                        :tabindex="orderNoOf(ci, cell) ? 0 : undefined"
-                        @click="openOrderNo(ci, cell)"
-                        @keydown.enter="openOrderNo(ci, cell)"
-                        @keydown.space.prevent="openOrderNo(ci, cell)"
+                        :class="{ 'num-cell': activeReport.columns[ci]?.kind === 'money' || activeReport.columns[ci]?.kind === 'qty' || activeReport.columns[ci]?.kind === 'percent', 'cell-link': cellLinkOf(ci, cell) }"
+                        :tabindex="cellLinkOf(ci, cell) ? 0 : undefined"
+                        @click="openCell(ci, row)"
+                        @keydown.enter="openCell(ci, row)"
+                        @keydown.space.prevent="openCell(ci, row)"
                       >{{ cell }}</td>
                     </tr>
                   </tbody>

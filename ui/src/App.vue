@@ -29,7 +29,7 @@ const {
   cancelSensitiveAuth, cart, cashDialogOpen, clearCart,
   couponDialogOpen, credDialogOpen, closeCredDialog, currentRole, currentUser, doLogout,
   focusScan, goPOS, goProducts, goReport, goShift,
-  goSettings, goodsTab, gotoOrder, gotoRefund, industry, keyword,
+  goSettings, goodsTab, gotoOrder, gotoOrderList, gotoRefund, industry, keyword,
   loadLockCode, loadPosCatalog, loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
   memberId, nativeDialog, nativeMode, openMemberDialog, openPwdDialog,
   openParkDialog, orderNo, park, parkDialogOpen, pwdDialogOpen, closePwdDialog,
@@ -179,7 +179,7 @@ onUnmounted(() => {
             <button :class="['nav-btn', { active: view === 'supply' }]" @click="view = 'supply'"><Icon name="truck" :size="ICON_SIZE.sm" />采购盘点</button>
             <button :class="['nav-btn', { active: view === 'member' }]" @click="view = 'member'"><Icon name="heart" :size="ICON_SIZE.sm" />会员营销</button>
             <button :class="['nav-btn', { active: view === 'refund' }]" @click="gotoRefund()"><Icon name="undo" :size="ICON_SIZE.sm" />退款</button>
-            <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrder(orderNo)"><Icon name="receipt" :size="ICON_SIZE.sm" />订单</button>
+            <button :class="['nav-btn', { active: view === 'order' }]" @click="gotoOrderList()"><Icon name="receipt" :size="ICON_SIZE.sm" />订单</button>
             <button :class="['nav-btn', { active: view === 'report' }]" @click="goReport"><Icon name="report" :size="ICON_SIZE.sm" />报表</button>
             <button :class="['nav-btn', { active: view === 'settings' }]" @click="goSettings"><Icon name="settings" :size="ICON_SIZE.sm" />设置</button>
           </template>
@@ -257,6 +257,7 @@ onUnmounted(() => {
         :order-no="orderNo"
         @refund="gotoRefund"
         @search="gotoOrder"
+        @back="gotoOrderList()"
       />
 
       <!-- 设置中心：后台管理式布局，左栏贴左全高，右侧内容独立滚动 -->

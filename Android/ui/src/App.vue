@@ -29,7 +29,7 @@ const {
   cancelSensitiveAuth, cart, cashDialogOpen, clearCart,
   couponDialogOpen, credDialogOpen, closeCredDialog, currentRole, currentUser, doLogout,
   focusScan, goPOS, goProducts, goReport, goShift,
-  goSettings, goodsTab, gotoOrder, gotoRefund, industry, keyword,
+  goSettings, goodsTab, gotoOrder, gotoOrderList, gotoRefund, industry, keyword,
   loadLockCode, loadPosCatalog, loadTechnicians, lockScreen, lockSetupOpen, memberDialogOpen,
   memberId, nativeDialog, nativeMode, openMemberDialog, openPwdDialog,
   openParkDialog, orderNo, park, parkDialogOpen, pwdDialogOpen, closePwdDialog,
@@ -215,7 +215,7 @@ onUnmounted(() => {
             <button :class="['nav-rail-item', { active: view === 'refund' }]" @click="gotoRefund()">
               <Icon name="undo" :size="ICON_SIZE.md" /><span class="rail-label">退款</span>
             </button>
-            <button :class="['nav-rail-item', { active: view === 'order' }]" @click="gotoOrder(orderNo)">
+            <button :class="['nav-rail-item', { active: view === 'order' }]" @click="gotoOrderList()">
               <Icon name="receipt" :size="ICON_SIZE.md" /><span class="rail-label">订单</span>
             </button>
             <button :class="['nav-rail-item', { active: view === 'report' }]" @click="goReport">
@@ -279,6 +279,7 @@ onUnmounted(() => {
             :order-no="orderNo"
             @refund="gotoRefund"
             @search="gotoOrder"
+            @back="gotoOrderList()"
           />
 
           <!-- 设置中心：后台管理式布局，左栏贴左全高，右侧内容独立滚动 -->

@@ -2332,7 +2332,8 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
             return Ok(format!("小票生成失败，已入重打队列: {e}"));
         }
     };
-    // 送到网络打印机（IP:9100）；未配置地址直接提示，发送失败才入重打队列
+    // 送到网络打印机（IP:9100）；未配置地址直接提示，发送失败才入重打队列。
+    // 份数 print_copies（1–5，默认 1）：逐份循环发送，任何一份失败即中止并入队。
     let host = cfg_get(conn, CFG_PRINT_HOST)?.unwrap_or_default();
     if host.trim().is_empty() {
         return Ok("未配置打印机地址，无法打印（请在设置中填写打印机 IP）".into());
@@ -2340,13 +2341,17 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
     let port = cfg_get(conn, CFG_PRINT_PORT)?
         .and_then(|s| s.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PRINT_PORT);
-    match checkout_core::printer::send_bytes(&host, port, &bytes) {
-        Ok(()) => Ok("小票已打印".into()),
-        Err(e) => {
+    let copies: u16 = cfg_get(conn, CFG_PRINT_COPIES)?
+        .and_then(|s| s.trim().parse::<u16>().ok())
+        .unwrap_or(1)
+        .clamp(1, 5);
+    for _ in 0..copies {
+        if let Err(e) = checkout_core::printer::send_bytes(&host, port, &bytes) {
             enqueue_retry(conn, order_no, "receipt_default", &e.to_string())?;
-            Ok(format!("打印失败，已入重打队列: {e}"))
+            return Ok(format!("打印失败，已入重打队列: {e}"));
         }
     }
+    Ok(if copies > 1 { format!("小票已打印 ×{copies}") } else { "小票已打印".into() })
 }
 
 /// 小票模板：读取当前模板（纸张宽度 + 原始 JSON），供设置页编辑与预览。
@@ -2401,6 +2406,39 @@ pub fn save_receipt_template(
     Ok("小票模板已保存".into())
 }
 
+/// 小票示例变量：预览与测试打印共用同一份数据口径（假单号/示例商品/示例金额）。
+fn sample_receipt_vars(conn: &Connection) -> Result<std::collections::HashMap<String, String>> {
+    let mut vars = std::collections::HashMap::new();
+    let name = cfg_get(conn, CFG_STORE_NAME)?.unwrap_or_default();
+    vars.insert(
+        "store_name".into(),
+        if name.trim().is_empty() {
+            "示例门店".into()
+        } else {
+            name
+        },
+    );
+    vars.insert(
+        "store_phone".into(),
+        cfg_get(conn, CFG_STORE_PHONE)?.unwrap_or_default(),
+    );
+    vars.insert("order_no".into(), "STOREPOS0000000000000001".into());
+    vars.insert("created_at".into(), now_str());
+    vars.insert("member_phone".into(), "138****8888".into());
+    vars.insert("table_code".into(), "A01".into());
+    vars.insert("subtotal".into(), "12.00".into());
+    vars.insert("discount_total".into(), "2.00".into());
+    vars.insert("pay_total".into(), "10.00".into());
+    vars.insert("pay_channel_lines".into(), "WECHAT 10.00".into());
+    vars.insert("items".into(), "示例商品 x1 10.00".into());
+    vars.insert("change".into(), "0.00".into());
+    vars.insert(
+        "qrcode_pay_url".into(),
+        "https://example.com/order/STOREPOS0000000000000001".into(),
+    );
+    Ok(vars)
+}
+
 /// 小票模板预览：用示例数据渲染成纯文本，不发送打印机、不入重打队列。
 #[tauri::command]
 pub fn preview_receipt(content_json: String, state: State<'_, AppState>) -> Result<String> {
@@ -2418,34 +2456,7 @@ pub fn preview_receipt(content_json: String, state: State<'_, AppState>) -> Resu
         paper_width_mm,
         sections,
     };
-    let mut vars = std::collections::HashMap::new();
-    let name = cfg_get(&conn, CFG_STORE_NAME)?.unwrap_or_default();
-    vars.insert(
-        "store_name".into(),
-        if name.trim().is_empty() {
-            "示例门店".into()
-        } else {
-            name
-        },
-    );
-    vars.insert(
-        "store_phone".into(),
-        cfg_get(&conn, CFG_STORE_PHONE)?.unwrap_or_default(),
-    );
-    vars.insert("order_no".into(), "STOREPOS0000000000000001".into());
-    vars.insert("created_at".into(), now_str());
-    vars.insert("member_phone".into(), "138****8888".into());
-    vars.insert("table_code".into(), "A01".into());
-    vars.insert("subtotal".into(), "12.00".into());
-    vars.insert("discount_total".into(), "2.00".into());
-    vars.insert("pay_total".into(), "10.00".into());
-    vars.insert("pay_channel_lines".into(), "WECHAT 10.00".into());
-    vars.insert("items".into(), "示例商品 x1 10.00".into());
-    vars.insert("change".into(), "0.00".into());
-    vars.insert(
-        "qrcode_pay_url".into(),
-        "https://example.com/order/STOREPOS0000000000000001".into(),
-    );
+    let vars = sample_receipt_vars(&conn)?;
     let chars_per_line = if paper_width_mm >= 80 { 48 } else { 32 };
     let mut lines = Vec::new();
     for block in template.iter_blocks()? {
@@ -2470,6 +2481,40 @@ pub fn preview_receipt(content_json: String, state: State<'_, AppState>) -> Resu
         }
     }
     Ok(lines.join("\n"))
+}
+
+/// 打印测试页：用小票模板示例数据渲染真实字节发送到打印机，不入重打队列。
+/// 与预览同一份示例变量；地址未配置直接报错，发送失败原样抛出——测试就是要看到失败原因。
+#[tauri::command]
+pub fn test_print(state: State<'_, AppState>) -> Result<String> {
+    use checkout_core::escpos::{render_receipt, Template};
+    let (_op, conn) = admin_guard(&state, PERM_SYSTEM_CONFIG)?;
+    let (paper_width_mm, content_json): (i32, String) = conn.query_row(
+        "SELECT paper_width_mm,content_json FROM print_template WHERE template_id='receipt_default'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let sections: serde_json::Value = serde_json::from_str(&content_json)
+        .map_err(|e| CoreError::Validation(format!("模板 JSON 格式错误: {e}")))?;
+    let template = Template {
+        template_id: "receipt_default".into(),
+        paper_width_mm,
+        sections,
+    };
+    template
+        .iter_blocks()
+        .map_err(|e| CoreError::Validation(format!("模板块定义错误: {e}")))?;
+    let vars = sample_receipt_vars(&conn)?;
+    let bytes = render_receipt(&template, &vars)?;
+    let host = cfg_get(&conn, CFG_PRINT_HOST)?.unwrap_or_default();
+    if host.trim().is_empty() {
+        return Err(CoreError::Validation("未配置打印机地址，请先填写打印机 IP".into()));
+    }
+    let port = cfg_get(&conn, CFG_PRINT_PORT)?
+        .and_then(|s| s.trim().parse::<u16>().ok())
+        .unwrap_or(DEFAULT_PRINT_PORT);
+    checkout_core::printer::send_bytes(&host, port, &bytes)?;
+    Ok(format!("测试页已发送到 {host}:{port}"))
 }
 
 /// 交班汇总。
@@ -6156,6 +6201,7 @@ pub fn run() {
             get_receipt_template,
             save_receipt_template,
             preview_receipt,
+            test_print,
             print_retries,
             retry_print,
             shift_report,

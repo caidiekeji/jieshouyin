@@ -47,7 +47,7 @@ const {
   dashGrain, dashData, dashLoading,
   configs, configDraft, credChannel, credDraft, credSaved, credBusy, credDialogOpen, channelDraft,
   pwdDialogOpen, pwdDraft, pwdError, pwdBusy,
-  reconDate, reconText, reconSummary, reconDiffs, printQueue,
+  reconDate, reconText, reconSummary, reconDiffs, printQueue, printTesting, exporting,
   receiptTemplateJson, receiptPaperWidth, receiptPreview,
   opOrderNo, opItems, opQty, opMode, users, uForm,
 } = opsRefs
@@ -127,6 +127,7 @@ const confirmSensitiveAuth = () => app.confirmSensitiveAuth()
 const cancelSensitiveAuth = () => app.cancelSensitiveAuth()
 const gotoRefund = (no?: string) => app.gotoRefund(no)
 const gotoOrder = (no: string) => app.gotoOrder(no)
+const gotoOrderList = (date?: string) => app.gotoOrderList(date)
 const doLogout = () => app.doLogout()
 const loadPayChannels = () => app.loadPayChannels()
 
@@ -231,6 +232,8 @@ const loadPrintQueue = () => ops.loadPrintQueue()
 const doRetryPrint = (no: string) => ops.doRetryPrint(no)
 const previewReceipt = () => ops.previewReceipt()
 const saveReceiptTemplate = () => ops.saveReceiptTemplate()
+const savePrintConnection = () => ops.savePrintConnection()
+const runTestPrint = () => ops.runTestPrint()
 const loadOrderItems = () => ops.loadOrderItems()
 const doVoid = () => ops.doVoid()
 const doRefund = () => ops.doRefund()
@@ -339,6 +342,7 @@ const goProducts = () => app.goProducts()
     enterMixedMode,
     enterTrial,
     exportActiveReport,
+    exporting,
     findMember,
     finishIndustrySetup,
     flushTableCart,
@@ -352,6 +356,7 @@ const goProducts = () => app.goProducts()
     goExpenseConfig,
     goodsTab,
     gotoOrder,
+    gotoOrderList,
     gotoRefund,
     handleScannedCode,
     hashLockCode,
@@ -442,6 +447,9 @@ const goProducts = () => app.goProducts()
     printQueue,
     printReceipt,
     previewReceipt,
+    printTesting,
+    runTestPrint,
+    savePrintConnection,
     receiptPaperWidth,
     receiptPreview,
     receiptTemplateJson,
