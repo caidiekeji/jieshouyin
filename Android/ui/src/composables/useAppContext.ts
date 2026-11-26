@@ -489,7 +489,6 @@ const goProducts = () => app.goProducts()
     returnTableLine,
     routeAfterLogin,
     runActiveReport,
-    runDashboard,
     sanitizeCashInput,
     saveConfig,
     configGroupChanged,
