@@ -48,7 +48,13 @@ pub struct ReportMeta {
 pub fn report_to_csv(r: &ReportResult) -> String {
     let esc = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
     let mut lines = Vec::with_capacity(r.rows.len() + 2);
-    lines.push(r.columns.iter().map(|c| esc(&c.label)).collect::<Vec<_>>().join(","));
+    lines.push(
+        r.columns
+            .iter()
+            .map(|c| esc(&c.label))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
     for row in &r.rows {
         lines.push(row.iter().map(|c| esc(c)).collect::<Vec<_>>().join(","));
     }
