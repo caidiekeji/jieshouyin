@@ -165,7 +165,7 @@ onUnmounted(() => {
     @cancel="cancelAction"
   >
     <template #action>
-      <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = true">
+      <button v-if="canManage && !tables.length" class="btn btn-sm ghost" @click="showCreate = true">
         ＋ 批量新增桌台
       </button>
     </template>

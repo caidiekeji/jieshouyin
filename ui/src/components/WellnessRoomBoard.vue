@@ -87,7 +87,7 @@ async function runAction(fn: () => Promise<unknown>) {
     @cancel="transferSource = null"
   >
     <template #action>
-      <button v-if="canManage" class="btn btn-sm ghost" @click="showCreate = true">＋ 批量新增服务间</button>
+      <button v-if="canManage && !rooms.length" class="btn btn-sm ghost" @click="showCreate = true">＋ 批量新增服务间</button>
     </template>
     <article
       v-for="room in rooms"

@@ -382,20 +382,22 @@ h2 { font-size: var(--font-lg); }
   gap: var(--space-3); align-content: start;
 }
 .pos-card {
-  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1);
-  padding: var(--space-3); text-align: left; cursor: pointer;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center;
+  gap: var(--space-2); padding: var(--space-2); text-align: left; cursor: pointer;
+  min-height: var(--pos-card-min-height); flex: none;
   border: var(--border-width) solid var(--border); border-radius: var(--radius-md);
   background: var(--panel); color: var(--text);
 }
 .pos-card:hover { border-color: var(--brand); background: var(--brand-subtle); }
 .pos-card.weighed { border-style: dashed; }
 .pos-card-img {
-  width: 100%; height: 82px; object-fit: cover; border-radius: var(--radius-sm);
+  width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-sm);
   background: var(--surface-subtle);
 }
 .pos-card-empty { display: flex; align-items: center; justify-content: center; color: var(--muted); }
-.pos-card-name { font-weight: 600; line-height: 1.25; }
-.pos-card-meta { color: var(--muted); font-size: var(--font-xs); }
+.pos-card-body { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); min-width: 0; }
+.pos-card-name { font-weight: 600; line-height: 1.25; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pos-card-meta { color: var(--muted); font-size: var(--font-xs); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pos-empty { grid-column: 1 / -1; }
 .pos-shortcuts { display: flex; gap: var(--space-3); flex-wrap: wrap; color: var(--muted); font-size: var(--font-xs); padding-top: var(--space-2); flex: none; }
 
@@ -408,7 +410,7 @@ h2 { font-size: var(--font-lg); }
 .pos-catalog-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pos-catalog-wrap .product-list { margin-top: var(--space-3); }
 .scan-input { min-height: var(--pos-touch-size); }
-/* 常用商品快捷键：按本机保存，位置固定在分类上方，减少高峰期翻找 */
+/* 规格筛选行：服装 SKU 规格 chips，位置固定在分类上方 */
 .pos-quick-row {
   display: flex; align-items: center; gap: var(--space-2);
   overflow-x: auto; padding-bottom: var(--space-2); flex: none;
@@ -420,16 +422,6 @@ h2 { font-size: var(--font-lg); }
   background: var(--surface-subtle); color: var(--text); white-space: nowrap; cursor: pointer;
 }
 .pos-quick-chip:hover { border-color: var(--brand); background: var(--brand-subtle); }
-.pos-card-wrap { position: relative; display: flex; min-width: 0; }
-.pos-card { flex: 1; min-height: var(--pos-card-min-height); }
-.pos-pin {
-  position: absolute; top: var(--space-1); right: var(--space-1);
-  width: var(--pos-touch-size); height: var(--pos-touch-size);
-  display: flex; align-items: center; justify-content: center;
-  border: var(--border-width) solid var(--border); border-radius: var(--radius-sm);
-  background: var(--panel); color: var(--text-muted); cursor: pointer;
-}
-.pos-pin.active { color: var(--warning-text); background: var(--warning-subtle); border-color: var(--warning-border); }
 /* 手工称重：不占主网格，按需要展开 */
 .weigh-entry {
   border: var(--border-width) solid var(--border); border-radius: var(--radius-sm);

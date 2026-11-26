@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 收银商品区组件（可复用）：扫码输入、搜索候选、分类点选、常用快捷键。
+ * 收银商品区组件（可复用）：扫码输入、搜索候选、分类点选。
  * 页面按行业拆分后，各收银页只决定布局与行业专属区块，不重复实现这套交互。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { type ProductHit } from '../api'
 import { useAppContext } from '../composables/useAppContext'
 import { ICON_SIZE } from '../constants'
@@ -37,7 +37,6 @@ function visibleProduct(p: ProductHit): boolean {
 
 const {
   ICON_SIZE: ctxIconSize,
-  industry,
   keyword,
   products,
   posRootCategories,
@@ -58,44 +57,6 @@ const {
 } = useAppContext()
 
 const iconSize = ctxIconSize ?? ICON_SIZE
-
-/** 常用商品保存在本机，对齐竞品「快捷键设置仅当前收银机生效」的做法 */
-const storageKey = computed(() => `pos.quick.${industry.value}`)
-const quickItems = ref<ProductHit[]>(readQuick())
-
-function readQuick(): ProductHit[] {
-  try {
-    const raw = localStorage.getItem(storageKey.value)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed.slice(0, 12) : []
-  } catch {
-    return []
-  }
-}
-
-function saveQuick() {
-  try {
-    localStorage.setItem(storageKey.value, JSON.stringify(quickItems.value))
-  } catch { /* 隐私模式下不持久化，不影响本次收银 */ }
-}
-
-watch(storageKey, () => { quickItems.value = readQuick() })
-
-function isQuick(skuId: number): boolean {
-  return quickItems.value.some((p) => p.sku_id === skuId)
-}
-
-function toggleQuick(p: ProductHit) {
-  if (isQuick(p.sku_id)) {
-    quickItems.value = quickItems.value.filter((item) => item.sku_id !== p.sku_id)
-  } else {
-    if (quickItems.value.length >= 12) {
-      quickItems.value.shift()
-    }
-    quickItems.value.push({ ...p })
-  }
-  saveQuick()
-}
 </script>
 
 <template>
@@ -146,17 +107,6 @@ function toggleQuick(p: ProductHit) {
     </div>
 
     <div v-else-if="!sceneCatalogOnly" class="pos-catalog">
-      <div v-if="quickItems.length" class="pos-quick-row" aria-label="常用商品快捷键">
-        <span class="pos-quick-label">常用</span>
-        <button
-          v-for="p in quickItems"
-          :key="p.sku_id"
-          type="button"
-          class="pos-quick-chip"
-          :title="`${p.spu_name} · ¥${formatMoney(p.price_cents)}`"
-          @click="addFromCatalog(p)"
-        >{{ p.spu_name }}</button>
-      </div>
       <div v-if="posRootCategories.length" class="pos-cat-row">
         <button
           v-for="c in posRootCategories"
@@ -166,25 +116,24 @@ function toggleQuick(p: ProductHit) {
         >{{ c.name }}</button>
       </div>
       <div class="pos-grid">
-        <div v-for="p in posProducts.filter(visibleProduct)" :key="p.sku_id" class="pos-card-wrap">
-          <button class="pos-card" :class="{ weighed: p.is_weighed }" @click="addFromCatalog(p)">
-            <img v-if="productImageSrc(p)" :src="productImageSrc(p)!" class="pos-card-img" alt="" />
-            <span v-else class="pos-card-img pos-card-empty"><Icon name="package" :size="iconSize.md" /></span>
-            <span class="pos-card-name">{{ p.spu_name }}</span>
+        <button
+          v-for="p in posProducts.filter(visibleProduct)"
+          :key="p.sku_id"
+          type="button"
+          class="pos-card"
+          :class="{ weighed: p.is_weighed }"
+          @click="addFromCatalog(p)"
+        >
+          <img v-if="productImageSrc(p)" :src="productImageSrc(p)!" class="pos-card-img" alt="" />
+          <span v-else class="pos-card-img pos-card-empty"><Icon name="package" :size="iconSize.md" /></span>
+          <span class="pos-card-body">
+            <span class="pos-card-name" :title="p.spu_name">{{ p.spu_name }}</span>
             <span class="pos-card-meta">
               {{ p.spec_text || p.category_name }}<template v-if="p.is_weighed"> · 称重</template>
             </span>
             <strong class="price">¥{{ formatMoney(p.price_cents) }}<span class="muted small">/{{ p.unit }}</span></strong>
-          </button>
-          <button
-            type="button"
-            class="pos-pin"
-            :class="{ active: isQuick(p.sku_id) }"
-            :aria-label="isQuick(p.sku_id) ? `取消常用 ${p.spu_name}` : `设为常用 ${p.spu_name}`"
-            :title="isQuick(p.sku_id) ? '取消常用' : '设为常用'"
-            @click="toggleQuick(p)"
-          ><Icon name="star" :size="iconSize.sm" /></button>
-        </div>
+          </span>
+        </button>
         <div v-if="!posProducts.length" class="empty pos-empty">
           {{ posCatalogBusy ? '正在装载商品…' : '该分类暂无在售商品，可切分类或直接扫码' }}
         </div>
