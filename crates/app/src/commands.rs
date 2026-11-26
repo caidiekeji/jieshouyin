@@ -2351,7 +2351,11 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
             return Ok(format!("打印失败，已入重打队列: {e}"));
         }
     }
-    Ok(if copies > 1 { format!("小票已打印 ×{copies}") } else { "小票已打印".into() })
+    Ok(if copies > 1 {
+        format!("小票已打印 ×{copies}")
+    } else {
+        "小票已打印".into()
+    })
 }
 
 /// 小票模板：读取当前模板（纸张宽度 + 原始 JSON），供设置页编辑与预览。
@@ -2508,7 +2512,9 @@ pub fn test_print(state: State<'_, AppState>) -> Result<String> {
     let bytes = render_receipt(&template, &vars)?;
     let host = cfg_get(&conn, CFG_PRINT_HOST)?.unwrap_or_default();
     if host.trim().is_empty() {
-        return Err(CoreError::Validation("未配置打印机地址，请先填写打印机 IP".into()));
+        return Err(CoreError::Validation(
+            "未配置打印机地址，请先填写打印机 IP".into(),
+        ));
     }
     let port = cfg_get(&conn, CFG_PRINT_PORT)?
         .and_then(|s| s.trim().parse::<u16>().ok())
