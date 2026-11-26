@@ -1078,3 +1078,205 @@ textarea.input {
   font-size: var(--font-xs);
   line-height: var(--line-normal);
 }
+
+/* ==================== 移动端触控适配（Android 横屏优先） ====================
+  只接管触屏与矮屏，桌面规则保持原样：
+  1. 触控：去掉双击缩放的等待与点击残影，按下即反馈；
+  2. 热区：可点控件抬到 --touch-target-min，减少指腹误触邻位；
+  3. 横屏矮屏：顶栏、收银两栏、商品网格、结算区按高度压缩，购物车列表不再被结算区吃光；
+  4. 安全区：刘海与手势条用 env() 留白。 */
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 触控元素不参与双击缩放判定：点按立即生效，滑动照常滚动 */
+button, .btn, .nav-btn, .user-chip, .seg-btn, .segmented button, .report-nav-item,
+.pos-card, .pos-cat, .pos-quick-chip, .product-item, .pay-method-btn, .quick-cash-btn,
+.cash-key, .scene-card, .industry-item, input, select, textarea, .link {
+  touch-action: manipulation;
+}
+
+/* 工具栏不参与文字选择：快速连点时不出现选区与放大镜；输入框保持可选 */
+.topbar, .nav, .pos-page-head, .pos-cat-row, .pay-methods, .pay-quick-row,
+.admin-side, .seg, .segmented, .modal h3 {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input, textarea, select {
+  -webkit-user-select: text;
+  user-select: text;
+  font-size: var(--font-input-mobile);
+}
+
+/* 触屏没有 hover：悬停态让位给按下态，避免点完仍亮着的假状态 */
+@media (hover: none) {
+  .btn:hover, .pos-card:hover, .product-item:hover, .pos-cat:hover,
+  .pos-quick-chip:hover, .pay-method-btn:hover, .quick-cash-btn:hover,
+  .cash-key:hover, .industry-item:hover, .scene-card:hover,
+  .report-nav-item:hover, .seg-btn:hover {
+    border-color: var(--border);
+    background: var(--panel);
+    color: var(--text);
+  }
+  .btn.primary:hover {
+    border-color: var(--brand);
+    background: var(--brand);
+    color: var(--text-on-brand);
+  }
+  .nav-btn:hover { background: transparent; color: var(--text-muted); }
+
+  .btn:active { border-color: var(--brand); background: var(--surface-subtle); }
+  .btn.primary:active { border-color: var(--brand-hover); background: var(--brand-hover); }
+  .nav-btn:active { background: var(--surface-subtle); color: var(--text); }
+  .pos-card:active, .product-item:active, .pos-cat:active,
+  .quick-cash-btn:active, .cash-key:active {
+    border-color: var(--brand);
+    background: var(--brand-subtle);
+  }
+}
+
+/* 手指热区：桌面 28~34px 的控件在触屏偏小，统一抬到 48px */
+@media (pointer: coarse) {
+  .btn, .nav-btn, .user-chip, .seg-btn, .segmented button,
+  .pos-cat, .pos-quick-chip, .pay-quick, .split-remove {
+    min-height: var(--touch-target-min);
+  }
+  .btn-sm { min-height: var(--touch-target-min); }
+  .qty-ctrl button, .qty-input, .pos-pin, .quick-cash-btn, .cash-key,
+  .pay-method-btn, .scan-input { min-height: var(--touch-target-min); }
+  .pos-pin { width: var(--touch-target-min); height: var(--touch-target-min); }
+  .split-remove { width: var(--touch-target-min); }
+  /* 滚动容器切到触屏惯性滚动，并阻止滚到边界后带动整页 */
+  .cart-list, .pos-grid, .product-list, .modal, .admin-main, .admin-side,
+  .nav, .pos-cat-row, .pay-methods, .pay-quick-row, .scene-home-panel {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* 手机横屏（矮屏，Android 主力场景）：顶栏与两栏收窄，把高度还给商品与购物车 */
+@media (orientation: landscape) and (max-height: 620px) {
+  .topbar {
+    height: var(--layout-topbar-height-compact);
+    padding: 0 var(--space-2);
+    gap: var(--space-2);
+  }
+  .logo { font-size: var(--font-sm); gap: var(--space-1); }
+  .logo-img { width: var(--space-5); height: var(--space-5); }
+  .logo .badge { display: none; }
+  .nav { gap: 0; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-btn { padding: 0 var(--space-2); font-size: var(--font-sm); }
+  .user-name { max-width: calc(var(--space-8) * 2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .role-tag { display: none; }
+
+  .pos-layout {
+    grid-template-columns: minmax(0, 1fr) var(--layout-cart-width-compact);
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+  .panel { padding: var(--space-2); }
+  .pos-page-head { margin-bottom: var(--space-1); }
+  .pos-page-head strong { font-size: var(--font-sm); }
+  .pos-grid {
+    grid-template-columns: repeat(auto-fill, minmax(var(--pos-card-min-width-compact), 1fr));
+    gap: var(--space-2);
+  }
+  .pos-card { min-height: var(--pos-card-min-height-compact); padding: var(--space-2); }
+  .pos-card-img { height: var(--pos-card-img-height-compact); }
+  .pos-card-name { font-size: var(--font-sm); }
+  .pos-card-meta, .pos-shortcuts, .scan-hint { display: none; }
+  .scan-search .input { padding-right: var(--space-3); }
+
+  .cart-panel h3 { font-size: var(--font-sm); }
+  .cart-line { gap: var(--space-1); padding: var(--space-1) 0; }
+  .cart-total strong { font-size: var(--font-lg); }
+  .cart-foot { gap: var(--space-0_5); }
+  .pay-quick-row, .pay-methods { flex-wrap: nowrap; overflow-x: auto; }
+  .pay-method-btn {
+    flex: 0 0 auto;
+    min-width: var(--pos-pay-chip-min-width);
+    padding: 0 var(--space-2);
+    font-size: var(--font-sm);
+  }
+  .checkout-actions .btn { padding: 0 var(--space-2); }
+
+  .admin-shell { grid-template-columns: var(--layout-side-nav-width-compact) minmax(0, 1fr); }
+  .admin-main { padding: var(--space-3); }
+  .admin-side { padding: var(--space-2); }
+
+  .modal { padding: var(--space-3); gap: var(--space-2); max-height: 94vh; }
+  .cash-modal, .pwd-modal { width: min(var(--layout-modal-sm), 92vw); }
+  .cash-key { height: var(--touch-target-min); }
+  .qr-box { width: min(var(--layout-qr-size), 52vh); height: min(var(--layout-qr-size), 52vh); }
+}
+
+/* 竖屏（平板竖放/单手操作）：收银两栏改上下堆叠，后台侧栏改横向标签条 */
+@media (orientation: portrait) and (max-width: 640px) {
+  .topbar { height: var(--layout-topbar-height-compact); padding: 0 var(--space-2); gap: var(--space-2); }
+  .logo { font-size: var(--font-sm); }
+  .logo-img { width: var(--space-5); height: var(--space-5); }
+  .logo .badge, .role-tag { display: none; }
+  .nav-btn { padding: 0 var(--space-2); font-size: var(--font-sm); }
+
+  .pos-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+  .panel { padding: var(--space-2); }
+  .pos-grid {
+    grid-template-columns: repeat(auto-fill, minmax(var(--pos-card-min-width-compact), 1fr));
+    gap: var(--space-2);
+  }
+  .pos-card { min-height: var(--pos-card-min-height-compact); }
+  .pos-card-meta, .pos-shortcuts, .scan-hint { display: none; }
+
+  .admin-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .admin-side {
+    border-right: 0;
+    border-bottom: var(--border-width) solid var(--border);
+    flex-direction: row;
+    gap: 0;
+    overflow-x: auto;
+    padding: var(--space-2);
+  }
+  .admin-side-title { display: none; }
+  .admin-main { padding: var(--space-3); }
+
+  .modal { width: 100%; min-width: 0; max-width: 94vw; }
+  .auth-card, .lock-card { width: 100%; max-width: 94vw; }
+}
+
+/* 刘海屏与底部手势条：横屏时左右边缘最容易把按钮顶到不可点区域 */
+@supports (padding: max(0px)) {
+  @media (pointer: coarse) {
+    .topbar {
+      padding-left: max(var(--space-2), env(safe-area-inset-left));
+      padding-right: max(var(--space-2), env(safe-area-inset-right));
+    }
+    .pos-layout, .admin-main {
+      padding-left: max(var(--space-2), env(safe-area-inset-left));
+      padding-right: max(var(--space-2), env(safe-area-inset-right));
+      padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* 授权状态：日期作为明文字段直接可读，不再藏进图标提示里 */
+.license-facts {
+  display: flex; flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: var(--space-0);
+}
+.license-fact { display: flex; align-items: baseline; gap: var(--space-2); }
+.license-fact dt { color: var(--text-muted); font-size: var(--font-sm); }
+.license-fact dd {
+  margin: var(--space-0);
+  font-size: var(--font-base);
+  font-variant-numeric: tabular-nums;
+}

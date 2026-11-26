@@ -353,6 +353,18 @@
   /* POS 触屏最小点击区：比管理后台控件大一档，兼顾窄购物车栏 */
   --pos-touch-size: 44px;
   --pos-card-min-height: 96px;
+  /* 移动端触控（Android 平板/手机）：手指热区、横向矮屏的顶栏与栏宽、
+     商品卡与支付芯片的压缩尺度，只在触屏/矮屏媒体查询里被引用 */
+  --touch-target-min: 48px;
+  --layout-topbar-height-compact: 48px;
+  --layout-cart-width-compact: 320px;
+  --layout-side-nav-width-compact: 132px;
+  --pos-card-min-width-compact: 112px;
+  --pos-card-min-height-compact: 84px;
+  --pos-card-img-height-compact: 44px;
+  --pos-pay-chip-min-width: 60px;
+  /* 移动端输入框字号：低于 16px 时系统聚焦会二次放大页面，金额/条码录入易错位 */
+  --font-input-mobile: 16px;
   --control-spinner-size: 36px;
   /* 登录页品牌标识：作为认证页面的视觉锚点 */
   --control-brandmark-lg-size: 56px;
@@ -659,4 +671,12 @@
   --scene-surface: var(--p-surface-dark-2);
   --scene-line: var(--p-border-dark);
   --scene-title: var(--p-warning-100);
+}
+
+/* ---------- 触屏设备：控件热区整体抬到手指尺度（桌面密度不受影响） ---------- */
+@media (pointer: coarse) {
+  :root {
+    --control-height-form: 44px;
+    --pos-touch-size: var(--touch-target-min);
+  }
 }

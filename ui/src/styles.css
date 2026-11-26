@@ -1078,3 +1078,17 @@ textarea.input {
   font-size: var(--font-xs);
   line-height: var(--line-normal);
 }
+
+/* 授权状态：日期作为明文字段直接可读，不再藏进图标提示里 */
+.license-facts {
+  display: flex; flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: var(--space-0);
+}
+.license-fact { display: flex; align-items: baseline; gap: var(--space-2); }
+.license-fact dt { color: var(--text-muted); font-size: var(--font-sm); }
+.license-fact dd {
+  margin: var(--space-0);
+  font-size: var(--font-base);
+  font-variant-numeric: tabular-nums;
+}

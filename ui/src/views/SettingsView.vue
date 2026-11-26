@@ -87,9 +87,20 @@ watch(configGroupTabs, (tabs) => {
             <div class="card wide">
               <h3>授权状态</h3>
               <div class="license-info">
-                <p>授权状态：<strong>{{ licenseStatusLabel }}</strong></p>
-                <HintTip :text="license?.valid_until ? `有效期至 ${license.valid_until}` : '买断许可'" />
-                <HintTip v-if="license?.trial_ends_at" :text="`试用期至 ${license.trial_ends_at}`" />
+                <dl class="license-facts">
+                  <div class="license-fact">
+                    <dt>授权状态</dt>
+                    <dd><strong>{{ licenseStatusLabel }}</strong></dd>
+                  </div>
+                  <div class="license-fact">
+                    <dt>有效期</dt>
+                    <dd>{{ license?.valid_until || '买断许可' }}</dd>
+                  </div>
+                  <div v-if="license?.trial_ends_at" class="license-fact">
+                    <dt>试用期至</dt>
+                    <dd>{{ license.trial_ends_at }}</dd>
+                  </div>
+                </dl>
                 <div class="license-actions">
                   <button class="btn" @click="refreshLicense">刷新授权状态</button>
                 </div>
