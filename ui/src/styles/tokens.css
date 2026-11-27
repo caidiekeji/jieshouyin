@@ -336,14 +336,19 @@
   --layout-auth-width: 460px;
   /* 弹窗基础最小宽：小弹窗不再被登录卡宽度顶宽 */
   --layout-modal-min: 400px;
-  /* 弹窗宽度三档：sm=现金/确认、md=凭据/单列表单、lg=批量创建/多列表单 */
-  --layout-modal-sm: 440px;
-  --layout-modal-md: 560px;
-  --layout-modal-lg: 680px;
+  /* 弹窗宽度三档：sm=确认/短表单、md=凭据/列表、lg=批量创建/多列表单。
+     从 440/560/680 收窄：单行内容弹窗在旧档位下宽高比约 3.4:1 显扁，
+     新档位压到约 2.4:1 接近稳定横版比例；仍受 92vw 保护不溢出小屏 */
+  --layout-modal-sm: 400px;
+  --layout-modal-md: 480px;
+  --layout-modal-lg: 560px;
   /* 按钮高度三档：桌面 28/36/44（Android 端触屏抬到 48） */
   --btn-h-sm: 28px;
   --btn-h-md: 36px;
   --btn-h-lg: 44px;
+  /* 弹窗底部按钮最小宽：短标签不局促、长标签按内容自然增长；
+     只作用于弹窗 actions，不污染工具栏与收银台的紧凑按钮 */
+  --btn-action-min-width: 88px;
   --layout-content-width: 900px;
   --layout-cart-width: 400px;
   /* 管理页内容上限：1280 收银屏减两侧 24px 页边距可用 1232px，取 1200 留呼吸边；

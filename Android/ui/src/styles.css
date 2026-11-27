@@ -652,7 +652,7 @@ h2 { font-size: var(--font-lg); }
   border-radius: var(--radius-sm); overflow: hidden;
 }
 .theme-row .btn { border: none; border-radius: var(--space-0); }
-.theme-row .btn.primary { background: var(--chrome); border-color: var(--chrome); }
+.theme-row .btn.primary { background: var(--chrome); border-color: var(--chrome); color: var(--on-chrome); }
 .license-info {
   margin-top: var(--space-4);
   border-top: var(--border-width) solid var(--border);
@@ -1033,8 +1033,9 @@ h2 { font-size: var(--font-lg); }
 .modal--sm { width: var(--layout-modal-sm); min-width: 0; }
 .modal--md { width: var(--layout-modal-md); min-width: 0; }
 .modal--lg { width: var(--layout-modal-lg); min-width: 0; }
-/* 弹窗按钮比例规范：actions 内主按钮占满剩余宽度，次按钮保持内容宽 */
-.modal .actions .btn--ui.btn--primary { flex: 1; }
+/* 弹窗按钮统一宽度：所有按钮内容自适应 + 同一最小宽，不再让主按钮独占剩余宽度。
+   此前 flex:1 使「关闭／保存并锁屏」拉满而「取消／挂起」仍为内容宽，比例失衡。 */
+.modal .actions .btn--ui { min-width: var(--btn-action-min-width); }
 /* 通用 UiButton：高度走 --btn-h-* token（触屏 48px）+ 三变体 */
 .btn--ui { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); height: var(--btn-h-md); padding: 0 var(--space-4); }
 .btn--ui.btn--sm { height: var(--btn-h-sm); padding: 0 var(--space-3); }
