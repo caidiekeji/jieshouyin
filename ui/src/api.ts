@@ -344,6 +344,8 @@ export interface StocktakeRow {
   status: string
   created_at: string
   item_count: number
+  source?: string
+  period?: string | null
 }
 
 export interface StocktakeItemRow {
@@ -353,6 +355,36 @@ export interface StocktakeItemRow {
   book_qty: number
   counted_qty: number | null
   diff_qty: number | null
+}
+
+/** 账面构成（期初+入库−出库−已确认报损±调整−待处理报损冻结）。 */
+export interface BookBreakdown {
+  opening: number
+  purchase_in: number
+  outbound: number
+  confirmed_loss: number
+  adjustment: number
+  pending_loss: number
+  book_qty: number
+}
+
+export interface LossRow {
+  loss_no: string
+  status: string
+  reason: string | null
+  operator_id: number
+  created_at: string
+  confirmed_at: string | null
+  item_count: number
+  total_qty: number
+}
+
+export interface LossItemRow {
+  id: number
+  sku_id: number
+  product_name: string
+  qty: number
+  reason: string | null
 }
 
 export interface MemberRow {
@@ -868,9 +900,20 @@ export const api = {
   listStocktakes: () => invoke<StocktakeRow[]>('list_stocktakes'),
   getStocktakeItems: (taskNo: string) => invoke<StocktakeItemRow[]>('get_stocktake_items', { taskNo }),
   createStocktake: (skuIds: number[]) => invoke<string>('create_stocktake', { skuIds }),
-  recordCount: (taskNo: string, counts: { item_id: number; received_qty: number }[]) =>
+  createStocktakeAuto: (period: string | null) =>
+    invoke<string>('create_stocktake_auto', { period }),
+  bookBreakdown: (skuId: number) => invoke<BookBreakdown>('book_breakdown', { skuId }),
+  recordCount: (taskNo: string, counts: { sku_id: number; counted_qty: number }[]) =>
     invoke<void>('record_count', { taskNo, counts }),
   approveStocktake: (taskNo: string) => invoke<void>('approve_stocktake', { taskNo }),
+  createLoss: (
+    items: { sku_id: number; qty: number; reason: string | null }[],
+    reason: string | null
+  ) => invoke<string>('create_loss', { items, reason }),
+  confirmLoss: (lossNo: string) => invoke<void>('confirm_loss', { lossNo }),
+  cancelLoss: (lossNo: string) => invoke<void>('cancel_loss', { lossNo }),
+  listLosses: () => invoke<LossRow[]>('list_losses'),
+  getLossItems: (lossNo: string) => invoke<LossItemRow[]>('get_loss_items', { lossNo }),
   createMember: (phone: string | null, name: string | null) =>
     invoke<number>('create_member', { phone, name }),
   listMembers: (keyword: string, limit: number) =>

@@ -8,7 +8,10 @@ import {
   type PurchaseOrderRow,
   type PurchaseItemRow,
   type StocktakeRow,
-  type StocktakeItemRow
+  type StocktakeItemRow,
+  type BookBreakdown,
+  type LossRow,
+  type LossItemRow
 } from '../api'
 import Icon from './Icon.vue'
 import {
@@ -20,7 +23,7 @@ import {
   TOAST_DURATION_MS,
 } from '../constants'
 
-const tab = ref<'purchase' | 'stocktake'>('purchase')
+const tab = ref<'purchase' | 'stocktake' | 'loss'>('purchase')
 const props = defineProps<{
   /** 二次授权：盘点调账前要求店长/管理员密码确认 */
   requestAuth?: (permission: string, title: string) => Promise<string>
@@ -225,6 +228,120 @@ async function submitSt() {
   }
 }
 
+/** 当前年月 YYYY-MM，作为月度盘点归属期间默认值。 */
+function currentPeriod(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+const stPeriod = ref(currentPeriod())
+
+/** 按默认范围生成盘点：在售非服务类、有库存或被冻结的全部 SKU。
+ *  桌面端无常驻服务，月度盘点由用户手动触发，不设定时器。 */
+async function createAutoSt() {
+  try {
+    const taskNo = await api.createStocktakeAuto(stPeriod.value.trim() || null)
+    done(`盘点任务 ${taskNo} 已创建（全范围${stPeriod.value.trim() ? ' · ' + stPeriod.value.trim() : ''}）`)
+    await reloadStocktakes()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+/** 账面构成分解：点开某行查看期初/入库/出库/报损/调整/待处理冻结。 */
+const breakdownSku = ref<number | null>(null)
+const breakdown = ref<BookBreakdown | null>(null)
+async function openBreakdown(row: StocktakeItemRow) {
+  try {
+    breakdown.value = await api.bookBreakdown(row.sku_id)
+    breakdownSku.value = row.sku_id
+  } catch (e) {
+    fail(e)
+  }
+}
+
+// ===== 报损单 =====
+const losses = ref<LossRow[]>([])
+const showCreateLoss = ref(false)
+const lossSearch = ref('')
+const lossCandidates = ref<ProductRow[]>([])
+const lossLines = ref<{ sku_id: number; name: string; qty: number; reason: string }[]>([])
+const lossReason = ref('')
+const lossDetail = ref<string | null>(null)
+const lossDetailRows = ref<LossItemRow[]>([])
+
+async function reloadLosses() {
+  try {
+    losses.value = await api.listLosses()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+async function searchForLoss() {
+  try {
+    lossCandidates.value = await api.listProducts(lossSearch.value.trim(), PAGE_SIZE.LOOKUP)
+  } catch (e) {
+    fail(e)
+  }
+}
+
+function addLossLine(p: ProductRow) {
+  if (lossLines.value.some((l) => l.sku_id === p.sku_id)) return
+  lossLines.value.push({ sku_id: p.sku_id, name: p.name, qty: 1, reason: '' })
+  lossCandidates.value = []
+  lossSearch.value = ''
+}
+
+async function submitLoss() {
+  if (!lossLines.value.length) return fail('请添加报损商品')
+  try {
+    const items = lossLines.value.map((l) => ({
+      sku_id: l.sku_id,
+      qty: l.qty,
+      reason: l.reason.trim() || null
+    }))
+    const lossNo = await api.createLoss(items, lossReason.value.trim() || null)
+    showCreateLoss.value = false
+    lossLines.value = []
+    lossReason.value = ''
+    done(`报损单 ${lossNo} 已创建（待处理，库存已冻结）`)
+    await reloadLosses()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+async function confirmLoss(lossNo: string) {
+  try {
+    await api.confirmLoss(lossNo)
+    done(`报损单 ${lossNo} 已确认，库存已扣减`)
+    if (lossDetail.value === lossNo) lossDetail.value = null
+    await reloadLosses()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+async function cancelLoss(lossNo: string) {
+  try {
+    await api.cancelLoss(lossNo)
+    done(`报损单 ${lossNo} 已取消，冻结已释放`)
+    if (lossDetail.value === lossNo) lossDetail.value = null
+    await reloadLosses()
+  } catch (e) {
+    fail(e)
+  }
+}
+
+async function openLossDetail(lossNo: string) {
+  try {
+    lossDetailRows.value = await api.getLossItems(lossNo)
+    lossDetail.value = lossNo
+  } catch (e) {
+    fail(e)
+  }
+}
+
 // 录数 / 审批
 const countTask = ref<string | null>(null)
 const countRows = ref<StocktakeItemRow[]>([])
@@ -253,7 +370,8 @@ async function submitCount() {
     const counts = countRows.value.map((r) => {
       const n = Number(countQty.value[r.item_id])
       if (!Number.isInteger(n) || n < 0) throw new Error(`${r.product_name} 的实盘数必须是不小于 0 的整数`)
-      return { item_id: r.item_id, received_qty: n }
+      // 后端按 sku_id 匹配盘点明细；此前误传 item_id 导致非同序 SKU 报「不含 SKU」。
+      return { sku_id: r.sku_id, counted_qty: n }
     })
     await api.recordCount(countTask.value, counts)
     countTask.value = null
@@ -291,6 +409,7 @@ onMounted(() => {
   reloadSuppliers()
   reloadPos()
   reloadStocktakes()
+  reloadLosses()
 })
 </script>
 
@@ -301,6 +420,7 @@ onMounted(() => {
       <div class="seg" role="tablist">
         <button :class="['seg-btn', { active: tab === 'purchase' }]" role="tab" :aria-selected="tab === 'purchase'" @click="tab = 'purchase'">采购入库</button>
         <button :class="['seg-btn', { active: tab === 'stocktake' }]" role="tab" :aria-selected="tab === 'stocktake'" @click="tab = 'stocktake'">库存盘点</button>
+        <button :class="['seg-btn', { active: tab === 'loss' }]" role="tab" :aria-selected="tab === 'loss'" @click="tab = 'loss'">报损单</button>
       </div>
     </div>
 
@@ -404,9 +524,12 @@ onMounted(() => {
     </template>
 
     <!-- 库存盘点 -->
-    <template v-else>
+    <template v-else-if="tab === 'stocktake'">
       <div class="toolbar">
-        <button class="btn primary" @click="showCreateSt = !showCreateSt">新建盘点任务</button>
+        <button class="btn primary" @click="showCreateSt = !showCreateSt">指定商品盘点</button>
+        <input v-model="stPeriod" class="input input-sm" type="month" aria-label="盘点归属月份" />
+        <button class="btn" @click="createAutoSt">按全范围生成</button>
+        <span class="muted small">全范围 = 在库未售商品 + 冻结库存（待处理报损）</span>
       </div>
 
       <div v-if="showCreateSt" class="card">
@@ -431,35 +554,42 @@ onMounted(() => {
         <h3>盘点任务</h3>
         <table class="tbl">
           <thead>
-            <tr><th>任务号</th><th class="num-cell">商品数</th><th>状态</th><th>操作</th></tr>
+            <tr><th>任务号</th><th class="num-cell">商品数</th><th>来源/期间</th><th>状态</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="t in stocktakes" :key="t.task_no">
               <td class="mono">{{ t.task_no }}</td>
               <td class="num-cell">{{ t.item_count }}</td>
+              <td>{{ t.source === 'MONTHLY' ? '月度' : '手动' }}<span v-if="t.period" class="muted small"> · {{ t.period }}</span></td>
               <td>{{ t.status === 'DRAFT' ? '待录数' : t.status === 'DIFF_REVIEW' ? '待审批' : '已调整' }}</td>
               <td>
                 <button v-if="t.status === 'DRAFT'" class="btn btn-sm" @click="openCount(t.task_no)">录实盘</button>
                 <button v-if="t.status === 'DIFF_REVIEW'" class="btn btn-sm" @click="openApprove(t.task_no)">审批调账</button>
               </td>
             </tr>
-            <tr v-if="!stocktakes.length"><td colspan="4" class="empty">暂无盘点任务，点击上方「新建盘点任务」开始</td></tr>
+            <tr v-if="!stocktakes.length"><td colspan="5" class="empty">暂无盘点任务，点击上方按钮生成</td></tr>
           </tbody>
         </table>
       </div>
 
       <div v-if="countTask" class="card">
         <h3>录实盘：{{ countTask }}</h3>
+        <p class="muted small">账面 = 期初 + 入库 − 出库 − 已确认报损 ± 调整 − 待处理报损冻结。点商品名可看构成。</p>
         <table class="tbl">
           <thead><tr><th>商品</th><th class="num-cell">账面</th><th class="num-cell">实盘</th></tr></thead>
           <tbody>
             <tr v-for="r in countRows" :key="r.item_id">
-              <td>{{ r.product_name }}</td>
+              <td><button class="link" @click="openBreakdown(r)">{{ r.product_name }}</button></td>
               <td class="num-cell">{{ r.book_qty }}</td>
               <td class="num-cell"><input v-model="countQty[r.item_id]" class="input input-sm" type="number" placeholder="实盘数" aria-label="实盘数量" /></td>
             </tr>
           </tbody>
         </table>
+        <div v-if="breakdownSku !== null && breakdown" class="card breakdown-card">
+          <h4>账面构成 · SKU {{ breakdownSku }}</h4>
+          <p class="muted small">期初 {{ breakdown.opening }} ＋ 入库 {{ breakdown.purchase_in }} − 出库 {{ Math.abs(breakdown.outbound) }} − 已确认报损 {{ Math.abs(breakdown.confirmed_loss) }} ± 调整 {{ breakdown.adjustment }} − 待处理报损 {{ breakdown.pending_loss }} ＝ <strong>{{ breakdown.book_qty }}</strong></p>
+          <button class="btn btn-sm ghost" @click="breakdownSku = null">收起</button>
+        </div>
         <div class="form-row">
           <button class="btn primary" @click="submitCount">提交实盘</button>
           <button class="btn ghost" @click="countTask = null">取消</button>
@@ -483,6 +613,80 @@ onMounted(() => {
           <button class="btn primary" @click="submitApprove">确认审批</button>
           <button class="btn ghost" @click="approveTask = null">取消</button>
         </div>
+      </div>
+    </template>
+
+    <!-- 报损单 -->
+    <template v-else>
+      <div class="toolbar">
+        <button class="btn primary" @click="showCreateLoss = !showCreateLoss">新建报损单</button>
+        <span class="muted small">待处理报损冻结库存，确认后才写报损流水扣减</span>
+      </div>
+
+      <div v-if="showCreateLoss" class="card">
+        <h3>新建报损单</h3>
+        <div class="form-row mb-2">
+          <input v-model="lossSearch" class="input" placeholder="搜索商品加入报损" @keyup.enter="searchForLoss" />
+          <button class="btn" @click="searchForLoss">搜索</button>
+        </div>
+        <button v-for="p in lossCandidates" :key="p.sku_id" type="button" class="candidate" @click="addLossLine(p)">
+          {{ p.name }}（库存 {{ p.qty }}）
+        </button>
+        <table class="tbl" v-if="lossLines.length">
+          <thead><tr><th>商品</th><th class="num-cell">报损数量</th><th>原因</th><th><span class="sr-only">操作</span></th></tr></thead>
+          <tbody>
+            <tr v-for="(l, i) in lossLines" :key="l.sku_id">
+              <td>{{ l.name }}</td>
+              <td class="num-cell"><input v-model.number="l.qty" class="input input-sm" type="number" min="1" aria-label="报损数量" /></td>
+              <td><input v-model="l.reason" class="input input-sm" placeholder="如 破损报废" aria-label="报损原因" /></td>
+              <td><button class="btn btn-sm ghost danger-text" aria-label="移除该商品" @click="lossLines.splice(i, 1)"><Icon name="close" :size="ICON_SIZE.sm" /></button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="form-row mb-2">
+          <input v-model="lossReason" class="input" placeholder="整单原因（可选）" />
+        </div>
+        <button class="btn primary" @click="submitLoss">创建报损单</button>
+      </div>
+
+      <div class="card">
+        <h3>报损单</h3>
+        <table class="tbl">
+          <thead>
+            <tr><th>单号</th><th class="num-cell">明细/数量</th><th>原因</th><th>状态</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="o in losses" :key="o.loss_no">
+              <td class="mono">{{ o.loss_no }}</td>
+              <td class="num-cell">{{ o.item_count }} 行 / {{ o.total_qty }}</td>
+              <td>{{ o.reason ?? '—' }}</td>
+              <td>{{ o.status === 'PENDING' ? '待处理' : o.status === 'CONFIRMED' ? '已确认' : '已取消' }}</td>
+              <td>
+                <button class="btn btn-sm" @click="openLossDetail(o.loss_no)">明细</button>
+                <template v-if="o.status === 'PENDING'">
+                  <button class="btn btn-sm primary" @click="confirmLoss(o.loss_no)">确认报损</button>
+                  <button class="btn btn-sm ghost" @click="cancelLoss(o.loss_no)">取消</button>
+                </template>
+              </td>
+            </tr>
+            <tr v-if="!losses.length"><td colspan="5" class="empty">暂无报损单，点击上方「新建报损单」录入</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="lossDetail" class="card">
+        <h3>报损明细：{{ lossDetail }}</h3>
+        <table class="tbl">
+          <thead><tr><th>商品</th><th class="num-cell">数量</th><th>原因</th></tr></thead>
+          <tbody>
+            <tr v-for="r in lossDetailRows" :key="r.id">
+              <td>{{ r.product_name }}</td>
+              <td class="num-cell">{{ r.qty }}</td>
+              <td>{{ r.reason ?? '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="btn ghost" @click="lossDetail = null">收起</button>
       </div>
     </template>
   </main>

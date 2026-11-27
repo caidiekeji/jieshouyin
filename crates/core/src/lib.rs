@@ -12,6 +12,7 @@ pub mod gateway_wechat;
 pub mod industry;
 pub mod inventory;
 pub mod license;
+pub mod loss;
 pub mod member;
 pub mod money;
 pub mod order;

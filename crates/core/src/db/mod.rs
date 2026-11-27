@@ -183,6 +183,8 @@ mod tests {
             "option_group",
             "option_item",
             "technician_bell",
+            "loss_order",
+            "loss_order_item",
         ];
         for t in tables {
             let n: i32 = conn

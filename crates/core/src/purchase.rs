@@ -6,6 +6,7 @@ use crate::inventory::{apply_event, TransType};
 use crate::time::format_utc;
 use chrono::Utc;
 use rusqlite::{params, Connection};
+use serde::Serialize;
 
 /// 创建采购单（DRAFT）并写入明细，汇总金额。
 pub fn create_purchase_order(
@@ -140,29 +141,125 @@ pub fn receive_purchase(
 }
 
 /// 盘点：创建任务时写入账面快照。
+///
+/// 账面口径（§盘点规则）= 期初 + 入库 − 出库 − 已确认报损 ± 调整，
+/// 等价于 inv_stock.qty（它由 inv_trans 各事件投影而来）。
+/// 未入账报损先从账面扣减：再减去 locked_qty（待处理报损冻结量），
+/// 让盘点员按「扣除待处理报损后的应有数」去实盘。
 pub fn create_stocktake(
     conn: &Connection,
     task_no: &str,
     skus: &[i64],
     operator_id: i64,
+    source: &str,
+    period: Option<&str>,
 ) -> Result<()> {
-    conn.execute(
-        "INSERT INTO stocktake(task_no,status,operator_id,created_at) VALUES (?1,'DRAFT',?2,?3)",
-        params![task_no, operator_id, format_utc(&Utc::now())],
+    if skus.is_empty() {
+        return Err(CoreError::Validation("盘点商品不能为空".into()));
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "INSERT INTO stocktake(task_no,status,operator_id,source,period,created_at)
+         VALUES (?1,'DRAFT',?2,?3,?4,?5)",
+        params![task_no, operator_id, source, period, format_utc(&Utc::now())],
     )?;
-    let id = conn.last_insert_rowid();
+    let id = tx.last_insert_rowid();
     for &sku in skus {
-        let book: i64 = conn.query_row(
-            "SELECT COALESCE(qty,0) FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",
+        let book: i64 = tx.query_row(
+            "SELECT COALESCE(qty,0) - COALESCE(locked_qty,0)
+             FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",
             [sku],
             |r| r.get(0),
         )?;
-        conn.execute(
+        tx.execute(
             "INSERT INTO stocktake_item(stocktake_id,sku_id,book_qty) VALUES (?1,?2,?3)",
             params![id, sku, book],
         )?;
     }
+    tx.commit()?;
     Ok(())
+}
+
+/// 月度盘点的默认范围：在售（spu.status=1）且非服务类（is_service=0）的实物商品，
+/// 且有库存余额或被冻结（待处理报损）。只取「在库未售 + 冻结库存」，零库存无冻结的不纳入。
+pub fn stocktake_auto_scope(conn: &Connection) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT i.sku_id FROM inv_stock i
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         WHERE p.status=1 AND s.is_service=0
+           AND (COALESCE(i.qty,0) <> 0 OR COALESCE(i.locked_qty,0) <> 0)
+         ORDER BY i.sku_id",
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 账面构成分解（供明细核对）：按 inv_trans 事件类型分项汇总，
+/// 期初(PURCHASE_IN/ref=INITIAL) + 入库(PURCHASE_IN) − 出库(SALE/RETURN/PURCHASE_RETURN/TRANSFER_OUT)
+/// − 已确认报损(LOSS) ± 调整(ADJUST/VOID/TRANSFER_IN)，再减去待处理报损冻结 locked_qty。
+#[derive(Debug, Serialize)]
+pub struct BookBreakdown {
+    pub opening: i64,
+    pub purchase_in: i64,
+    pub outbound: i64,
+    pub confirmed_loss: i64,
+    pub adjustment: i64,
+    pub pending_loss: i64,
+    pub book_qty: i64,
+}
+
+pub fn book_breakdown(conn: &Connection, sku_id: i64) -> Result<BookBreakdown> {
+    let mut opening = 0i64;
+    let mut purchase_in = 0i64;
+    let mut outbound = 0i64;
+    let mut confirmed_loss = 0i64;
+    let mut adjustment = 0i64;
+    let mut stmt = conn.prepare(
+        "SELECT trans_type, COALESCE(ref_order_no,''), change_qty FROM inv_trans
+         WHERE sku_id=?1 AND warehouse_type='STORE'",
+    )?;
+    let rows = stmt.query_map([sku_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+    })?;
+    for row in rows {
+        let (kind, reference, qty) = row?;
+        match kind.as_str() {
+            crate::constants::TRANS_PURCHASE_IN if reference == crate::constants::TRANS_INITIAL => {
+                opening += qty
+            }
+            crate::constants::TRANS_PURCHASE_IN => purchase_in += qty,
+            crate::constants::TRANS_SALE
+            | crate::constants::TRANS_RETURN
+            | crate::constants::TRANS_PURCHASE_RETURN
+            | crate::constants::TRANS_TRANSFER_OUT => outbound += qty,
+            crate::constants::TRANS_LOSS => confirmed_loss += qty,
+            crate::constants::TRANS_ADJUST
+            | crate::constants::TRANS_VOID
+            | crate::constants::TRANS_TRANSFER_IN => adjustment += qty,
+            _ => adjustment += qty,
+        }
+    }
+    let pending_loss: i64 = conn.query_row(
+        "SELECT COALESCE(locked_qty,0) FROM inv_stock WHERE sku_id=?1 AND warehouse_type='STORE'",
+        [sku_id],
+        |r| r.get(0),
+    )?;
+    // outbound / confirmed_loss 流水本身已是负数，直接相加即为「扣减后」结果。
+    let book_qty = opening + purchase_in + outbound + confirmed_loss + adjustment - pending_loss;
+    Ok(BookBreakdown {
+        opening,
+        purchase_in,
+        outbound,
+        confirmed_loss,
+        adjustment,
+        pending_loss,
+        book_qty,
+    })
 }
 
 /// 实盘录入。仅 DRAFT / DIFF_REVIEW 可改数；已审批任务不得回写。
@@ -359,7 +456,7 @@ mod tests {
             apply_event(&tx, 1, 100, TransType::PURCHASE_IN, None, None, true).unwrap();
             tx.commit().unwrap();
         }
-        create_stocktake(&c, "ST1", &[1], 1).unwrap();
+        create_stocktake(&c, "ST1", &[1], 1, crate::constants::STOCKTAKE_SOURCE_MANUAL, None).unwrap();
         let book: i64 = c
             .query_row("SELECT book_qty FROM stocktake_item", [], |r| r.get(0))
             .unwrap();

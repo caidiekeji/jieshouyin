@@ -873,6 +873,34 @@ INSERT OR IGNORE INTO system_config(config_key,config_value,updated_at) VALUES
  ('round_off_mode','OFF',datetime('now'));
 "#;
 
+/// M0021 盘点口径补齐：
+/// - loss_order / loss_order_item：报损单据化，PENDING 占用 locked_qty，CONFIRMED 才写 LOSS 事件真正扣库存；
+///   此前报损只能靠「库存调整填负数」实现，LOSS 事件全仓无写入方，报损报表恒为空。
+/// - stocktake 增加 source / period：区分手动盘点与月度盘点，按 YYYY-MM 归属期间。
+const M0021: &str = r#"
+CREATE TABLE IF NOT EXISTS loss_order (
+    loss_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    loss_no       TEXT NOT NULL UNIQUE,
+    status        TEXT NOT NULL DEFAULT 'PENDING',
+    reason        TEXT,
+    operator_id   INTEGER NOT NULL,
+    confirmer_id  INTEGER,
+    created_at    TEXT NOT NULL,
+    confirmed_at  TEXT
+);
+CREATE TABLE IF NOT EXISTS loss_order_item (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    loss_id   INTEGER NOT NULL REFERENCES loss_order(loss_id) ON DELETE CASCADE,
+    sku_id    INTEGER NOT NULL REFERENCES sku(sku_id),
+    qty       INTEGER NOT NULL,
+    reason    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_loss_order_status ON loss_order(status);
+CREATE INDEX IF NOT EXISTS idx_loss_item_sku ON loss_order_item(sku_id);
+ALTER TABLE stocktake ADD COLUMN source TEXT NOT NULL DEFAULT 'MANUAL';
+ALTER TABLE stocktake ADD COLUMN period TEXT;
+"#;
+
 pub fn all() -> Vec<Migration> {
     vec![
         Migration {
@@ -974,6 +1002,11 @@ pub fn all() -> Vec<Migration> {
             version: 20,
             name: "industry_business_models",
             up: M0020,
+        },
+        Migration {
+            version: 21,
+            name: "loss_order_and_stocktake_scope",
+            up: M0021,
         },
     ]
 }

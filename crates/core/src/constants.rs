@@ -66,6 +66,19 @@ pub const TRANS_LOSS: &str = "LOSS";
 pub const TRANS_TRANSFER_IN: &str = "TRANSFER_IN";
 pub const TRANS_TRANSFER_OUT: &str = "TRANSFER_OUT";
 
+// ── 报损单状态（M0021）────────────────────────────────────────
+/// 待处理：占用 locked_qty，尚未写 LOSS 事件、未真正扣减可用库存。
+pub const LOSS_PENDING: &str = "PENDING";
+/// 已确认：写 LOSS 事件真正扣库存，释放 locked_qty。
+pub const LOSS_CONFIRMED: &str = "CONFIRMED";
+/// 已取消：释放 locked_qty，库存与流水不变。
+pub const LOSS_CANCELLED: &str = "CANCELLED";
+
+// ── 盘点单来源与期间（M0021）──────────────────────────────────
+pub const STOCKTAKE_SOURCE_MANUAL: &str = "MANUAL";
+/// 月度盘点：由用户在盘点页按 YYYY-MM 手动生成（桌面端无常驻服务，不做自动定时器）。
+pub const STOCKTAKE_SOURCE_MONTHLY: &str = "MONTHLY";
+
 // ── 单据与支付状态 ────────────────────────────────────────────
 pub const WAREHOUSE_STORE: &str = "STORE";
 pub const PAY_CASH: &str = "CASH";

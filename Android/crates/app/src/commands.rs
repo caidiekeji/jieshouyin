@@ -8,16 +8,16 @@ use checkout_core::constants::{
     CFG_MAX_DISCOUNT_RATIO, CFG_MICROPAY_POLL_MS, CFG_MICROPAY_TIMEOUT_S, CFG_PAY_CHANNEL_ALIPAY,
     CFG_PAY_CHANNEL_CASH, CFG_PAY_CHANNEL_SV, CFG_PAY_CHANNEL_WECHAT, CFG_POINTS_ENABLED,
     CFG_POINTS_PER_YUAN, CFG_PRINT_AUTO, CFG_PRINT_COPIES, CFG_PRINT_HOST, CFG_PRINT_PORT,
-    CFG_RECEIPT_QR_BASE,
-    CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_NO, CFG_STORE_PHONE, CFG_STORE_TIMEZONE,
-    CFG_TABLE_ALLOW_REBIND, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO, DEFAULT_MICROPAY_POLL_MS,
-    DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_ENABLED, DEFAULT_POINTS_PER_YUAN,
-    DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE, ENT_REPORT_STANDARD,
-    LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY, PAY_MODE_NATIVE,
-    PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_MEMBER_MANAGE, PERM_MEMBER_RECHARGE,
-    PERM_POS_CHECKOUT, PERM_POS_REFUND, PERM_POS_SHIFT_CLOSE, PERM_POS_VOID, PERM_PRODUCT_EDIT,
-    PERM_REPORT_EXPORT, PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE, PERM_SYSTEM_CONFIG,
-    PERM_USER_MANAGE, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER,
+    CFG_RECEIPT_QR_BASE, CFG_SCAN_GAP_MS, CFG_STORE_NAME, CFG_STORE_NO, CFG_STORE_PHONE,
+    CFG_STORE_TIMEZONE, CFG_TABLE_ALLOW_REBIND, COUPON_UNUSED, DEFAULT_MAX_DISCOUNT_RATIO,
+    DEFAULT_MICROPAY_POLL_MS, DEFAULT_MICROPAY_TIMEOUT_S, DEFAULT_POINTS_ENABLED,
+    DEFAULT_POINTS_PER_YUAN, DEFAULT_PRINT_PORT, ENT_MEMBER_BASIC, ENT_POS_CORE,
+    ENT_REPORT_STANDARD, LIMIT_REFUND_MAX_CENTS, PAY_ALIPAY, PAY_CASH, PAY_MODE_MICROPAY,
+    PAY_MODE_NATIVE, PAY_STORED_VALUE, PAY_WECHAT, PERM_INVENTORY_ADJUST, PERM_MEMBER_MANAGE,
+    PERM_MEMBER_RECHARGE, PERM_POS_CHECKOUT, PERM_POS_REFUND, PERM_POS_SHIFT_CLOSE, PERM_POS_VOID,
+    PERM_PRODUCT_EDIT, PERM_REPORT_EXPORT, PERM_REPORT_VIEW, PERM_STOCKTAKE_APPROVE,
+    PERM_SYSTEM_CONFIG, PERM_USER_MANAGE, ROLE_ADMIN, ROLE_CASHIER, ROLE_MANAGER,
+    STOCKTAKE_SOURCE_MANUAL, STOCKTAKE_SOURCE_MONTHLY,
 };
 use checkout_core::error::{CoreError, Result};
 /// 本地模拟支付开关（联调/开发用）。生产默认关闭：未配置渠道凭据时直接拒绝收款，
@@ -2744,6 +2744,13 @@ pub struct ReceiveItemInput {
     pub received_qty: i64,
 }
 
+/// 盘录入参：键是 sku_id（与 stocktake_item.sku_id 一致），不复用采购验收的 item_id。
+#[derive(Debug, Deserialize)]
+pub struct CountItemInput {
+    pub sku_id: i64,
+    pub counted_qty: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct PurchaseOrderRow {
     pub po_no: String,
@@ -2981,29 +2988,61 @@ pub fn get_stocktake_items(
     Ok(out)
 }
 
-/// 创建盘点任务：写入账面快照。
+/// 创建盘点任务：写入账面快照（手动指定商品）。
 #[tauri::command]
 pub fn create_stocktake(sku_ids: Vec<i64>, state: State<'_, AppState>) -> Result<String> {
     let (operator_id, conn) = admin_guard(&state, "purchase.create")?;
-    if sku_ids.is_empty() {
-        return Err(CoreError::Validation("盘点商品不能为空".into()));
-    }
     let task_no = gen_no("ST");
-    checkout_core::purchase::create_stocktake(&conn, &task_no, &sku_ids, operator_id)?;
+    checkout_core::purchase::create_stocktake(
+        &conn,
+        &task_no,
+        &sku_ids,
+        operator_id,
+        STOCKTAKE_SOURCE_MANUAL,
+        None,
+    )?;
+    Ok(task_no)
+}
+
+/// 按默认范围创建盘点任务：在售非服务类、有库存或被冻结的全部 SKU。
+/// period 为 YYYY-MM（月度盘点归属月），前端手动触发；来源记 MONTHLY。
+#[tauri::command]
+pub fn create_stocktake_auto(
+    period: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let (operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let skus = checkout_core::purchase::stocktake_auto_scope(&conn)?;
+    let task_no = gen_no("ST");
+    let source = if period.is_some() {
+        STOCKTAKE_SOURCE_MONTHLY
+    } else {
+        STOCKTAKE_SOURCE_MANUAL
+    };
+    checkout_core::purchase::create_stocktake(
+        &conn,
+        &task_no,
+        &skus,
+        operator_id,
+        source,
+        period.as_deref(),
+    )?;
     Ok(task_no)
 }
 
 /// 实盘录入（盘点差异 → DIFF_REVIEW 待审批）。
+/// 注意：盘点明细键是 sku_id，不是采购验收的 item_id；
+/// 此前误用 item_id 当 sku_id，导致非同序 SKU 报「盘点单不含 SKU」。
 #[tauri::command]
 pub fn record_count(
     task_no: String,
-    counts: Vec<ReceiveItemInput>,
+    counts: Vec<CountItemInput>,
     state: State<'_, AppState>,
 ) -> Result<()> {
     let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
     let rows: Vec<(i64, i64)> = counts
         .into_iter()
-        .map(|c| (c.item_id, c.received_qty))
+        .map(|c| (c.sku_id, c.counted_qty))
         .collect();
     checkout_core::purchase::record_count(&conn, &task_no, &rows)
 }
@@ -3013,6 +3052,134 @@ pub fn record_count(
 pub fn approve_stocktake(task_no: String, state: State<'_, AppState>) -> Result<()> {
     let (approver_id, conn) = admin_guard(&state, PERM_STOCKTAKE_APPROVE)?;
     checkout_core::purchase::approve_stocktake(&conn, &task_no, approver_id)
+}
+
+/// 账面构成分解（期初+入库−出库−已确认报损±调整−待处理报损冻结）。
+#[tauri::command]
+pub fn book_breakdown(
+    sku_id: i64,
+    state: State<'_, AppState>,
+) -> Result<checkout_core::purchase::BookBreakdown> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    checkout_core::purchase::book_breakdown(&conn, sku_id)
+}
+
+// ===== 报损单（M0021）=====
+
+#[derive(Debug, Deserialize)]
+pub struct LossItemInput {
+    pub sku_id: i64,
+    pub qty: i64,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LossRow {
+    pub loss_no: String,
+    pub status: String,
+    pub reason: Option<String>,
+    pub operator_id: i64,
+    pub created_at: String,
+    pub confirmed_at: Option<String>,
+    pub item_count: i64,
+    pub total_qty: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LossItemRow {
+    pub id: i64,
+    pub sku_id: i64,
+    pub product_name: String,
+    pub qty: i64,
+    pub reason: Option<String>,
+}
+
+/// 创建报损单：PENDING 占用冻结库存，不扣实际库存。
+#[tauri::command]
+pub fn create_loss(
+    items: Vec<LossItemInput>,
+    reason: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    let (operator_id, conn) = admin_guard(&state, PERM_INVENTORY_ADJUST)?;
+    let rows: Vec<(i64, i64, Option<String>)> = items
+        .into_iter()
+        .map(|i| (i.sku_id, i.qty, i.reason))
+        .collect();
+    let loss_no = gen_no("LS");
+    checkout_core::loss::create_loss(&conn, &loss_no, &rows, operator_id, reason.as_deref())?;
+    Ok(loss_no)
+}
+
+/// 确认报损：写 LOSS 事件真正扣库存并释放冻结（需库存调整权限）。
+#[tauri::command]
+pub fn confirm_loss(loss_no: String, state: State<'_, AppState>) -> Result<()> {
+    let (operator_id, conn) = admin_guard(&state, PERM_INVENTORY_ADJUST)?;
+    checkout_core::loss::confirm_loss(&conn, &loss_no, operator_id)
+}
+
+/// 取消报损：释放冻结，不写库存流水。
+#[tauri::command]
+pub fn cancel_loss(loss_no: String, state: State<'_, AppState>) -> Result<()> {
+    let (_operator_id, conn) = admin_guard(&state, PERM_INVENTORY_ADJUST)?;
+    checkout_core::loss::cancel_loss(&conn, &loss_no)
+}
+
+/// 报损单列表（最近 100 单）。
+#[tauri::command]
+pub fn list_losses(state: State<'_, AppState>) -> Result<Vec<LossRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let mut stmt = conn.prepare(
+        "SELECT o.loss_no, o.status, o.reason, o.operator_id, o.created_at, o.confirmed_at,
+                (SELECT COUNT(*) FROM loss_order_item i WHERE i.loss_id=o.loss_id),
+                COALESCE((SELECT SUM(i.qty) FROM loss_order_item i WHERE i.loss_id=o.loss_id),0)
+         FROM loss_order o ORDER BY o.created_at DESC LIMIT 100",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(LossRow {
+            loss_no: r.get(0)?,
+            status: r.get(1)?,
+            reason: r.get(2)?,
+            operator_id: r.get(3)?,
+            created_at: r.get(4)?,
+            confirmed_at: r.get(5)?,
+            item_count: r.get(6)?,
+            total_qty: r.get(7)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// 报损单明细。
+#[tauri::command]
+pub fn get_loss_items(loss_no: String, state: State<'_, AppState>) -> Result<Vec<LossItemRow>> {
+    let (_operator_id, conn) = admin_guard(&state, "purchase.create")?;
+    let mut stmt = conn.prepare(
+        "SELECT i.id, i.sku_id, COALESCE(p.spu_name,''), i.qty, i.reason
+         FROM loss_order_item i
+         JOIN sku s ON s.sku_id=i.sku_id
+         JOIN spu p ON p.spu_id=s.spu_id
+         JOIN loss_order o ON o.loss_id=i.loss_id
+         WHERE o.loss_no=?1 ORDER BY i.id",
+    )?;
+    let rows = stmt.query_map([&loss_no], |r| {
+        Ok(LossItemRow {
+            id: r.get(0)?,
+            sku_id: r.get(1)?,
+            product_name: r.get(2)?,
+            qty: r.get(3)?,
+            reason: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
 }
 
 // ===== 会员管理（§13 四账）=====
@@ -6155,8 +6322,15 @@ pub fn run() {
             list_stocktakes,
             get_stocktake_items,
             create_stocktake,
+            create_stocktake_auto,
             record_count,
             approve_stocktake,
+            book_breakdown,
+            create_loss,
+            confirm_loss,
+            cancel_loss,
+            list_losses,
+            get_loss_items,
             create_member,
             list_members,
             recharge_member,
