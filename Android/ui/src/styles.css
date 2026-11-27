@@ -687,16 +687,27 @@ h2 { font-size: var(--font-lg); }
   padding: var(--space-1) var(--space-2); letter-spacing: 0.05em;
 }
 .report-nav-item {
+  position: relative;
   text-align: left; padding: var(--space-2); border: none; border-radius: var(--radius-sm);
   background: transparent; color: var(--text); cursor: pointer; font-size: var(--font-sm);
 }
 .report-nav-item:hover { background: var(--surface-subtle); }
-/* 选中态：用户裁决弃黑底，改淡红底 + 朱橙左侧标记条（纵向侧栏用左标记条，方位语义比下划线正确） */
+/* 选中态：用户裁决弃黑底，改淡红底 + 朱橙左侧标记条（纵向侧栏用左标记条，方位语义比下划线正确）。
+   标记条用独立伪元素画方角；inset 阴影会跟随宿主圆角导致竖线两端变圆，故不再使用。
+   上下各缩进一个圆角半径，让方角竖线完整落在圆角背景块内、不越出弧线。 */
 .report-nav-item.active {
   background: var(--brand-subtle);
   color: var(--text-brand);
   font-weight: 600;
-  box-shadow: inset var(--p-hairline) 0 0 var(--brand);
+}
+.report-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--radius-sm);
+  bottom: var(--radius-sm);
+  width: var(--hairline);
+  background: var(--brand);
 }
 /* 小票「编辑 + 预览」并排（用户裁决）：触屏宽屏两列对照，窄屏/矮屏回退单列 */
 .receipt-editor-grid {
