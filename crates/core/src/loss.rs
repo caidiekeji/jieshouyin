@@ -5,6 +5,7 @@
 //!   - 建单 PENDING：只占 locked_qty（冻结），inv_stock.qty 与 inv_trans 不变；
 //!   - 确认 CONFIRMED：写 LOSS 事件真正扣 qty，并释放对应 locked_qty；
 //!   - 取消 CANCELLED：释放 locked_qty，库存与流水都不变。
+//!
 //! 有效可售 = qty - locked_qty；建单校验的是这个口径，避免同一批货被重复报损。
 
 use crate::constants::{LOSS_CANCELLED, LOSS_CONFIRMED, LOSS_PENDING};
