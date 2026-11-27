@@ -2,7 +2,8 @@
 
 /* 全局基础：所有数值均引用语义层 token，禁止裸值 */
 * { box-sizing: border-box; }
-html, body, #app { height: 100%; margin: var(--space-0); }
+/* dvh 跟随系统栏收放（状态栏/手势条显隐时视口会变），100% 在部分 WebView 会停在旧高度 */
+html, body, #app { height: 100%; height: 100dvh; margin: var(--space-0); }
 body {
   font-family: var(--font-family);
   background: var(--bg);
@@ -12,7 +13,15 @@ body {
 }
 button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
-.app-root { height: 100%; }
+/* 全局安全区：edge-to-edge 下 WebView 铺满物理屏，所有视图统一在顶栏/底栏之间排布。
+   桌面上 env() 为 0，max() 兜底仍留出 12px，不影响既有观感。 */
+.app-root {
+  height: 100%;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
 .fatal { padding: var(--space-6); color: var(--danger); }
 
 .center-screen {
@@ -20,6 +29,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   /* 矮屏（手机横屏）认证卡可能高于视口：容器必须可滚，safe center 保证内容矮时居中、
      高时从顶部开始不裁上边（裸 center 在溢出时会把卡片顶部推出滚出区） */
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -205,7 +216,15 @@ h2 { font-size: var(--font-lg); }
 
 /* 主体行：左侧图标导航 + 内容区；竖屏窄屏时导航转底部栏（见 portrait 媒体查询） */
 .shell-body { flex: 1; min-height: 0; display: flex; }
-.shell-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* 最后一道滚动兜底：任何页面内部若有固定高度元素把内容顶出视口，都能在这里滚到，
+   不再出现「内容显示不全且无法滚达」。已有独立滚动容器（.main-simple / .admin-main /
+   .cart-list）的页面高度恰好等于容器，不会被迫产生双重滚动条。 */
+.shell-main {
+  flex: 1; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .nav-rail {
   width: var(--nav-rail-width);
   flex: 0 0 auto;
@@ -725,6 +744,8 @@ h2 { font-size: var(--font-lg); }
 .report-toolbar { row-gap: var(--space-2); margin-bottom: var(--space-4); }
 .report-toolbar .input { flex: none; min-width: 0; }
 .report-table-wrap { max-height: 60vh; overflow: auto; }
+/* 表头随表格自身滚动钉顶：长报表滚到中部仍看得到列名，不必回到顶部对照 */
+.report-table-wrap .tbl th { position: sticky; top: var(--space-0); z-index: 1; background: var(--panel); }
 /* 报表表格按内容收缩列宽，避免文本列撑满后把数字列推到最右、中间留大片空白；
    数字列仍右对齐，表头与数据逐列对齐，各报表排版一致。 */
 .report-table-wrap .tbl { width: max-content; max-width: 100%; }
@@ -1238,8 +1259,9 @@ input, textarea, select {
   }
 }
 
-/* 手机横屏（矮屏，Android 主力场景）：顶栏与两栏收窄，把高度还给商品与购物车 */
-@media (orientation: landscape) and (max-height: 620px) {
+/* 手机横屏（矮屏 + 窄边，Android 主力场景）：顶栏与两栏收窄，把高度还给商品与购物车。
+   加 (max-width: 959px) 与平板横屏区分：平板短边够高、宽度更大，保留上面的宽松密度。 */
+@media (orientation: landscape) and (max-height: 620px) and (max-width: 959px) {
   .topbar {
     height: var(--layout-topbar-height-compact);
     padding: 0 var(--space-2);
@@ -1315,6 +1337,35 @@ input, textarea, select {
   .dtp-day { width: calc(var(--touch-target-min) * 0.75); height: calc(var(--touch-target-min) * 0.75); font-size: var(--font-sm); }
   .dtp-chip { min-height: calc(var(--touch-target-min) * 0.75); }
   .dtp-nav { min-width: calc(var(--touch-target-min) * 0.75); min-height: calc(var(--touch-target-min) * 0.75); }
+
+  /* 全局兜底之外的两处「固定高度把内容顶出视口」专项：
+     1) 购物车结算区 min-content 高约 280~330px，矮屏下会把 .cart-list 压到 0、
+        结算区自身落到视口下方。改为面板整体滚动 + 收款按钮钉底，只留一个滚动容器；
+     2) 场景看板 --scene-board-max-height:210px 是绝对值，不随视口收缩，
+        矮屏下头部 chips + 网格超出面板。取消固定高度，交给上层兜底滚动。 */
+  .cart-panel { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .cart-list { flex: none; overflow: visible; }
+  .checkout-actions {
+    position: sticky; bottom: var(--space-0); z-index: 1;
+    background: var(--panel); padding-bottom: var(--space-1);
+  }
+  .scene-grid { max-height: none; overflow: visible; }
+
+  /* 日期面板绝对定位于 .dtp，而祖先 .admin-main 是 overflow-y:auto，
+     面板下半部会被祖先裁剪。矮屏改为视口居中 fixed 层，保证「应用」按钮可达。 */
+  .dtp-panel {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - var(--space-8));
+    max-width: min(94vw, 480px);
+    overflow-y: auto;
+  }
+}
+
+/* 平板横屏：短边仍达 620~800px，不套用手机压缩档。
+   只把顶栏高度收到中间档（48px），导航保留标签，两栏宽度维持宽松值。 */
+@media (orientation: landscape) and (min-height: 621px) and (max-height: 900px) and (pointer: coarse) {
+  .topbar { height: var(--layout-topbar-height-compact); }
+  .modal { max-height: 92vh; }
 }
 
 /* 极矮视口（≤420px，16:9 手机横屏 360dp 常见）：现金键盘与收银主按钮再收一档
@@ -1323,8 +1374,54 @@ input, textarea, select {
   .cash-key { height: calc(var(--touch-target-min) - var(--space-2)); }
   .cash-amount input { min-height: calc(var(--touch-target-min) - var(--space-2)); }
   .checkout-actions .btn { min-height: calc(var(--touch-target-min) - var(--space-2)); }
+  /* 主按钮在基础规则里用 .btn.primary 单独加权，必须同级选择器才能覆盖，否则仍保持 56px */
+  .checkout-actions .btn.primary { min-height: calc(var(--touch-target-min) - var(--space-2)); }
   .pay-method-btn { min-height: calc(var(--touch-target-min) - var(--space-2)); }
 }
+
+/* 认证四屏（启动/登录/选行业/激活）手机横屏紧凑档：
+   步骤条 + 品牌 + 表单 + 按钮纵向叠放在 ~360px 可用高度里必然超高，
+   这里只压内边距与字号、保留全部文字信息，配合 .center-screen 滚动兜底，
+   保证底部主按钮不被手势条吞掉。 */
+@media (orientation: landscape) and (max-height: 620px) and (max-width: 959px) {
+  .center-screen { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
+  .auth-card { width: min(560px, 94vw); padding: var(--space-4); gap: var(--space-2); }
+  .industry-card {
+    width: min(840px, 96vw);
+    padding: var(--space-3) var(--space-4);
+  }
+  .industry-card .industry-list { gap: var(--space-2); margin-bottom: var(--space-2); }
+  .industry-item { padding: var(--space-2); gap: var(--space-0_5); }
+  .industry-item strong { font-size: var(--font-sm); }
+  .industry-item .small { font-size: var(--font-2xs); line-height: 1.25; }
+  .setup-step { font-size: var(--font-2xs); }
+  .setup-step-no { width: 20px; height: 20px; font-size: var(--font-2xs); }
+  /* 品牌区横排：logo 与标题并排，省下一个 56px 的纵向块 */
+  .auth-brand { flex-direction: row; text-align: left; gap: var(--space-2); margin-bottom: var(--space-1); }
+  .auth-brand .auth-logo { width: var(--space-8); height: var(--space-8); }
+  .auth-brand h1 { font-size: var(--font-lg); }
+  .brand { margin-bottom: var(--space-1); }
+  .brand h1 { font-size: var(--font-lg); }
+  .input-lg { padding: var(--space-2) var(--space-3); font-size: var(--font-base); }
+  .activate-actions .btn, .auth-card > .btn-lg { min-height: var(--touch-target-min); }
+  .lock-card { padding: var(--space-4); gap: var(--space-2); }
+  .lock-card .auth-logo { width: var(--space-8); height: var(--space-8); }
+}
+
+/* 覆盖全屏的固定层（弹窗遮罩/锁机/toast）不继承 .app-root 的 safe-area padding，
+   必须自己避让状态栏与手势条；弹窗高度改用容器百分比，避免 86/94vh 顶进系统栏 */
+.modal-mask, .lock-overlay {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+.modal {
+  max-height: 100%;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.toast { bottom: calc(var(--safe-bottom) + var(--space-4)); }
 
 /* 竖屏（平板竖放/单手操作）：收银两栏改上下堆叠，后台侧栏改横向标签条，
    导航栏从左侧转到底部（拇指热区，触屏单手操作的拇指可达范围在下半屏） */

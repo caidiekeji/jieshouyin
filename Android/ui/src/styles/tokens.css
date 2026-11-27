@@ -404,6 +404,14 @@
   /* 商品缩略图：表格行高内的方形缩略图，40px 足够辨认商品又不过度抢眼 */
   --control-thumb-size: 40px;
 
+  /* 系统栏安全区：Android edge-to-edge 下状态栏/手势条覆盖 WebView，
+     env() 由 viewport-fit=cover 转发；旧 WebView 上报 0 时用 max() 兜底最小留白。
+     所有需要贴边的层（app-root / 弹窗遮罩 / toast）只引用这组语义名。 */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--space-3));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-3));
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
   --layout-wide-max: 92%;
   --layout-pay-label-width: 120px;
   --layout-toast-max-width: 80%;
