@@ -58,7 +58,13 @@ pub fn create_loss(
     tx.execute(
         "INSERT INTO loss_order(loss_no,status,reason,operator_id,created_at)
          VALUES (?1,?2,?3,?4,?5)",
-        params![loss_no, LOSS_PENDING, reason, operator_id, format_utc(&Utc::now())],
+        params![
+            loss_no,
+            LOSS_PENDING,
+            reason,
+            operator_id,
+            format_utc(&Utc::now())
+        ],
     )?;
     let loss_id = tx.last_insert_rowid();
     for (sku, qty, line_reason) in items {
@@ -121,7 +127,13 @@ pub fn confirm_loss(conn: &Connection, loss_no: &str, confirmer_id: i64) -> Resu
     let affected = tx.execute(
         "UPDATE loss_order SET status=?1, confirmer_id=?2, confirmed_at=?3
          WHERE loss_id=?4 AND status=?5",
-        params![LOSS_CONFIRMED, confirmer_id, format_utc(&Utc::now()), loss_id, LOSS_PENDING],
+        params![
+            LOSS_CONFIRMED,
+            confirmer_id,
+            format_utc(&Utc::now()),
+            loss_id,
+            LOSS_PENDING
+        ],
     )?;
     if affected != 1 {
         return Err(CoreError::Validation("报损单已被处理，拒绝重复确认".into()));

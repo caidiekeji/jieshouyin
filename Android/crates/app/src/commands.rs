@@ -3007,10 +3007,7 @@ pub fn create_stocktake(sku_ids: Vec<i64>, state: State<'_, AppState>) -> Result
 /// 按默认范围创建盘点任务：在售非服务类、有库存或被冻结的全部 SKU。
 /// period 为 YYYY-MM（月度盘点归属月），前端手动触发；来源记 MONTHLY。
 #[tauri::command]
-pub fn create_stocktake_auto(
-    period: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<String> {
+pub fn create_stocktake_auto(period: Option<String>, state: State<'_, AppState>) -> Result<String> {
     let (operator_id, conn) = admin_guard(&state, "purchase.create")?;
     let skus = checkout_core::purchase::stocktake_auto_scope(&conn)?;
     let task_no = gen_no("ST");

@@ -161,7 +161,13 @@ pub fn create_stocktake(
     tx.execute(
         "INSERT INTO stocktake(task_no,status,operator_id,source,period,created_at)
          VALUES (?1,'DRAFT',?2,?3,?4,?5)",
-        params![task_no, operator_id, source, period, format_utc(&Utc::now())],
+        params![
+            task_no,
+            operator_id,
+            source,
+            period,
+            format_utc(&Utc::now())
+        ],
     )?;
     let id = tx.last_insert_rowid();
     for &sku in skus {
@@ -224,7 +230,11 @@ pub fn book_breakdown(conn: &Connection, sku_id: i64) -> Result<BookBreakdown> {
          WHERE sku_id=?1 AND warehouse_type='STORE'",
     )?;
     let rows = stmt.query_map([sku_id], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
     })?;
     for row in rows {
         let (kind, reference, qty) = row?;
@@ -456,7 +466,15 @@ mod tests {
             apply_event(&tx, 1, 100, TransType::PURCHASE_IN, None, None, true).unwrap();
             tx.commit().unwrap();
         }
-        create_stocktake(&c, "ST1", &[1], 1, crate::constants::STOCKTAKE_SOURCE_MANUAL, None).unwrap();
+        create_stocktake(
+            &c,
+            "ST1",
+            &[1],
+            1,
+            crate::constants::STOCKTAKE_SOURCE_MANUAL,
+            None,
+        )
+        .unwrap();
         let book: i64 = c
             .query_row("SELECT book_qty FROM stocktake_item", [], |r| r.get(0))
             .unwrap();
