@@ -37,6 +37,14 @@ rsa = { version = "0.9", features = ["sha2"] }
 ureq = "2"
 checkout-core = { path = "crates/core" }
 
+# Android APK 走 debug 构建（Gradle 自动签名），默认 dev profile 会保留完整
+# 调试符号；aarch64 + armv7 打进 universal APK 后体积会膨胀到 400+ MB。
+# 在保持 debug 签名可直接安装的前提下，剥离符号并开启轻量体积优化。
+[profile.dev]
+opt-level = "z"
+debug = false
+strip = "symbols"
+
 [profile.release]
 opt-level = 2
 lto = "thin"
