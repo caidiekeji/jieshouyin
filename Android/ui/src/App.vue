@@ -137,7 +137,7 @@ function onDocClick(e: MouseEvent) {
 onMounted(async () => {
   loadLockCode()
   void listen('lock-request', () => { lockScreen() }).catch(() => {})
-  const saved = localStorage.getItem('checkoutr-theme') as 'light' | 'dark' | null
+  const saved = localStorage.getItem('blcj-theme') as 'light' | 'dark' | null
   if (saved) applyTheme(saved)
   window.addEventListener('keydown', onGlobalKeydown)
   window.addEventListener('click', onDocClick)
@@ -158,12 +158,12 @@ onUnmounted(() => {
     <!-- 认证流程：启动中 / 行业选择 / 在线激活 / 登录 -->
     <AuthView v-else-if="isAuthStage" />
 
-    <!-- 主界面：移动端骨架——左侧图标导航栏（竖屏转底部栏）+ 顶栏（店名/账户）+ 内容区 -->
+    <!-- 主界面：移动端骨架——手机横/竖屏为底部导航栏（Square 式），平板/大屏为左侧图标导航 + 顶栏（店名/账户） -->
     <div v-else class="shell">
       <header class="topbar">
         <div class="logo">
           <img src="/logo.png" class="logo-img" alt="logo" />
-          <span>{{ storeProfile?.store_name || 'Checkout-R' }}</span>
+          <span>{{ storeProfile?.store_name || '贝来' }}</span>
           <span v-if="storeProfile?.industry_name" class="badge">{{ storeProfile.industry_name }}</span>
         </div>
         <div class="user">

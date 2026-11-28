@@ -7,7 +7,7 @@
 use crate::error::{CoreError, Result};
 
 /// 凭据库服务名：Windows Credential Manager 中以该前缀归组。
-pub const SERVICE_NAME: &str = "checkout-r.pay";
+pub const SERVICE_NAME: &str = "BLCJ.pay";
 
 // ── 微信支付凭据字段（§6.8）──────────────────────────────────
 pub const W_MCHID: &str = "wechat.mchid";

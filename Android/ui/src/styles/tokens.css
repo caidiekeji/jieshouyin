@@ -381,17 +381,15 @@
   --layout-topbar-height-compact: 48px;
   --layout-cart-width-compact: 320px;
   --layout-side-nav-width-compact: 132px;
-  /* 导航栏（Android 独立形态）：横屏左侧图标导航，竖屏转底部栏；
-     矮横屏收窄为纯图标，标签只在普通横屏/竖屏显示 */
+  /* 导航栏（Android 独立形态）：手机横屏与竖屏都是底部栏（横滑），平板/大屏为左侧图标导航 */
   --nav-rail-width: 72px;
-  --nav-rail-width-compact: 56px;
   --nav-rail-label-size: 10px;
   /* 后台卡片列表：单卡最小宽，触屏 240px 起，窄屏自动降为单列 */
   --tcard-min-width: 240px;
   /* 横屏商品卡最小宽：112px 时一列挤 3 张、指腹容易误点邻卡；124px 让窄屏回到两列大卡 */
   --pos-card-min-width-compact: 124px;
   --pos-card-min-height-compact: 84px;
-  --pos-card-img-height-compact: 44px;
+  --pos-card-img-size-compact: 44px;
   --pos-pay-chip-min-width: 60px;
   /* 移动端输入框字号：低于 16px 时系统聚焦会二次放大页面，金额/条码录入易错位 */
   --font-input-mobile: 16px;

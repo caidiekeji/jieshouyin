@@ -730,7 +730,7 @@ mod tests {
             let p = LicensePayload {
                 key_id: 1,
                 license_id: "lic_test".into(),
-                product: "checkout-r".into(),
+                product: "BLCJ".into(),
                 license_type: license_type.into(),
                 issued_at: "2026-01-01T00:00:00Z".into(),
                 valid_until: if license_type == LICENSE_ANNUAL {
@@ -994,14 +994,14 @@ mod tests {
         let conn = f.conn();
         let token = f.token("2027-06-01T00:00:00Z", 7, "ANNUAL");
         let snap = svc
-            .activate_with_key(&conn, &token, Some("CKR-AAAA-BBBB-CCCC-DDDD"))
+            .activate_with_key(&conn, &token, Some("BLCJ-AAAA-BBBB-CCCC-DDDD"))
             .unwrap();
         assert_eq!(snap.status, LicenseStatus::ACTIVE);
         // 激活码已落库，后续可凭它联网刷新授权
         let bundle = svc.store.load().unwrap().unwrap();
         assert_eq!(
             bundle.activation_key.as_deref(),
-            Some("CKR-AAAA-BBBB-CCCC-DDDD")
+            Some("BLCJ-AAAA-BBBB-CCCC-DDDD")
         );
     }
 
@@ -1022,14 +1022,14 @@ mod tests {
         let svc = f.service("2026-01-01T00:00:00Z");
         let conn = f.conn();
         let old = f.token("2026-12-01T00:00:00Z", 3, "ANNUAL");
-        svc.activate_with_key(&conn, &old, Some("CKR-KEEP-0000-0000-0000"))
+        svc.activate_with_key(&conn, &old, Some("BLCJ-KEEP-0000-0000-0000"))
             .unwrap();
         let new = f.token("2028-01-01T00:00:00Z", 7, "ANNUAL");
         svc.renew(&conn, &new).unwrap();
         let bundle = svc.store.load().unwrap().unwrap();
         assert_eq!(
             bundle.activation_key.as_deref(),
-            Some("CKR-KEEP-0000-0000-0000"),
+            Some("BLCJ-KEEP-0000-0000-0000"),
             "续期不得丢失激活码，否则后续无法联网刷新"
         );
     }

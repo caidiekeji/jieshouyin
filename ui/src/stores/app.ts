@@ -14,8 +14,26 @@ export type Role = 'CASHIER' | 'MANAGER' | 'ADMIN'
 export type SettingsTab = 'overview' | 'appearance' | 'staff' | 'technicians' | 'system' | 'payment' | 'points' | 'recon' | 'print'
 export type SettingsIcon = 'store' | 'sun' | 'shield' | 'sliders' | 'wallet' | 'star' | 'report' | 'print' | 'users'
 
-const ACTIVATION_PENDING_KEY = 'checkoutr.activation_pending'
-const LOCK_CODE_KEY = 'checkoutr.lock_code'
+const ACTIVATION_PENDING_KEY = 'blcj.activation_pending'
+const LOCK_CODE_KEY = 'blcj.lock_code'
+
+/** 品牌更名迁移：checkoutr.* 旧 localStorage 键一次性搬到 blcj.*，搬完删除旧键（幂等） */
+function migrateLegacyLocalStorageKeys(): void {
+  const pairs: Array<[string, string]> = [
+    ['checkoutr.activation_pending', ACTIVATION_PENDING_KEY],
+    ['checkoutr.lock_code', LOCK_CODE_KEY],
+    ['checkoutr-theme', 'blcj-theme'],
+  ]
+  for (const [oldKey, newKey] of pairs) {
+    const legacy = localStorage.getItem(oldKey)
+    if (legacy != null && localStorage.getItem(newKey) == null) {
+      localStorage.setItem(newKey, legacy)
+      localStorage.removeItem(oldKey)
+    }
+  }
+}
+migrateLegacyLocalStorageKeys()
+
 const LOCK_HASH_RE = /^[0-9a-f]{64}$/
 const ROLE_RANK: Record<Role, number> = { CASHIER: 1, MANAGER: 2, ADMIN: 3 }
 const LICENSE_STATUS_LABEL: Record<string, string> = {
@@ -534,7 +552,7 @@ export const useAppStore = defineStore('app', {
     applyTheme(t: 'light' | 'dark') {
       this.theme = t
       document.documentElement.dataset.theme = t
-      localStorage.setItem('checkoutr-theme', t)
+      localStorage.setItem('blcj-theme', t)
     },
     // ===== 二次授权 =====
     requireSensitiveAuth(permission: string, title: string): Promise<string> {

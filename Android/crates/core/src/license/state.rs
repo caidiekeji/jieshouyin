@@ -86,7 +86,7 @@ mod tests {
         LicensePayload {
             key_id: 1,
             license_id: "lic_t".into(),
-            product: "checkout-r".into(),
+            product: "BLCJ".into(),
             license_type: "ANNUAL".into(),
             issued_at: "2026-01-01T00:00:00Z".into(),
             valid_until: Some("2027-01-01T00:00:00Z".into()),

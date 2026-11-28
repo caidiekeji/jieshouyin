@@ -10,7 +10,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_LICENSE_LEN: usize = 4096;
-pub const EXPECTED_PRODUCT: &str = "checkout-r";
+pub const EXPECTED_PRODUCT: &str = "BLCJ";
 /// 默认密钥编号：存量激活码没有 key_id 字段，按 1 号公钥验签，平滑兼容。
 pub const DEFAULT_KEY_ID: u32 = 1;
 

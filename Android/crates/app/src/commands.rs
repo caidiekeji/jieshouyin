@@ -1181,7 +1181,7 @@ pub struct PaymentInput {
 }
 
 #[derive(Debug, Serialize)]
-pub struct CheckoutResult {
+pub struct BLCJesult {
     pub order_no: String,
     pub status: String,
     /// Native 支付二维码内容（MICROPAY/现金/储值为 None）。
@@ -1483,7 +1483,7 @@ pub async fn checkout(
     table_code: Option<String>,
     table_id: Option<i64>,
     state: State<'_, AppState>,
-) -> Result<CheckoutResult> {
+) -> Result<BLCJesult> {
     let license = state
         .license
         .lock()
@@ -1860,7 +1860,7 @@ pub async fn checkout(
 
     if has_native {
         // 券保持 LOCKED，等 finalize 收敛为 REDEEMED（取消则回 UNUSED）
-        return Ok(CheckoutResult {
+        return Ok(BLCJesult {
             order_no,
             status: "PENDING_PAYMENT".into(),
             code_url: native_code_url,
@@ -1871,7 +1871,7 @@ pub async fn checkout(
     let points_earned = finalize_order_assets(&conn, &order_no)?;
     auto_print_receipt(&conn, &order_no);
 
-    Ok(CheckoutResult {
+    Ok(BLCJesult {
         order_no,
         status: "COMPLETED".into(),
         code_url: None,
@@ -2301,7 +2301,7 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
     vars.insert(
         "store_name".into(),
         if store_name.trim().is_empty() {
-            "Checkout-R".into()
+            "贝来".into()
         } else {
             store_name
         },
@@ -2321,7 +2321,7 @@ fn print_receipt_inner(conn: &Connection, order_no: &str) -> Result<String> {
     vars.insert("items".into(), items.join("\n"));
     vars.insert("change".into(), cents_to_yuan(change_total));
     // 二维码承载真实可访问的订单链接；未配置查询页时退化为单号文本，
-    // 不再输出 checkout-r:// 这种谁也打不开的伪链接。
+    // 不再输出 BLCJ:// 这种谁也打不开的伪链接。
     let qr_base = cfg_get(conn, CFG_RECEIPT_QR_BASE)?.unwrap_or_default();
     let qr_content = if qr_base.trim().is_empty() {
         order_no.to_string()
@@ -4855,7 +4855,7 @@ pub fn issue_coupon(
 pub async fn poll_native_pay(
     order_no: String,
     state: State<'_, AppState>,
-) -> Result<CheckoutResult> {
+) -> Result<BLCJesult> {
     {
         let license = state
             .license
@@ -4895,7 +4895,7 @@ pub async fn poll_native_pay(
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        return Ok(CheckoutResult {
+        return Ok(BLCJesult {
             order_no,
             status,
             code_url: None,
@@ -4926,7 +4926,7 @@ pub async fn poll_native_pay(
             )?;
             let points_earned = finalize_order_assets(&conn, &order_no)?;
             auto_print_receipt(&conn, &order_no);
-            Ok(CheckoutResult {
+            Ok(BLCJesult {
                 order_no,
                 status: "COMPLETED".into(),
                 code_url: None,
@@ -4939,20 +4939,20 @@ pub async fn poll_native_pay(
                 rusqlite::params![order_no, out_trade_no],
             )?;
             release_order_coupon(&conn, &order_no)?;
-            Ok(CheckoutResult {
+            Ok(BLCJesult {
                 order_no,
                 status: "CLOSED".into(),
                 code_url: None,
                 points_earned: 0,
             })
         }
-        PaymentState::FAILED(msg) => Ok(CheckoutResult {
+        PaymentState::FAILED(msg) => Ok(BLCJesult {
             order_no,
             status: format!("FAILED:{msg}"),
             code_url: None,
             points_earned: 0,
         }),
-        PaymentState::USERPAYING => Ok(CheckoutResult {
+        PaymentState::USERPAYING => Ok(BLCJesult {
             order_no,
             status: "PENDING_PAYMENT".into(),
             code_url: None,
@@ -6151,7 +6151,7 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             #[cfg(target_os = "android")]
             checkout_core::paycreds::init_store_dir(data_dir.clone())?;
-            let db_path = data_dir.join("checkoutr.db");
+            let db_path = data_dir.join("beilai.db");
             let conn = init_db(&db_path)?;
 
             // 支付网关装配：凭据已配置 → 真实渠道；未配置/加载失败 → 本地确认兜底。

@@ -17,7 +17,7 @@ pub struct LicenseBundle {
     pub device_fingerprint: Option<String>,
     pub activated_at: String,
     pub last_known_time: String,
-    /// 在线激活时使用的激活码（CKR-XXXX-XXXX-XXXX-XXXX）。
+    /// 在线激活时使用的激活码（BLCJ-XXXX-XXXX-XXXX-XXXX）。
     /// 保存它是为了后续能联网向激活服务刷新授权（撤销/过期/续期以服务端为准）；
     /// 离线导入的授权没有激活码，此处为空。
     #[serde(default)]
@@ -47,7 +47,7 @@ pub struct EncryptedFileStore {
     key_material: String,
 }
 
-const EMBEDDED_SALT: &str = "checkout-r-license-storage-v1";
+const EMBEDDED_SALT: &str = "BLCJ-license-storage-v1";
 
 impl EncryptedFileStore {
     pub fn new(path: std::path::PathBuf, fingerprint: Option<&str>) -> Self {
@@ -156,7 +156,7 @@ pub struct KeyringStore {
 impl KeyringStore {
     pub fn new() -> Self {
         Self {
-            service: "CheckoutR".into(),
+            service: "BLCJ".into(),
             user: "license".into(),
         }
     }
@@ -227,7 +227,7 @@ mod tests {
             payload: LicensePayload {
                 key_id: 1,
                 license_id: "lic_x".into(),
-                product: "checkout-r".into(),
+                product: "BLCJ".into(),
                 license_type: "PERPETUAL".into(),
                 issued_at: "2026-01-01T00:00:00Z".into(),
                 valid_until: None,

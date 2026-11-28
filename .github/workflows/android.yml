@@ -68,6 +68,15 @@ jobs:
         working-directory: Android/crates/app
         run: npx -y @tauri-apps/cli@2 android init --ci
 
+      # tauri android init 不会用品牌 logo 派生安卓启动图标（默认落在 Tauri 图），
+      # 必须显式用 tauri icon 从仓库根 1536² logo 生成全套 mipmap/自适应图标再拷入 res。
+      - name: Generate Android launcher icons from brand logo
+        working-directory: Android/crates/app
+        run: |
+          npx -y @tauri-apps/cli@2 icon ../../../logo.png -o /tmp/tauri-icons
+          cp -r /tmp/tauri-icons/android/res/. gen/android/app/src/main/res/
+          ls gen/android/app/src/main/res/mipmap-xxxhdpi/
+
       # 强制横屏（手机横竖屏切换不影响收银布局）：Tauri 2.12 无 orientation API，
       # 只能在 init 生成的 AndroidManifest 上注入；sensorLandscape 允许两个横屏方向（跟随重力翻转 180°）。
       - name: Lock orientation to landscape
@@ -95,6 +104,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: checkout-r-android-apk
+          name: beilai-android-apk
           path: Android/crates/app/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error

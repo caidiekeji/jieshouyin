@@ -1,4 +1,4 @@
-import { computed, nextTick } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { formatMoney } from '../api'
 import { ICON_SIZE, CENTS_PER_YUAN } from '../constants'
@@ -40,6 +40,9 @@ const {
   cashDialogOpen, cashDialogInput, payAuthCode, payCodeInput,
   nativeDialog, nativeMode, parked, parkDialogOpen,
 } = posRefs
+
+/** 手机版购物车覆盖层开合：手机档商品区全宽、购物车右滑覆盖；平板双栏常驻不用此状态 */
+const cartOpen = ref(false)
 
 const {
   shiftRows, openingFloat, actualCash, differenceReason,
@@ -246,6 +249,7 @@ const goPOS = () => { app.goPOS(); void nextTick(() => pos.focusScan()) }
 const goProducts = () => app.goProducts()
 
   return {
+    cartOpen,
     ICON_SIZE,
     CENTS_PER_YUAN,
     formatMoney,

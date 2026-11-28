@@ -401,7 +401,7 @@ impl PaymentGateway for LocalConfirmGateway {
         Ok(PayOutcome {
             state: PaymentState::USERPAYING,
             trade_no: None,
-            code_url: Some(format!("checkout-r://native/{}", req.out_trade_no)),
+            code_url: Some(format!("BLCJ://native/{}", req.out_trade_no)),
         })
     }
 

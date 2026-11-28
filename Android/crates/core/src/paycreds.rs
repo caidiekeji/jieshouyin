@@ -8,7 +8,7 @@
 use crate::error::{CoreError, Result};
 
 /// 凭据库服务名：Windows Credential Manager 中以该前缀归组。
-pub const SERVICE_NAME: &str = "checkout-r.pay";
+pub const SERVICE_NAME: &str = "BLCJ.pay";
 
 // ── 微信支付凭据字段（§6.8）──────────────────────────────────
 pub const W_MCHID: &str = "wechat.mchid";
@@ -131,7 +131,7 @@ fn derive_key() -> Result<[u8; 32]> {
     let id = crate::license::fingerprint::android_device_id()
         .ok_or_else(|| CoreError::Other("无法读取设备标识，凭据库不可用".into()))?;
     let mut hasher = Sha256::new();
-    hasher.update(b"checkout-r-pay-creds-v1:");
+    hasher.update(b"BLCJ-pay-creds-v1:");
     hasher.update(id.as_bytes());
     Ok(hasher.finalize().into())
 }

@@ -13,6 +13,7 @@ const {
   activeTable,
   addPaySplit,
   cart,
+  cartOpen,
   cashTendered,
   changeQty,
   channelEnabled,
@@ -59,9 +60,10 @@ const iconSize = ctxIconSize ?? ICON_SIZE
 </script>
 
 <template>
-  <section class="panel cart-panel">
+  <section class="panel cart-panel" :class="{ 'cart-open': cartOpen }">
     <h3>
       购物车 <span class="badge">{{ cart.length }}</span>
+      <button class="btn ghost btn-sm cart-close" @click="cartOpen = false">收起</button>
       <button
         v-if="activeTable"
         class="btn btn-sm ghost cart-order"
@@ -258,4 +260,15 @@ const iconSize = ctxIconSize ?? ICON_SIZE
       <button v-if="lastOrder && printAuto" class="btn ghost full" @click="printReceipt">重打小票 {{ lastOrder }}</button>
     </div>
   </section>
+
+  <!-- 手机版浮动购物车按钮：商品区全宽时由此开合右侧覆盖层；平板双栏常驻隐藏 -->
+  <button
+    type="button"
+    class="cart-fab"
+    :aria-label="cartOpen ? '收起购物车' : `打开购物车，共 ${cart.length} 件商品`"
+    @click="cartOpen = !cartOpen"
+  >
+    <Icon name="cart" :size="iconSize.md" />
+    <span class="cart-fab-badge">{{ cart.length }}</span>
+  </button>
 </template>

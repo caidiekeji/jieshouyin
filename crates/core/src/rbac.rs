@@ -361,7 +361,7 @@ mod tests {
             payload: Some(LicensePayload {
                 key_id: 1,
                 license_id: "l".into(),
-                product: "checkout-r".into(),
+                product: "BLCJ".into(),
                 license_type: "PERPETUAL".into(),
                 issued_at: "2026-01-01T00:00:00Z".into(),
                 valid_until: None,

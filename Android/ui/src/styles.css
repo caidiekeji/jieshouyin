@@ -448,6 +448,10 @@ h2 { font-size: var(--font-lg); }
 .pos-card-meta { color: var(--muted); font-size: var(--font-xs); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pos-empty { grid-column: 1 / -1; }
 
+/* 手机版购物车覆盖层控件：基础（平板双栏常驻）隐藏，手机横屏档启用 */
+.cart-fab { display: none; }
+.cart-close { display: none; }
+
 /* 收银页通用页头与组件骨架：行业页各自写文案，这里只管对齐与触控尺度 */
 .pos-page-head {
   display: flex; align-items: center; gap: var(--space-2);
@@ -622,6 +626,7 @@ h2 { font-size: var(--font-lg); }
 .config-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 /* 凭据渠道按钮行：两个入口并列，不铺满 */
 .cred-channel-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
+.cred-fields { display: grid; grid-template-columns: 1fr; gap: var(--space-3); }
 .cred-field { gap: var(--space-1); }
 .cred-field .input { width: 100%; }
 /* 字段标签行：右侧「已配置 + 删除」弱化展示，删除走 link 不抢视觉 */
@@ -1259,9 +1264,19 @@ input, textarea, select {
   }
 }
 
-/* 手机横屏（矮屏 + 窄边，Android 主力场景）：顶栏与两栏收窄，把高度还给商品与购物车。
-   加 (max-width: 959px) 与平板横屏区分：平板短边够高、宽度更大，保留上面的宽松密度。 */
-@media (orientation: landscape) and (max-height: 620px) and (max-width: 959px) {
+/* 手机横屏（Android 主力场景，全设备锁横屏）：以「短边高度 ≤620px」单判据识别——
+   普通手机横屏 340~420dp、8 寸小平板横屏约 530dp 都落进本档，宽度不参与判别
+   （低密度大屏手机的 dp 宽可能超 959，双条件会把它漏进平板档，布局过挤）。
+   顶栏与两栏收窄，把高度还给商品与购物车；平板横屏短边 ≥621px 不受影响。 */
+@media (orientation: landscape) and (max-height: 620px) {
+  /* 手机字号档：语义层整体降一档（14→13、16→14、18→15、20→16），
+     全站引用 --font-* 的地方自动生效，组件层零改动；小字档（10/12/13px）保持不动 */
+  :root {
+    --font-base: 13px;
+    --font-md: 14px;
+    --font-lg: 15px;
+    --font-xl: 16px;
+  }
   .topbar {
     height: var(--layout-topbar-height-compact);
     padding: 0 var(--space-2);
@@ -1270,16 +1285,68 @@ input, textarea, select {
   .logo { font-size: var(--font-sm); gap: var(--space-1); }
   .logo-img { width: var(--space-5); height: var(--space-5); }
   .logo .badge { display: none; }
-  /* 横屏矮屏：导航栏收窄为纯图标，把宽度还给内容区 */
-  .nav-rail { width: var(--nav-rail-width-compact); padding: var(--space-1) var(--space-0_5); gap: var(--space-0_5); }
-  .rail-label { display: none; }
+  /* 手机档导航转底部栏（Square 式 5-tab 形态）：图标+小字横滑，拇指热区；结构同竖屏备用档 */
+  .shell-body { flex-direction: column; }
+  .shell-main { order: 1; }
+  .nav-rail {
+    order: 2;
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    border-right: 0;
+    border-top: var(--border-width) solid var(--border);
+    padding: var(--space-1);
+    padding-bottom: max(var(--space-1), env(safe-area-inset-bottom));
+    padding-left: max(var(--space-1), env(safe-area-inset-left));
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .nav-rail::-webkit-scrollbar { display: none; }
+  .nav-rail-item { flex: 0 0 auto; min-width: var(--touch-target-min); }
+  .rail-label { display: block; font-size: var(--font-2xs); }
   .user-name { max-width: calc(var(--space-8) * 2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .role-tag { display: none; }
 
+  /* 收银页单列：商品区全宽；购物车降为右侧覆盖层，浮动按钮（cart-fab）开合 */
   .pos-layout {
-    grid-template-columns: minmax(0, 1fr) var(--layout-cart-width-compact);
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-2);
     padding: var(--space-2);
+  }
+  .cart-panel {
+    position: fixed;
+    top: var(--layout-topbar-height-compact);
+    right: 0;
+    bottom: calc(var(--touch-target-min) + var(--space-2));
+    width: min(340px, 86vw);
+    max-height: none;
+    z-index: var(--z-overlay);
+    transform: translateX(105%);
+    transition: transform var(--duration-fast);
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+    box-shadow: var(--shadow-float);
+  }
+  .cart-panel.cart-open { transform: translateX(0); }
+  .cart-close { display: inline-flex; }
+  .cart-fab {
+    position: fixed;
+    right: var(--space-3);
+    bottom: calc(var(--touch-target-min) + var(--space-3));
+    display: flex; align-items: center; justify-content: center;
+    width: calc(var(--touch-target-min) + var(--space-1)); height: calc(var(--touch-target-min) + var(--space-1));
+    border: 0; border-radius: var(--radius-md);
+    background: var(--brand); color: var(--brand-contrast);
+    cursor: pointer;
+    z-index: var(--z-overlay);
+    box-shadow: var(--shadow-float);
+  }
+  .cart-fab-badge {
+    position: absolute; top: calc(var(--space-1) * -1); right: calc(var(--space-1) * -1);
+    min-width: var(--space-5); padding: 0 var(--space-1);
+    border-radius: var(--radius-xs);
+    background: var(--text); color: var(--panel);
+    font-size: var(--font-2xs); font-variant-numeric: tabular-nums;
+    text-align: center;
   }
   .panel { padding: var(--space-2); }
   .pos-page-head { margin-bottom: var(--space-1); }
@@ -1289,7 +1356,7 @@ input, textarea, select {
     gap: var(--space-2);
   }
   .pos-card { min-height: var(--pos-card-min-height-compact); padding: var(--space-2); }
-  .pos-card-img { height: var(--pos-card-img-height-compact); }
+  .pos-card-img { width: var(--pos-card-img-size-compact); height: var(--pos-card-img-size-compact); }
   .pos-card-name { font-size: var(--font-sm); }
   .pos-card-meta, .scan-hint { display: none; }
   .scan-search .input { padding-right: var(--space-3); }
@@ -1361,8 +1428,8 @@ input, textarea, select {
   }
 }
 
-/* 平板横屏：短边仍达 620~800px，不套用手机压缩档。
-   只把顶栏高度收到中间档（48px），导航保留标签，两栏宽度维持宽松值。 */
+/* 平板横屏：短边 621~900px，不套用手机压缩档，保留宽松密度（导航带标签、大商品卡）。
+   只把顶栏高度收到中间档（48px），弹窗上限微收防止顶进状态栏。 */
 @media (orientation: landscape) and (min-height: 621px) and (max-height: 900px) and (pointer: coarse) {
   .topbar { height: var(--layout-topbar-height-compact); }
   .modal { max-height: 92vh; }
@@ -1379,33 +1446,49 @@ input, textarea, select {
   .pay-method-btn { min-height: calc(var(--touch-target-min) - var(--space-2)); }
 }
 
-/* 认证四屏（启动/登录/选行业/激活）手机横屏紧凑档：
-   步骤条 + 品牌 + 表单 + 按钮纵向叠放在 ~360px 可用高度里必然超高，
-   这里只压内边距与字号、保留全部文字信息，配合 .center-screen 滚动兜底，
-   保证底部主按钮不被手势条吞掉。 */
-@media (orientation: landscape) and (max-height: 620px) and (max-width: 959px) {
-  .center-screen { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
-  .auth-card { width: min(560px, 94vw); padding: var(--space-4); gap: var(--space-2); }
-  .industry-card {
-    width: min(840px, 96vw);
-    padding: var(--space-3) var(--space-4);
-  }
-  .industry-card .industry-list { gap: var(--space-2); margin-bottom: var(--space-2); }
-  .industry-item { padding: var(--space-2); gap: var(--space-0_5); }
+/* 认证四屏（启动/登录/选行业/激活）手机横屏档 = 一屏全显，不靠滚动兜底：
+   判据同分档体系（短边 ≤620px，宽度不限）。高度账（360dp 视口、可用 ~328dp）——
+   卡片内距 16 + 步骤条 18 + 品牌行 24 + 标题 20 + 行业两行三列 98 + 店名 58 +
+   主按钮 48 + 区块间距 28 ≈ 310dp，全中文正常字号下一屏放下；
+   .center-screen 的滚动只作文本膨胀 1.5 倍等极端场景的最后保险。
+   手法：区块间距收至 4px、品牌行缩为 20px logo 单行、行业列表 3 列网格
+   （描述行隐藏，详情平板再看）、激活屏隐藏「返回上一步」链接（步骤条已示意进度）。 */
+@media (orientation: landscape) and (max-height: 620px) {
+  .center-screen { padding: var(--space-1) var(--space-3); gap: var(--space-1); }
+  .auth-card { width: min(680px, 96vw); padding: var(--space-2); gap: var(--space-1); }
+  .auth-card h1, .auth-card h2 { font-size: var(--font-sm); line-height: 1.2; }
+  .industry-card { width: min(760px, 96vw); }
+  /* 行业 3 列 × 6 项 = 2 行，一屏放得下；描述详情只在平板/桌面档出现 */
+  .industry-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); margin-bottom: 0; }
+  .industry-item { padding: var(--space-1) var(--space-2); gap: 0; }
   .industry-item strong { font-size: var(--font-sm); }
-  .industry-item .small { font-size: var(--font-2xs); line-height: 1.25; }
+  .industry-item .industry-desc { display: none; }
+  .industry-item .small { font-size: var(--font-2xs); line-height: 1.2; }
   .setup-step { font-size: var(--font-2xs); }
-  .setup-step-no { width: 20px; height: 20px; font-size: var(--font-2xs); }
-  /* 品牌区横排：logo 与标题并排，省下一个 56px 的纵向块 */
-  .auth-brand { flex-direction: row; text-align: left; gap: var(--space-2); margin-bottom: var(--space-1); }
-  .auth-brand .auth-logo { width: var(--space-8); height: var(--space-8); }
-  .auth-brand h1 { font-size: var(--font-lg); }
-  .brand { margin-bottom: var(--space-1); }
-  .brand h1 { font-size: var(--font-lg); }
-  .input-lg { padding: var(--space-2) var(--space-3); font-size: var(--font-base); }
+  .setup-step-no { width: 18px; height: 18px; font-size: var(--font-2xs); }
+  /* 品牌行：20px logo + 名称同行，不再占一个 56px 纵块 */
+  .auth-brand, .brand { flex-direction: row; align-items: center; text-align: left; gap: var(--space-1); margin-bottom: 0; }
+  .auth-brand .auth-logo, .brand .auth-logo { width: var(--space-5); height: var(--space-5); }
+  .auth-brand h1, .brand h1 { font-size: var(--font-sm); }
+  .brand { margin-bottom: 0; }
+  .brand h1 { font-size: var(--font-sm); }
+  .input-lg { padding: var(--space-1) var(--space-2); font-size: var(--font-base); min-height: calc(var(--touch-target-min) - var(--space-1)); }
+  .field-label { font-size: var(--font-2xs); }
+  .activate-actions { gap: var(--space-1); }
   .activate-actions .btn, .auth-card > .btn-lg { min-height: var(--touch-target-min); }
-  .lock-card { padding: var(--space-4); gap: var(--space-2); }
-  .lock-card .auth-logo { width: var(--space-8); height: var(--space-8); }
+  .activate-context { font-size: var(--font-2xs); margin: 0; }
+  /* 激活屏返回链接隐藏：步骤条已示意进度，省一行 */
+  .setup-back { display: none; }
+  .lock-card { padding: var(--space-3); gap: var(--space-1); }
+  .lock-card .auth-logo { width: var(--space-5); height: var(--space-5); }
+
+  /* 商户凭据弹窗：字段两列网格，密钥 textarea 占满行——5 字段弹窗一屏全显 */
+  .cred-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+  .cred-field--wide { grid-column: 1 / -1; }
+  .cred-fields .input { min-height: calc(var(--touch-target-min) - var(--space-1)); }
+
+  /* 表单弹窗通用收紧：标题行与字段间距压档，配合 actions 钉底，弹窗内容一屏可达 */
+  .modal-head h3 { font-size: var(--font-sm); }
 }
 
 /* 覆盖全屏的固定层（弹窗遮罩/锁机/toast）不继承 .app-root 的 safe-area padding，
@@ -1423,8 +1506,9 @@ input, textarea, select {
 }
 .toast { bottom: calc(var(--safe-bottom) + var(--space-4)); }
 
-/* 竖屏（平板竖放/单手操作）：收银两栏改上下堆叠，后台侧栏改横向标签条，
-   导航栏从左侧转到底部（拇指热区，触屏单手操作的拇指可达范围在下半屏） */
+/* 竖屏手机（备用：CI 锁横屏，此档兜底调试/解锁场景）：收银两栏改上下堆叠，后台侧栏改横向标签条，
+   导航栏从左侧转到底部（拇指热区，触屏单手操作的拇指可达范围在下半屏）。
+   平板竖屏（宽 ≥641px）不进本档，走基础布局——宽度足够两栏并排。 */
 @media (orientation: portrait) and (max-width: 640px) {
   .topbar { height: var(--layout-topbar-height-compact); padding: 0 var(--space-2); gap: var(--space-2); }
   .logo { font-size: var(--font-sm); }

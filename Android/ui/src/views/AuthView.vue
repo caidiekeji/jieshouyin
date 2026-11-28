@@ -24,9 +24,9 @@ const {
       <div class="card auth-card industry-card">
         <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="brand">
-          <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
+          <img src="/logo.png" class="auth-logo" alt="贝来" />
           <div>
-            <h1>Checkout-R</h1>
+            <h1>贝来</h1>
           </div>
         </div>
         <h2>选择经营行业</h2>
@@ -39,7 +39,7 @@ const {
             @click="pendingIndustry = ind.id"
           >
             <strong>{{ ind.name }}</strong>
-            <span class="muted small">{{ ind.description }}</span>
+            <span class="muted small industry-desc">{{ ind.description }}</span>
             <span class="muted small">默认单位：{{ ind.default_unit }}</span>
           </button>
         </div>
@@ -58,9 +58,9 @@ const {
       <div class="card auth-card">
         <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="brand">
-          <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
+          <img src="/logo.png" class="auth-logo" alt="贝来" />
           <div>
-            <h1>Checkout-R</h1>
+            <h1>贝来</h1>
           </div>
         </div>
         <h2>激活设备</h2>
@@ -94,7 +94,7 @@ const {
       <div class="card auth-card">
         <SetupSteps v-if="onboarding" :step="authStep" />
         <div class="auth-brand">
-          <img src="/logo.png" class="auth-logo" alt="Checkout-R" />
+          <img src="/logo.png" class="auth-logo" alt="贝来" />
           <h1>{{ needAdmin ? '设置管理员账号' : onboarding ? '登录' : '欢迎回来' }}</h1>
         </div>
         <template v-if="needAdmin">

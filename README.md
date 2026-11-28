@@ -1,4 +1,4 @@
-# Checkout-R（jieshouyin）
+# 贝来（jieshouyin）
 
 离线优先、本地优先的收银桌面软件。技术栈：Rust + Tauri 2 + Vue 3 + SQLite（WAL）。目标平台 Windows 10/11 x64。
 
@@ -92,7 +92,7 @@ ui/                  Vue 3 + TypeScript + Vite + Pinia 前端
 
 ```bash
 # 生成密钥对（私钥离线保管，勿提交仓库）
-cargo run -p license-issuance -- init --product checkout-r --out-dir ./keys
+cargo run -p license-issuance -- init --product 贝来 --out-dir ./keys
 
 # 签发（私钥通过环境变量或 --key 提供）
 CHECKOUT_PRIVATE_KEY=<hex> cargo run -p license-issuance -- issue \

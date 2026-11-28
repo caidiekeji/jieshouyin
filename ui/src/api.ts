@@ -178,7 +178,7 @@ export interface OrderQuote {
 }
 
 /** 收银结算结果 */
-export interface CheckoutResult {
+export interface BLCJesult {
   order_no: string
   status: string
   code_url: string | null
@@ -634,7 +634,7 @@ export const api = {
     tableCode: string | null = null,
     tableId: number | null = null
   ) =>
-    invoke<CheckoutResult>('checkout', {
+    invoke<BLCJesult>('checkout', {
       lines,
       payments,
       memberId,
@@ -1024,7 +1024,7 @@ export const api = {
     invoke<string>('issue_coupon', { memberId, discountCents, minOrderCents, validUntil }),
 
   // Native 支付收口（§6.3）
-  pollNativePay: (orderNo: string) => invoke<CheckoutResult>('poll_native_pay', { orderNo }),
+  pollNativePay: (orderNo: string) => invoke<BLCJesult>('poll_native_pay', { orderNo }),
   cancelNativePay: (orderNo: string) => invoke<void>('cancel_native_pay', { orderNo }),
   confirmNativePay: (orderNo: string) => invoke<number>('confirm_native_pay', { orderNo }),
   // 支付凭据与网关状态（§6.8，只报状态不回显明文）

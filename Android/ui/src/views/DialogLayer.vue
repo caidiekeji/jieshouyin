@@ -231,17 +231,23 @@ const {
 
       <!-- 商户凭据弹窗：由设置页「微信/支付宝凭据」按钮唤起；密钥类字段不回显，统一底部保存 -->
       <UiModal :open="credDialogOpen" :title="`商户凭据 · ${credChannel === 'WECHAT' ? '微信支付' : '支付宝'}`" @close="closeCredDialog">
-        <label v-for="f in currentCredFields" :key="f.key" class="field-label cred-field">
-          <span class="cred-field-head">
-            {{ f.label }}
-            <span v-if="credSaved[f.key]" class="cred-configured">
-              已配置
-              <button class="link danger" :aria-label="`删除${f.label}凭据`" @click.prevent="removeCredential(f.key)">删除</button>
+        <div class="cred-fields">
+          <label
+            v-for="f in currentCredFields"
+            :key="f.key"
+            :class="['field-label', 'cred-field', { 'cred-field--wide': f.multiline }]"
+          >
+            <span class="cred-field-head">
+              {{ f.label }}
+              <span v-if="credSaved[f.key]" class="cred-configured">
+                已配置
+                <button class="link danger" :aria-label="`删除${f.label}凭据`" @click.prevent="removeCredential(f.key)">删除</button>
+              </span>
             </span>
-          </span>
-          <textarea v-if="f.multiline" v-model="credDraft[f.key]" class="input mono" rows="3" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"></textarea>
-          <input v-else v-model="credDraft[f.key]" class="input" type="password" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后统一保存'" />
-        </label>
+            <textarea v-if="f.multiline" v-model="credDraft[f.key]" class="input mono" rows="3" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '粘贴 PEM 或密钥'"></textarea>
+            <input v-else v-model="credDraft[f.key]" class="input" type="password" :placeholder="credSaved[f.key] ? '已配置（写入新值将覆盖）' : '输入后统一保存'" />
+          </label>
+        </div>
         <template #actions>
           <UiButton variant="ghost" @click="closeCredDialog">关闭</UiButton>
           <UiButton variant="primary" :disabled="credBusy" @click="saveAllCredentials">

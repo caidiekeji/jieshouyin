@@ -137,7 +137,7 @@ function onDocClick(e: MouseEvent) {
 onMounted(async () => {
   loadLockCode()
   void listen('lock-request', () => { lockScreen() }).catch(() => {})
-  const saved = localStorage.getItem('checkoutr-theme') as 'light' | 'dark' | null
+  const saved = localStorage.getItem('blcj-theme') as 'light' | 'dark' | null
   if (saved) applyTheme(saved)
   window.addEventListener('keydown', onGlobalKeydown)
   window.addEventListener('click', onDocClick)
@@ -163,7 +163,7 @@ onUnmounted(() => {
       <header class="topbar">
         <div class="logo">
           <img src="/logo.png" class="logo-img" alt="logo" />
-          <span>{{ storeProfile?.store_name || 'Checkout-R' }}</span>
+          <span>{{ storeProfile?.store_name || '贝来' }}</span>
           <span v-if="storeProfile?.industry_name" class="badge">{{ storeProfile.industry_name }}</span>
         </div>
         <nav class="nav">
