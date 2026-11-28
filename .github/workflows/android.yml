@@ -68,13 +68,12 @@ jobs:
         working-directory: Android/crates/app
         run: npx -y @tauri-apps/cli@2 android init --ci
 
-      # tauri android init 不会用品牌 logo 派生安卓启动图标（默认落在 Tauri 图），
-      # 必须显式用 tauri icon 从仓库根 1536² logo 生成全套 mipmap/自适应图标再拷入 res。
+      # tauri android init 不会用品牌 logo 派生安卓启动图标（默认落在 Tauri 图）。
+      # gen/android 工程已存在时，tauri icon 会把 mipmap/自适应图标直接写入工程 res，无需手动拷贝。
       - name: Generate Android launcher icons from brand logo
         working-directory: Android/crates/app
         run: |
-          npx -y @tauri-apps/cli@2 icon ../../../logo.png -o /tmp/tauri-icons
-          cp -r /tmp/tauri-icons/android/res/. gen/android/app/src/main/res/
+          npx -y @tauri-apps/cli@2 icon ../../../logo.png
           ls gen/android/app/src/main/res/mipmap-xxxhdpi/
 
       # 强制横屏（手机横竖屏切换不影响收银布局）：Tauri 2.12 无 orientation API，
