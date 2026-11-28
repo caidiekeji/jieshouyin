@@ -24,16 +24,36 @@
     "security": {
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/images/**"]
+        "scope": [
+          "$APPDATA/images/**"
+        ]
       },
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost https: http:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https: http:; object-src 'none'; base-uri 'none'; frame-src 'none'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
-    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "targets": [
+      "msi",
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
     "publisher": "贝来",
-    "copyright": "© 2026 贝来"
+    "copyright": "© 2026 贝来",
+    "windows": {
+      "wix": {
+        "language": "zh-CN"
+      },
+      "nsis": {
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }
