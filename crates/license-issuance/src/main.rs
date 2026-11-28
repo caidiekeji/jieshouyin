@@ -12,11 +12,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(
-    name = "checkout-license",
-    version,
-    about = "贝来 激活码签发工具"
-)]
+#[command(name = "checkout-license", version, about = "贝来 激活码签发工具")]
 struct Cli {
     /// 签发私钥 hex（32 字节）。优先于环境变量。
     #[arg(long, global = true)]

@@ -4871,10 +4871,7 @@ pub fn issue_coupon(
 
 /// 轮询 Native 支付结果（§6.3）。SUCCESS → 资产收口 + 订单提交。
 #[tauri::command]
-pub async fn poll_native_pay(
-    order_no: String,
-    state: State<'_, AppState>,
-) -> Result<BLCJesult> {
+pub async fn poll_native_pay(order_no: String, state: State<'_, AppState>) -> Result<BLCJesult> {
     {
         let license = state
             .license
